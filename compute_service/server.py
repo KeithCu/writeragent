@@ -50,7 +50,7 @@ from compute_service.json_forward import (
     reject_json_constant,
     validate_session_id,
 )
-from plugin.vision.vision_common import IMPLEMENTED_HELPERS
+from plugin.vision.vision_common import HELPER_NAMES
 
 log = logging.getLogger("compute_service")
 
@@ -845,7 +845,7 @@ def _handle_vision(environ: dict[str, Any], start_response: Any, settings: Compu
     helper = str(raw_helper).strip() if raw_helper else ""
     if not helper:
         helper = "extract_text"
-    elif helper not in IMPLEMENTED_HELPERS:
+    elif helper not in HELPER_NAMES:
         return _error(start_response, ec.INVALID_REQUEST, f"Unknown vision helper: {helper!r}.", req_id=req_id)
 
     # An empty image part counts as missing.

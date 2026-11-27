@@ -77,6 +77,10 @@ def vision_html_from_result(result: dict[str, Any]) -> str:
 _PARAGRAPH_BREAK = 0
 
 
+def _image_name_from_params(params: dict[str, Any] | None) -> str | None:
+    return str((params or {}).get("image_name") or "").strip() or None
+
+
 def _writer_graphic_present(doc: Any, name: str) -> bool:
     """True when a Writer graphic still exists under *name*.
 
@@ -103,7 +107,7 @@ def _focus_writer_frame(controller: Any) -> None:
         if frame is None:
             return
         window = frame.getContainerWindow()
-        if window is not None and hasattr(window, "setFocus"):
+        if window is not None:
             window.setFocus()
     except Exception as ex:
         reraise_if_disposed(ex)
@@ -339,7 +343,7 @@ def insert_vision_result_into_writer(
     if log.isEnabledFor(logging.DEBUG):
         log.debug("insert_vision_result: helper=%s html_len=%d h_tags=%d style_attrs=%d", result.get("helper"), len(html), html.lower().count("<h"), html.count("style="))
 
-    image_name = str((params or {}).get("image_name") or "").strip() or None
+    image_name = _image_name_from_params(params)
     delete_image = resolve_delete_image_after_insert(ctx, params)
 
     def _apply_insert() -> VisionInsertOutcome:
@@ -374,45 +378,45 @@ def insert_vision_result(
 
     if doc_type.is_writer(doc):
         return insert_vision_result_into_writer(ctx, doc, result, params=params)
+    if not doc_type.is_calc(doc):
+        raise ToolExecutionError("Vision helpers require a Writer or Calc document.", code="VISION_ERROR")
 
     # Calc-only import: a Writer OCR insert does not load the Calc bridge and manipulator stack.
     from plugin.calc.vision_egress import insert_vision_html_into_calc, insert_vision_structure_into_calc
 
     insert_mode = resolve_vision_insert_mode(ctx, params)
     helper = str(result.get("helper") or "")
-    image_name = str((params or {}).get("image_name") or "").strip() or None
+    image_name = _image_name_from_params(params)
 
-    if doc_type.is_calc(doc):
-        delete_image = resolve_delete_image_after_insert(ctx, params)
-        outcome: VisionInsertOutcome = "image_deleted" if delete_image else "inserted"
-        if insert_mode == "structured" and helper == "extract_structure":
-            with UndoStepOrRollback(doc, _("WriterAgent: Insert OCR")):
-                try:
-                    row_count = insert_vision_structure_into_calc(doc, result, image_name=image_name, graphic=graphic)
-                    log.debug("insert_vision_result: helper=%s insert_mode=structured calc_rows=%d", helper, row_count)
-                except ToolExecutionError as exc:
-                    if exc.code != "VISION_ERROR":
-                        raise
-                    log.debug("structured Calc insert empty; falling back to HTML")
-                    # vision_html_from_result returns result["html"] — the bbox fragment
-                    # after structured mode overwrote Docling. Prefer html_docling.
-                    preserved = result.get("html_docling")
-                    if isinstance(preserved, str) and preserved.strip():
-                        fallback_html = preserved
-                    else:
-                        fallback_html = vision_html_from_result(result)
-                    insert_vision_html_into_calc(doc, ctx, fallback_html, image_name=image_name, graphic=graphic)
-                if delete_image:
-                    _delete_inserted_image(ctx, doc, image_name, graphic)
-            return outcome
-        html = vision_html_from_result(result)
-        log.debug("insert_vision_result: helper=%s insert_mode=%s calc=html", helper, insert_mode)
+    delete_image = resolve_delete_image_after_insert(ctx, params)
+    outcome: VisionInsertOutcome = "image_deleted" if delete_image else "inserted"
+    if insert_mode == "structured" and helper == "extract_structure":
         with UndoStepOrRollback(doc, _("WriterAgent: Insert OCR")):
-            insert_vision_html_into_calc(doc, ctx, html, image_name=image_name, graphic=graphic)
+            try:
+                row_count = insert_vision_structure_into_calc(doc, result, image_name=image_name, graphic=graphic)
+                log.debug("insert_vision_result: helper=%s insert_mode=structured calc_rows=%d", helper, row_count)
+            except ToolExecutionError as exc:
+                if exc.code != "VISION_ERROR":
+                    raise
+                log.debug("structured Calc insert empty; falling back to HTML")
+                # vision_html_from_result returns result["html"] — the bbox fragment
+                # after structured mode overwrote Docling. Prefer html_docling.
+                preserved = result.get("html_docling")
+                if isinstance(preserved, str) and preserved.strip():
+                    fallback_html = preserved
+                else:
+                    fallback_html = vision_html_from_result(result)
+                insert_vision_html_into_calc(doc, ctx, fallback_html, image_name=image_name, graphic=graphic)
             if delete_image:
                 _delete_inserted_image(ctx, doc, image_name, graphic)
         return outcome
-    raise ToolExecutionError("Vision helpers require a Writer or Calc document.", code="VISION_ERROR")
+    html = vision_html_from_result(result)
+    log.debug("insert_vision_result: helper=%s insert_mode=%s calc=html", helper, insert_mode)
+    with UndoStepOrRollback(doc, _("WriterAgent: Insert OCR")):
+        insert_vision_html_into_calc(doc, ctx, html, image_name=image_name, graphic=graphic)
+        if delete_image:
+            _delete_inserted_image(ctx, doc, image_name, graphic)
+    return outcome
 
 
 def insert_vision_item(
@@ -422,7 +426,7 @@ def insert_vision_item(
     params: dict[str, Any] | None,
     graphics: Sequence[tuple[str, Any | None]],
 ) -> VisionInsertOutcome:
-    """Insert one OCR result item by its ``image_name``, so a collapsed selection never replaces text, and its kept shape in *graphics*.
+    """Insert one OCR result by its ``image_name`` (so a collapsed selection never replaces text) and, outside Writer, by its kept shape in *graphics*.
 
     Uses ``discovered_index`` because names may be empty or repeat, and failed
     images are skipped, so position in ``individual_results`` is not position

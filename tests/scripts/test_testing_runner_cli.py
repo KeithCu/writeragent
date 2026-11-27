@@ -568,7 +568,7 @@ def test_run_module_suite_arms_timeout_watchdog_for_every_test(monkeypatch) -> N
     """Every native test arms a silent 30s faulthandler abort; disarm on TEST end."""
     events: list[object] = []
     monkeypatch.setattr(
-        tr, "_arm_native_test_watchdog", lambda: events.append("arm")
+        tr, "_arm_native_test_watchdog", lambda *_args: events.append("arm")
     )
     monkeypatch.setattr(
         tr,
@@ -607,7 +607,7 @@ def test_native_test_timeout_sec_reads_env(monkeypatch) -> None:
 
 def test_run_module_suite_disarms_hang_dump_on_fail(monkeypatch) -> None:
     events: list[str] = []
-    monkeypatch.setattr(tr, "_arm_native_test_watchdog", lambda: events.append("arm"))
+    monkeypatch.setattr(tr, "_arm_native_test_watchdog", lambda *_args: events.append("arm"))
     monkeypatch.setattr(
         tr, "_disarm_native_test_watchdog", lambda: events.append("disarm")
     )

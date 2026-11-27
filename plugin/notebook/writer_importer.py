@@ -19,11 +19,6 @@ Future work (do not forget — leave these until the matching phase, not drive-b
   Safe today because File → Open always targets a fresh doc. Phase 3
   append/merge must use notebook-owned styles so a user's styles keep
   spellcheck.
-- ``notebook_controls._form_and_container`` scans for ``nb_run_*``, then uses
-  form 0 only if none match.
-- Phase 2 Run All / Stop is shipped: drain **between** cells, never
-  ``processEventsToIdle`` during ``execute_code`` (LayoutIdle livelock on
-  notebooks with many in-flow form controls).
 """
 
 from __future__ import annotations
@@ -293,9 +288,8 @@ def _create_import_para_style(doc: Any, para_styles: Any, style_name: str, *, pa
 def _ensure_notebook_import_styles(doc: Any) -> str | None:
     """Create notebook In [n]: gutter style once per document; return resolved name.
 
-    Parent is Text Body, not Heading 3. Heading 3 as parent inherited 14 pt and
-    large before/after spacing, which made gutters look like report headings and
-    opened half-empty pages between cells.
+    Parent is Text Body, not Heading 3, so gutters do not inherit 14 pt or
+    large before/after spacing that would open half-empty pages between cells.
     """
     para_styles = _get_para_styles(doc)
     if para_styles is None:
@@ -309,10 +303,9 @@ def _ensure_notebook_import_styles(doc: Any) -> str | None:
         "ParaTopMargin": _NOTEBOOK_IN_MARGIN_TOP,
         "ParaBottomMargin": _NOTEBOOK_IN_MARGIN_BOTTOM,
         # ParaKeepTogether is Writer's "keep with next paragraph" (there is no
-        # ParaKeepWithNext). It glued In [n]: onto the tall unsplittable
-        # AS_CHARACTER field; Writer then jumped the whole cell and left a
-        # half-empty page (Out [n] alone on the next page). Prefer a possible
-        # In-line / field page split over a page hole. ▶ stays on the In row.
+        # ParaKeepWithNext). Leaving it True glues In [n]: onto the tall
+        # unsplittable AS_CHARACTER field so Writer moves the whole cell and
+        # leaves a half-empty page. ▶ stays on the In row.
         "ParaKeepTogether": False,
         "CharHeight": _NOTEBOOK_IN_CHAR_HEIGHT,
         "CharWeight": 150,
@@ -369,12 +362,8 @@ def output_para_style(doc: Any) -> str | None:
 def _doc_body_nonempty(doc: Any) -> bool:
     """True when the document body already contains visible text or shapes.
 
-    Previously used cursor.gotoStart() + cursor.gotoEnd() + cursor.getString().strip(),
-    which ignored in-flow AS_CHARACTER graphics (getString() skips frames/shapes)
-    causing following blocks to merge into the graphic's paragraph, and had
-    O(document) cost selecting and copying the entire document text on every block.
-    compareRegionStarts(text.getStart(), text.getEnd()) is O(1) and correctly sees
-    in-flow graphics because start != end even when text is empty.
+    ``compareRegionStarts(text.getStart(), text.getEnd())`` is O(1) and sees
+    in-flow ``AS_CHARACTER`` graphics, which ``getString()`` omits.
     """
     def nonempty() -> bool:
         text = doc.getText()
@@ -472,10 +461,9 @@ def _copy_previous_outer_list(cursor: Any) -> bool:
 def _promote_para_to_outer_ol(cursor: Any, *, start: int) -> bool:
     """Put *cursor*'s paragraph on the outer ordered list at *start*.
 
-    Skip-pre-clear left Ask for help on leftover nested-ul NumberingLevel=1
-    (same style as ChatGPT). Full pre-clear made insertDocumentFromURL drop
-    numbering on a 1-item ``<ol start=N>``. Keep the list style, force level 0,
-    restart at N.
+    Keep the list style, force level 0, and restart at N; clearing the style
+    drops numbering on a 1-item ``<ol start=N>``, and leaving level 1
+    inherits a leftover nested list.
     """
     style = uno_read(lambda: str(cursor.getPropertyValue("NumberingStyleName") or ""), "")
     lowered = style.strip().lower()
@@ -508,7 +496,7 @@ def _last_nonempty_para_cursor(text: Any) -> Any | None:
     return None
 
 
-def _paragraph_span(text: Any, cursor: Any) -> Any:
+def paragraph_span(text: Any, cursor: Any) -> Any:
     rng = text.createTextCursorByRange(cursor)
     rng.gotoStartOfParagraph(False)
     rng.gotoEndOfParagraph(True)
@@ -518,7 +506,7 @@ def _paragraph_span(text: Any, cursor: Any) -> Any:
 def _cursor_para_is_empty(cursor: Any) -> bool:
     """True when *cursor*'s paragraph has no visible text (trailing list leftover)."""
     def empty() -> bool:
-        rng = _paragraph_span(cursor.getText(), cursor)
+        rng = paragraph_span(cursor.getText(), cursor)
         raw = rng.getString()
         if raw is None:
             return True
@@ -556,7 +544,7 @@ def _trim_trailing_empty_paragraph(doc: Any) -> None:
         text = doc.getText()
         cursor = _cursor_at_end(text)
 
-        para_rng = _paragraph_span(text, cursor)
+        para_rng = paragraph_span(text, cursor)
         if (para_rng.getString() or "").strip() != "":
             return
 
@@ -591,8 +579,8 @@ def _trim_trailing_empty_paragraph(doc: Any) -> None:
 def _html_attr(tag_or_attrs: str, name: str) -> str:
     """Read one HTML attribute value (quoted or bare) from a start tag or attr blob."""
     want = name.lower()
-    for match in _HTML_ATTR_RE.finditer(tag_or_attrs or ""):
-        if (match.group(1) or "").lower() != want:
+    for match in _HTML_ATTR_RE.finditer(tag_or_attrs):
+        if match.group(1).lower() != want:
             continue
         raw = next((g for g in match.groups()[1:] if g is not None), "")
         return html_lib.unescape(raw.strip())
@@ -602,9 +590,8 @@ def _html_attr(tag_or_attrs: str, name: str) -> str:
 def _html_img_and_a_to_markdown(source: str) -> str:
     """Turn Jupyter HTML ``<img>`` / ``<a>`` into markdown so mixed cells stay CommonMark.
 
-    Sending the whole cell through StarWriter HTML wrote a temp file whose directory
-    was the resolver for relative ``<img src>``, so ``../images/*.png`` next to the
-    ``.ipynb`` 404'd. Headings and ``**bold**`` in those cells were also left raw.
+    Whole-cell StarWriter HTML resolves relative ``<img src>`` against a temp
+    file directory and leaves markdown headings and ``**bold**`` raw.
     """
     if not source or "<" not in source:
         return source
@@ -620,7 +607,7 @@ def _html_img_and_a_to_markdown(source: str) -> str:
 
     def repl_a(match: re.Match[str]) -> str:
         href = _html_attr(match.group(1), "href")
-        inner = match.group(2) or ""
+        inner = match.group(2)
         if not href:
             return inner
         stripped = inner.strip()
@@ -639,10 +626,10 @@ def _html_img_and_a_to_markdown(source: str) -> str:
 def _looks_like_html(text: str) -> bool:
     """True when the cell still has HTML other than ``<img>`` / ``<a>``.
 
-    Those two tags are converted to markdown first; treating them as a raw HTML
-    cell dumped ``##`` / ``**`` as literal text and broke relative images.
+    Those two tags are converted to markdown first so mixed cells do not dump
+    ``##`` / ``**`` as literal text or break relative images.
     """
-    stripped = _HTML_A_OR_IMG_TAG_RE.sub(" ", text or "")
+    stripped = _HTML_A_OR_IMG_TAG_RE.sub(" ", text)
     return bool(_HTML_TAG_RE.search(stripped.strip()))
 
 
@@ -664,7 +651,7 @@ def _inline_markdown_to_html(text: str) -> str:
         parts.append(html_lib.escape(s[last:]))
         return "".join(parts)
 
-    work = text or ""
+    work = text
 
     def stash_code(match: re.Match[str]) -> str:
         return hold(f"<code>{html_lib.escape(match.group(1))}</code>")
@@ -676,8 +663,8 @@ def _inline_markdown_to_html(text: str) -> str:
         return repl
 
     def stash_link(match: re.Match[str]) -> str:
-        inner = match.group(1) or ""
-        url = _split_markdown_image_src(match.group(2) or "")
+        inner = match.group(1)
+        url = _split_markdown_image_src(match.group(2))
         if not url:
             return match.group(0)
         href = html_lib.escape(url, quote=True)
@@ -712,7 +699,7 @@ def _paragraph_needs_html(text: str) -> bool:
 
 def _md_indent_cols(prefix: str) -> int:
     """CommonMark-ish indent width (tabs = 4 columns)."""
-    return len((prefix or "").expandtabs(4))
+    return len(prefix.expandtabs(4))
 
 
 def _list_block_to_html(items: list[tuple[int, str, int | None, str]]) -> str:
@@ -724,7 +711,7 @@ def _list_block_to_html(items: list[tuple[int, str, int | None, str]]) -> str:
         if index >= len(items) or items[index][0] < min_indent:
             return "", index
         indent, kind, start, _text = items[index]
-        if kind == "ol" and isinstance(start, int) and start > 1:
+        if kind == "ol" and start is not None and start > 1:
             open_tag = f'<ol start="{start}">'
         else:
             open_tag = f"<{kind}>"
@@ -754,9 +741,9 @@ def _single_ol_start(html: str) -> int | None:
     ``start=N`` fragment is the one that inherits leftover nested-ul level
     or drops numbering entirely.
     """
-    if (html or "").lower().count("<li") != 1:
+    if html.lower().count("<li") != 1:
         return None
-    match = _OL_START_RE.search(html or "")
+    match = _OL_START_RE.search(html)
     if not match:
         return None
     start = int(match.group(1))
@@ -805,7 +792,7 @@ def _iter_markdown_blocks(source: str) -> list[tuple[str, Any]]:
         if body.strip():
             blocks.append(("pre", body))
 
-    for raw_line in (source or "").splitlines():
+    for raw_line in source.splitlines():
         line = raw_line.rstrip()
         if fence is not None:
             fence_char, opener_len = fence
@@ -838,7 +825,7 @@ def _iter_markdown_blocks(source: str) -> list[tuple[str, Any]]:
         match = _ATX_HEADING_RE.match(line)
         if match:
             flush_all()
-            title = (match.group(2) or "").strip()
+            title = match.group(2).strip()
             if title:
                 kind = "h1" if len(match.group(1)) <= 1 else "h2"
                 blocks.append((kind, title))
@@ -847,7 +834,7 @@ def _iter_markdown_blocks(source: str) -> list[tuple[str, Any]]:
         img_line = _MD_IMAGE_LINE_RE.match(stripped) or _MD_LINKED_IMAGE_LINE_RE.match(stripped)
         if img_line:
             flush_all()
-            blocks.append(("img", (img_line.group(1) or "", img_line.group(2).strip())))
+            blocks.append(("img", (img_line.group(1), img_line.group(2).strip())))
             continue
         ul_match = _MD_UL_RE.match(line)
         if ul_match:
@@ -894,7 +881,7 @@ def _insert_html_at_body_end(doc: Any, html: str, *, lead_break: bool, exit_list
     # leftover nested-ul NumberingLevel=1 either — that is the same style
     # as ChatGPT bullets, not outer ol start=N. Promote that case to level 0
     # and restart at N. Blockquotes still pre-clear.
-    ol_start = _single_ol_start(html or "")
+    ol_start = _single_ol_start(html)
     if not exit_list:
         _clear_para_numbering(cursor)
     elif ol_start is not None:
@@ -957,10 +944,10 @@ def _append_markdown_cell(doc: Any, source: str, *, lead_break: bool, budget: _R
             html = _list_block_to_html(payload)
             if not _insert_html_at_body_end(doc, html, lead_break=block_lead, exit_list=True):
                 items: list[str] = []
-                for i, item in enumerate(payload):
+                for item_idx, item in enumerate(payload):
                     _indent, item_kind, start, text = item
-                    if not isinstance(start, int):
-                        start = i + 1
+                    if start is None:
+                        start = item_idx + 1
                     prefix = "• " if item_kind == "ul" else f"{start}. "
                     items.append(prefix + text)
                 _append_lead_paragraphs(items, block_lead)
@@ -994,7 +981,7 @@ def _append_markdown_cell(doc: Any, source: str, *, lead_break: bool, budget: _R
                     if text_piece.strip():
                         emit_text(text_piece, lead)
                         lead = True
-                    alt = match.group(1) or ""
+                    alt = match.group(1)
                     dest = match.group(2)
                     _embed_or_fallback(dest, alt, lead)
                     lead = True
@@ -1119,15 +1106,12 @@ def _image_mime_from_bytes(raw: bytes, path: str) -> str:
         return "image/png"
     if len(raw) >= 2 and raw[:2] == b"\xff\xd8":
         return "image/jpeg"
-    # Was falling through to image/png, so a .webp download was written as
-    # .png and GraphicProvider rejected it.
+    # Sniff WebP/GIF magic bytes so GraphicProvider receives the real MIME type rather than image/png.
     if len(raw) >= 12 and raw[:4] == b"RIFF" and raw[8:12] == b"WEBP":
         return "image/webp"
-    # Same failure as WebP: a .gif download labeled image/png was rejected
-    # or drawn as the wrong type by GraphicProvider.
     if len(raw) >= 6 and raw[:6] in (b"GIF87a", b"GIF89a"):
         return "image/gif"
-    lower = (path or "").lower()
+    lower = path.lower()
     head = raw.lstrip()[:256].lower()
     if lower.endswith(".svg") or b"<svg" in head:
         return "image/svg+xml"
@@ -1177,7 +1161,6 @@ def _notebook_image_payload(data: dict[str, Any]) -> tuple[str, str] | None:
 
 
 def _decode_notebook_image(b64_data: str) -> bytes | None:
-    b64_data = coerce_notebook_text(b64_data)
     if (len(b64_data) * 3) // 4 > _MAX_IMAGE_DECODE_BYTES:
         log.warning("notebook import skip image decode size=%d max=%d", len(b64_data), _MAX_IMAGE_DECODE_BYTES)
         return None
@@ -1200,8 +1183,8 @@ def _insert_image_in_flow(
 ) -> bool:
     """Embed notebook image output in document flow (TextGraphicObject).
 
-    Import appends at body end. Live ▶ must pass *text_cursor* under the cell —
-    ``gotoEnd`` was dumping matplotlib plots at the document end and jumping the view.
+    Import appends at body end. Live ▶ passes *text_cursor* under the cell so
+    plots insert in place instead of at the document end.
     """
     suffix = _IMAGE_MIME_SUFFIX.get(mime, ".png")
     tmp_path = None
@@ -1232,7 +1215,6 @@ def _insert_image_in_flow(
                 height_units=h_units,
                 title="Notebook output",
                 description=mime,
-                ctx=ctx,
             )
             text.insertTextContent(cursor, image, False)
             graphic = image
@@ -1269,7 +1251,7 @@ def insert_run_image(doc: Any, payload: dict[str, Any], *, ctx: Any, images_befo
 
 
 def _split_markdown_image_src(raw: str) -> str:
-    src = (raw or "").strip()
+    src = raw.strip()
     if not src:
         return ""
     if src.startswith("<"):
@@ -1345,7 +1327,7 @@ def _resolve_markdown_image(src: str, notebook_dir: str | None, *, budget: _Remo
     cleaned = _split_markdown_image_src(src)
     if not cleaned:
         return None
-    if cleaned.startswith("http://") or cleaned.startswith("https://"):
+    if cleaned.startswith(("http://", "https://")):
         timeout = budget.allow()
         if timeout is None:
             return None
@@ -1418,23 +1400,23 @@ def format_output_text(output: Any, execution_count: Any | None = None) -> str:
     Stream/print text has no ``Out [n]:`` prefix (Jupyter puts that only on
     ``execute_result`` / last-line values).
     """
-    output_type = getattr(output, "output_type", None) or output.get("output_type", "")
+    output_type = output.get("output_type", "")
     if output_type == "stream":
-        text = coerce_notebook_text(getattr(output, "text", None) or output.get("text", ""))
+        text = coerce_notebook_text(output.get("text", ""))
         return collapse_cr(strip_ansi(text))
     if output_type == "error":
-        tb = getattr(output, "traceback", None) or output.get("traceback", "")
+        tb = output.get("traceback", "")
         if isinstance(tb, list):
             tb = "\n".join(tb)
         tb_str = str(tb)
         if not tb_str.strip():
-            ename = str(getattr(output, "ename", None) or output.get("ename", "") or "").strip()
-            evalue = str(getattr(output, "evalue", None) or output.get("evalue", "") or "").strip()
+            ename = str(output.get("ename", "") or "").strip()
+            evalue = str(output.get("evalue", "") or "").strip()
             parts = [p for p in (ename, evalue) if p]
             tb_str = ": ".join(parts)
         return collapse_cr(strip_ansi(tb_str))
     if output_type in ("execute_result", "display_data"):
-        data = getattr(output, "data", None) or output.get("data", {})
+        data = output.get("data", {})
         if isinstance(data, dict):
             if _notebook_image_payload(data) is not None:
                 return ""
@@ -1450,10 +1432,10 @@ def format_output_text(output: Any, execution_count: Any | None = None) -> str:
 
 
 def _output_image_payload(output: Any) -> tuple[str, str] | None:
-    output_type = getattr(output, "output_type", None) or output.get("output_type", "")
+    output_type = output.get("output_type", "")
     if output_type not in ("display_data", "execute_result"):
         return None
-    data = getattr(output, "data", None) or output.get("data", {})
+    data = output.get("data", {})
     if isinstance(data, dict):
         return _notebook_image_payload(data)
     return None
@@ -1462,9 +1444,8 @@ def _output_image_payload(output: Any) -> tuple[str, str] | None:
 def _format_outputs_for_body(outputs: list[Any], cell_index: int, execution_count: Any | None = None) -> list[tuple[str, Any]]:
     """Interleave text and image outputs in notebook order.
 
-    Previously appended all text, then all images, so ``[display image,
-    print(...)]`` rendered print-then-image. Walk each output once: flush
-    consecutive text before an image, then the image. Caps at
+    Walk each output once and flush consecutive text before an image so
+    ``[display image, print(...)]`` keeps its notebook order. Caps at
     ``_MAX_OUTPUTS_PER_CELL``.
 
     Returns ``segments``. Each segment is
@@ -1613,8 +1594,7 @@ def _import_cells(
                     # paragraph instead.
                     log.warning("notebook import: output bookmark %r was not inserted for cell %d", bm_name, idx)
                     entry.output_start_bookmark = ""
-                # Interleave in notebook order; writing all text and then all images
-                # would render [display image, print(...)] as print-then-image.
+                # Interleave in notebook order so [display image, print(...)] keeps image-then-print order.
                 segments = _format_outputs_for_body(outputs, idx, execution_count=ec)
                 for kind, payload in segments:
                     if kind == "text":

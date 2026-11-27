@@ -63,9 +63,7 @@ def _odf_locale_from_styles_root(root: Element) -> str | None:
         elif family == "text":
             text_props = props
     props = paragraph_props if paragraph_props is not None else text_props
-    if props is None:
-        return None
-    return _bcp47_from_lang_country(props.get(f"{FO_NS}language"), props.get(f"{FO_NS}country"))
+    return _odf_locale_from_text_properties(props)
 
 
 def _odf_locale_from_meta_root(root: Element) -> str | None:
@@ -79,7 +77,8 @@ def _odf_locale_from_meta_root(root: Element) -> str | None:
 def _read_zip_member(zf: zipfile.ZipFile, member: str) -> Element | None:
     try:
         return ET.fromstring(zf.read(member))
-    except Exception:
+    except (KeyError, ET.ParseError, zipfile.BadZipFile, OSError):
+        log.debug("zip member read failed for %s", member, exc_info=True)
         return None
 
 
@@ -120,6 +119,18 @@ def _docx_locale_from_core(zf: zipfile.ZipFile) -> str | None:
     return _odf_locale_from_meta_root(root)
 
 
+def _docx_lang_from_r_pr(r_pr: Element | None) -> str | None:
+    if r_pr is None:
+        return None
+    lang_el = r_pr.find(f"{W_NS}lang")
+    if lang_el is None:
+        return None
+    val = (lang_el.get(f"{W_NS}val") or "").strip()
+    if val:
+        return _normalize_locale_tag(val)
+    return None
+
+
 def _docx_locale_from_styles(zf: zipfile.ZipFile) -> str | None:
     root = _read_zip_member(zf, "word/styles.xml")
     if root is None:
@@ -129,25 +140,17 @@ def _docx_locale_from_styles(zf: zipfile.ZipFile) -> str | None:
         r_pr = doc_defaults.find(f"{W_NS}rPrDefault")
         if r_pr is not None:
             r_pr = r_pr.find(f"{W_NS}rPr")
-        if r_pr is not None:
-            lang_el = r_pr.find(f"{W_NS}lang")
-            if lang_el is not None:
-                val = (lang_el.get(f"{W_NS}val") or "").strip()
-                if val:
-                    return _normalize_locale_tag(val)
+        tag = _docx_lang_from_r_pr(r_pr)
+        if tag:
+            return tag
     for style in root.iter(f"{W_NS}style"):
         if style.get(f"{W_NS}type") != "paragraph":
             continue
         if style.get(f"{W_NS}default") != "1":
             continue
-        r_pr = style.find(f"{W_NS}rPr")
-        if r_pr is None:
-            continue
-        lang_el = r_pr.find(f"{W_NS}lang")
-        if lang_el is not None:
-            val = (lang_el.get(f"{W_NS}val") or "").strip()
-            if val:
-                return _normalize_locale_tag(val)
+        tag = _docx_lang_from_r_pr(style.find(f"{W_NS}rPr"))
+        if tag:
+            return tag
     return None
 
 
@@ -208,10 +211,6 @@ def resolve_document_locale_bcp47(path: str, body_sample: str | None = None) -> 
         tag = _odf_locale_from_fodt(path)
     elif ext == ".docx":
         tag = _docx_locale_from_zip(path)
-    elif ext in {".txt", ".rtf", ".md"}:
-        tag = None
-    else:
-        tag = None
 
     if tag:
         return tag
@@ -219,16 +218,12 @@ def resolve_document_locale_bcp47(path: str, body_sample: str | None = None) -> 
     sample = body_sample
     if sample is None and ext in {".txt", ".rtf", ".md"}:
         try:
-            sample = open(path, encoding="utf-8", errors="replace").read(_LANGDETECT_SAMPLE_MAX)
+            with open(path, encoding="utf-8", errors="replace") as handle:
+                sample = handle.read(_LANGDETECT_SAMPLE_MAX)
         except OSError:
             sample = None
 
-    if sample:
-        detected = _langdetect_from_sample(sample)
-        if detected:
-            return detected
-
-    return None
+    return _langdetect_from_sample(sample) if sample else None
 
 
 def locale_runs_for_plain_passage(text: str, fallback_doc_locale: str | None = None) -> list[LocaleTextRun]:
@@ -250,17 +245,7 @@ def _odf_locale_from_element(el: Element) -> str | None:
     xml_lang = (el.get(f"{XML_NS}lang") or "").strip()
     if xml_lang:
         return _normalize_locale_tag(xml_lang)
-    inline_props = el.find(f"{STYLE_NS}text-properties")
-    if inline_props is not None:
-        tag = _odf_locale_from_text_properties(inline_props)
-        if tag:
-            return tag
-    return None
-
-
-def _odf_style_entry_locale(style_el: Element) -> str | None:
-    props = style_el.find(f"{STYLE_NS}text-properties")
-    return _odf_locale_from_text_properties(props)
+    return _odf_locale_from_text_properties(el.find(f"{STYLE_NS}text-properties"))
 
 
 def load_odf_style_locale_map(*roots: Element | None) -> dict[str, str]:
@@ -276,7 +261,7 @@ def load_odf_style_locale_map(*roots: Element | None) -> dict[str, str]:
                 continue
             parent = (style_el.get(f"{STYLE_NS}parent-style-name") or "").strip() or None
             parent_map[name] = parent
-            tag = _odf_style_entry_locale(style_el)
+            tag = _odf_locale_from_text_properties(style_el.find(f"{STYLE_NS}text-properties"))
             if tag:
                 style_map[name] = tag
     resolved: dict[str, str] = dict(style_map)
@@ -390,42 +375,7 @@ def _odf_collect_text_and_locale(
     style_name = (el.get(f"{TEXT_NS}style-name") or "").strip() or None
     current_locale = direct_locale or _locale_from_style_name(style_name, style_map, None) or inherited_locale or _locale_from_style_name(paragraph_style, style_map, doc_default)
 
-    if tag == f"{TEXT_NS}span" or tag.endswith("span"):
-        pieces: list[tuple[str, str | None]] = []
-        if el.text:
-            pieces.append((el.text, current_locale))
-        for child in el:
-            pieces.extend(
-                _odf_collect_text_and_locale(
-                    child,
-                    style_map=style_map,
-                    paragraph_style=paragraph_style,
-                    doc_default=doc_default,
-                    inherited_locale=current_locale,
-                )
-            )
-            if child.tail:
-                pieces.append((child.tail, current_locale))
-        return pieces
-
-    if el.text and tag not in {f"{TEXT_NS}p"}:
-        locale = current_locale
-        pieces = [(el.text, locale)]
-        for child in el:
-            pieces.extend(
-                _odf_collect_text_and_locale(
-                    child,
-                    style_map=style_map,
-                    paragraph_style=paragraph_style,
-                    doc_default=doc_default,
-                    inherited_locale=current_locale,
-                )
-            )
-            if child.tail:
-                pieces.append((child.tail, current_locale))
-        return pieces
-
-    pieces = []
+    pieces: list[tuple[str, str | None]] = [(el.text, current_locale)] if el.text and tag != f"{TEXT_NS}p" else []
     for child in el:
         pieces.extend(
             _odf_collect_text_and_locale(
@@ -508,18 +458,6 @@ def extract_odf_paragraph_runs(path: str) -> list[tuple[str, list[LocaleTextRun]
         return None
 
 
-def _docx_lang_from_r_pr(r_pr: Element | None) -> str | None:
-    if r_pr is None:
-        return None
-    lang_el = r_pr.find(f"{W_NS}lang")
-    if lang_el is None:
-        return None
-    val = (lang_el.get(f"{W_NS}val") or "").strip()
-    if val:
-        return _normalize_locale_tag(val)
-    return None
-
-
 def load_docx_style_locale_map(styles_root: Element | None, doc_default: str | None) -> dict[str, str]:
     """Build ``style_id -> bcp47`` from ``word/styles.xml``."""
     style_map: dict[str, str] = {}
@@ -559,7 +497,7 @@ def _docx_paragraph_runs_from_document(
             p_style = p_pr.find(f"{W_NS}pStyle")
             if p_style is not None:
                 para_style_id = (p_style.get(f"{W_NS}val") or "").strip() or None
-        para_locale = _locale_from_style_name(para_style_id, style_map, doc_default) if para_style_id else doc_default
+        para_locale = _locale_from_style_name(para_style_id, style_map, doc_default)
 
         pieces: list[tuple[str, str | None]] = []
         for r_el in p_el.findall(f"{W_NS}r"):
@@ -589,7 +527,7 @@ def extract_docx_paragraph_runs(path: str) -> list[tuple[str, list[LocaleTextRun
                 return []
             style_map = load_docx_style_locale_map(styles_root, doc_default)
             return _docx_paragraph_runs_from_document(document_root, style_map=style_map, doc_default=doc_default)
-    except (OSError, zipfile.BadZipFile, ET.ParseError):
+    except (OSError, zipfile.BadZipFile):
         log.debug("extract_docx_paragraph_runs failed for %s", path, exc_info=True)
     return []
 

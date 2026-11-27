@@ -79,7 +79,7 @@ class _Pending:
 class _QueuedWrite:
     """One stdin line. ``fail_req_id`` is set for ``send_request``."""
 
-    proc: Any
+    proc: subprocess.Popen[bytes]
     data: bytes
     fail_req_id: int | None = None
 
@@ -88,15 +88,21 @@ class _QueuedWrite:
 class _QueuedStop:
     """Close stdin and kill this process. Carries the ``stop()`` snapshot."""
 
-    proc: Any
+    proc: subprocess.Popen[bytes]
+
+
+def cancelled_permission() -> dict[str, Any]:
+    """Return the ACP ``cancelled`` permission-request outcome payload."""
+    return {"outcome": {"outcome": "cancelled"}}
 
 
 def _accept_message(line: str) -> dict[str, Any] | None:
     """Return a JSON-RPC object, or None for stray stdout.
 
-    A line that is valid JSON but not an object (a number, boolean, string,
-    Non-object JSON lines are ignored so stray stdout does not stop the reader or hang prompts.
-    Invalid id types are treated the same way; strict json.loads avoids safe_json_loads mis-parsing logs.
+    A line that is valid JSON but not an object (a number, boolean, string or list) is ignored,
+    so stray stdout does not stop the reader or hang a prompt. A response whose id is not a
+    JSON-RPC id type is ignored the same way. Strict ``json.loads`` is used because
+    ``safe_json_loads`` would repair a log line into an object.
     """
     payload = line.lstrip()
     msg: Any = None
@@ -193,7 +199,7 @@ class ACPConnection:
 
     def start(self) -> None:
         """Spawn the ACP subprocess."""
-        log.info(f"Spawning: {' '.join(self._cmd_line)}")
+        log.info("Spawning: %s", " ".join(self._cmd_line))
 
         from plugin.scripting.sandbox import wrap_command_for_sandbox
 
@@ -226,8 +232,8 @@ class ACPConnection:
     def _complete_null_id(self, msg: dict[str, Any]) -> None:
         """Deliver a JSON-RPC error whose id is null.
 
-        A parse error cannot echo the request id, so the id is null. That
-        Null-id JSON-RPC errors fail in-flight waiters instead of the notification path.
+        A parse error cannot echo the request id, so the id is null. Such an
+        error fails the in-flight waiters; it is not sent down the notification path.
         """
         error = msg.get("error")
         if error is None:
@@ -290,8 +296,7 @@ class ACPConnection:
             try:
                 proc.wait(timeout=0.5)
             except subprocess.TimeoutExpired:
-                # _kill_acp_tree already logs a failed tree kill and falls
-                # back to proc.kill. A second try never saw a new exception.
+                # _kill_acp_tree logs a failed tree kill and falls back to proc.kill itself, so no retry is needed here.
                 _kill_acp_tree(proc)
             except OSError:
                 # TimeoutExpired is handled above and is not an OSError.
@@ -351,7 +356,7 @@ class ACPConnection:
                     self._fail_writes_behind_stop()
                     proc = item.proc
                     try:
-                        if proc and proc.stdin:
+                        if proc.stdin:
                             proc.stdin.close()
                     except (OSError, ValueError):
                         # A broken pipe is OSError. close() on a pipe stop()
@@ -359,24 +364,23 @@ class ACPConnection:
                         # Either one must still reach the tree kill below.
                         log.debug("ACP stdin close failed", exc_info=True)
                     # Kill process group; child's death closes write end and unblocks readline.
-                    if proc is not None:
-                        _kill_acp_tree(proc)
-                        try:
-                            proc.wait(timeout=3)
-                        except (OSError, subprocess.TimeoutExpired):
-                            # The 3s timeout is TimeoutExpired, and that class
-                            # is not an OSError. Other wait() failures are OSError.
-                            # Unregister below still runs.
-                            log.debug("ACP process wait failed", exc_info=True)
+                    _kill_acp_tree(proc)
+                    try:
+                        proc.wait(timeout=3)
+                    except (OSError, subprocess.TimeoutExpired):
+                        # The 3s timeout is TimeoutExpired, and that class
+                        # is not an OSError. Other wait() failures are OSError.
+                        # Unregister below still runs.
+                        log.debug("ACP process wait failed", exc_info=True)
                     if self._managed is not None:
                         self._managed.unregister()
                     break
-                stdin = item.proc.stdin if item.proc is not None else None
-                if stdin is None or item.data is None:
+                stdin = item.proc.stdin
+                if stdin is None:
                     if item.fail_req_id is not None:
                         self._fail("Failed to write to ACP: stdin is closed", item.fail_req_id)
                     else:
-                        log.debug("ACP stdin write skipped: stdin is closed or data is None")
+                        log.debug("ACP stdin write skipped: stdin is closed")
                     continue
                 try:
                     stdin.write(item.data)
@@ -453,7 +457,7 @@ class ACPConnection:
             proc = self._proc
             self._pending[req_id] = _Pending(event)
 
-        log.debug(f"→ {method} (id={req_id})")
+        log.debug("→ %s (id=%s)", method, req_id)
         # Stdin writes go through the writer thread so a full pipe cannot block the caller.
         try:
             self._enqueue(_QueuedWrite(proc, line.encode("utf-8"), req_id))
@@ -536,7 +540,7 @@ class ACPConnection:
     def _answer_without_callback(self, method: str, msg_id: Any) -> None:
         """Reply to an agent request that arrived after the turn callback was cleared."""
         if method == "session/request_permission":
-            self.send_response(msg_id, result={"outcome": {"outcome": "cancelled"}})
+            self.send_response(msg_id, result=cancelled_permission())
             return
         self.send_response(msg_id, error={"code": -32601, "message": f"Method not found: {method}"})
 
@@ -549,14 +553,11 @@ class ACPConnection:
         """Read JSON-RPC messages from stdout and dispatch them."""
         log.info("Reader loop started")
         try:
-            # Popen.poll() is waitpid(WNOHANG) and becomes set the moment the
-            # child exits, independent of unread stdout. Requiring poll() is
-            # None dropped a session/prompt response the child wrote and then
-            # exited while this thread was inside a session/update callback.
-            # The finally sweep then failed the turn with "ACP process
-            # terminated" and the answer was discarded. readline() returns
-            # b"" at EOF, so the poll() check only dropped buffered bytes.
-            # Waiters that still have no response are failed by the sweep.
+            # Popen.poll() becomes set the moment the child exits, even with unread stdout.
+            # The loop therefore does not test poll(): a child can write its session/prompt
+            # response and exit while this thread is inside a callback, and readline() still
+            # returns that line, then b"" at EOF. Waiters with no response are failed by the
+            # sweep in finally.
             while self._running:
                 # stop() sets self._proc to None between the while test and
                 # self._proc.stdout. Copy the process once per iteration.
@@ -579,8 +580,7 @@ class ACPConnection:
                             if not chunk or b"\n" in chunk:
                                 break
                         continue
-                    # Popen is binary. `raw` stays bytes; `line` is the decoded text
-                    # `_accept_message` parses. Reusing one name left mypy on bytes.
+                    # Popen is binary: `raw` is bytes and `line` is the decoded text `_accept_message` parses.
                     line = raw.decode("utf-8", errors="replace").strip()
                     if not line:
                         continue
@@ -629,8 +629,8 @@ class ACPConnection:
                         log.exception("Reader error")
                     break
         finally:
-            # A child exit, stdout EOF, or an unexpected exception ends this
-            # Reader exit always _wake_pending like stop() so prompts do not wait on dead children.
+            # A child exit, stdout EOF or an unexpected exception ends this loop.
+            # Wake every pending request, as stop() does, so a prompt does not wait on a dead child.
             self._wake_pending("ACP process terminated")
             # Reader exit clears _running but leaves poll() None. Kill the child
             # tree so orphaned background processes do not linger.

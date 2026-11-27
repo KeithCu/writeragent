@@ -11,15 +11,15 @@ import time
 from typing import Any, Callable, Literal
 
 from plugin.embeddings.embeddings_cache import (
+    STORAGE_BACKEND,
     CorpusMeta,
-    SearchMode,
     clear_folder_cache,
     corpus_db_path,
     corpus_meta_path,
     folder_store,
     maybe_upgrade_legacy_index,
 )
-from plugin.embeddings.embeddings_fs import WriterFileEntry, chunk_to_index_row, guess_indexable_paths, indexable_chunks_from_path
+from plugin.embeddings.embeddings_fs import ParagraphChunk, WriterFileEntry, chunk_to_index_row, guess_indexable_paths, indexable_chunks_from_path
 from plugin.embeddings.venv.embeddings_ingest_graph import ingest_paragraphs
 from plugin.embeddings.venv.embeddings_sqlite import (
     connect_corpus_db,
@@ -41,7 +41,7 @@ log = logging.getLogger(__name__)
 
 MaintainMode = Literal["auto", "cold", "incremental"]
 
-__all__ = ["MaintainMode", "SearchMode", "maintain_folder_corpus", "maintain_folder_index"]
+__all__ = ["MaintainMode", "maintain_folder_corpus", "maintain_folder_index"]
 
 
 def _build_flags(search_mode: str) -> tuple[bool, bool]:
@@ -75,31 +75,32 @@ def _ingest_rows(
 ) -> dict[str, Any]:
     db_path = str(corpus_db_path(listing_root))
     meta_path = str(corpus_meta_path(listing_root))
+    deleted = list(delete_keys or [])
     if fill_vector_gaps:
         # The gap is rows in sqlite chunks with no vec_chunks_<model> vector.
         # LlamaIndex uses that same table. Its empty ingest returns before
         # any embed, so this call always uses the sqlite graph.
-        return ingest_paragraphs(db_path, meta_path, embedding_model, rows, delete_keys=list(delete_keys or []), build_fts=build_fts, build_vectors=True, fill_vector_gaps=True, heartbeat_fn=heartbeat_fn)
+        return ingest_paragraphs(db_path, meta_path, embedding_model, rows, delete_keys=deleted, build_fts=build_fts, build_vectors=True, fill_vector_gaps=True, heartbeat_fn=heartbeat_fn)
     if search_mode == "llama_index":
         from plugin.embeddings.venv.embeddings_llama_index import llama_index_ingest
 
         return llama_index_ingest(db_path, meta_path, embedding_model, rows, delete_keys=delete_keys, build_fts=build_fts, build_vectors=build_vectors, heartbeat_fn=heartbeat_fn)
 
     if build_vectors:
-        return ingest_paragraphs(db_path, meta_path, embedding_model, rows, delete_keys=list(delete_keys or []), build_fts=build_fts, build_vectors=True, heartbeat_fn=heartbeat_fn)
+        return ingest_paragraphs(db_path, meta_path, embedding_model, rows, delete_keys=deleted, build_fts=build_fts, build_vectors=True, heartbeat_fn=heartbeat_fn)
     conn = connect_corpus_db(db_path)
     try:
         ensure_schema(conn, with_fts=build_fts, with_vec=False)
-        delete_paragraph_keys(conn, list(delete_keys or []), with_fts=build_fts, with_vec=False)
+        delete_paragraph_keys(conn, deleted, with_fts=build_fts, with_vec=False)
         inserted = insert_paragraph_rows(conn, rows, with_fts=build_fts)
         count = corpus_chunk_count(conn)
         CorpusMeta.write_row_count(listing_root, count)
-        return {"indexed": inserted, "dim": 0, "storage_backend": "sqlite_vec", "upserted": inserted}
+        return {"indexed": inserted, "dim": 0, "storage_backend": STORAGE_BACKEND, "upserted": inserted}
     finally:
         conn.close()
 
 
-def _extract_file_chunks(entry: WriterFileEntry) -> tuple[int, list[Any] | None]:
+def _extract_file_chunks(entry: WriterFileEntry) -> tuple[int, list[ParagraphChunk] | None]:
     """Return native passage count and embed chunk rows for one file."""
     return indexable_chunks_from_path(entry.path, doc_url=entry.url, file_mtime=entry.modified)
 
@@ -162,7 +163,7 @@ def _incremental_refresh(listing_root: str, embedding_model: str, files: list[Wr
                 continue
             _to_index, to_delete = diff_chunk_rows_in_db(conn, url, [])
             if to_delete:
-                file_name = url.split("/")[-1] if "/" in url else url
+                file_name = url.split("/")[-1]
                 hb.emit({"phase": "delete", "file": file_name, "keys": len(to_delete)}, immediate=True)
                 _ingest_rows(listing_root, embedding_model, [], delete_keys=to_delete, build_fts=build_fts, build_vectors=build_vectors, search_mode=search_mode, heartbeat_fn=lambda p: hb.emit(p, immediate=True))
                 deleted += len(to_delete)
@@ -216,7 +217,6 @@ def _incremental_refresh(listing_root: str, embedding_model: str, files: list[Wr
     # Same-model gaps only. A different embedding model never reaches here:
     # _resolve_mode cold-rebuilds so search does not query a wrong-dim table.
     if build_vectors:
-        has_missing = False
         conn = connect_corpus_db(db_path)
         try:
             has_missing = has_missing_vector_chunks(conn, embedding_model)

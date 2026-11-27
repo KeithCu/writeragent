@@ -4,9 +4,9 @@ from typing import Any
 
 from plugin.framework.module_base import ModuleBase
 
-# Templates run ``from writeragent.vision import run_vision`` in the user venv.
-# AliasImporter maps that name to this package. Dropping the re-export
-# (6b0be365d) made Calc and Writer image_name Run paths fail the import.
+# Templates run ``from writeragent.vision import run_vision`` in the user venv,
+# and AliasImporter maps that name to this package, so Calc and Writer
+# image_name Run paths require this re-export.
 # Writer selection and image_extract_structure still call
 # plugin.scripting.client.run_vision; this name is the venv dispatcher.
 from .venv.vision import run_vision

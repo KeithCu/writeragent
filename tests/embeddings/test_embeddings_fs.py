@@ -206,3 +206,26 @@ def test_indexable_chunks_from_path_skips_corrupt_odt(tmp_path: Path):
     count, chunks = embeddings_fs.indexable_chunks_from_path(str(corrupt))
     assert count == 0
     assert chunks is None
+
+
+def test_indexable_chunks_from_path_extracts_prose_once(tmp_path: Path, monkeypatch):
+    doc_path = tmp_path / "sample.odt"
+    doc_path.write_bytes(b"placeholder")
+    monkeypatch.setattr(
+        embeddings_fs,
+        "extract_indexable_passages",
+        lambda _path: (_ for _ in ()).throw(AssertionError("should not extract passages separately")),
+    )
+    monkeypatch.setattr(
+        embeddings_fs,
+        "extract_indexable_passage_runs",
+        lambda _path: [("Hello world.", [embeddings_fs.LocaleTextRun(0, 12, "en-US")])],
+    )
+    monkeypatch.setattr(
+        "plugin.embeddings.embeddings_locale.resolve_document_locale_bcp47",
+        lambda _path, body_sample="": "en-US",
+    )
+    count, chunks = embeddings_fs.indexable_chunks_from_path(str(doc_path))
+    assert count == 1
+    assert chunks is not None and len(chunks) == 1
+    assert chunks[0].text == "Hello world."

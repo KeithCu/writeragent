@@ -17,8 +17,6 @@ log = logging.getLogger(__name__)
 
 HELPER_NAMES = frozenset({"extract_text", "extract_structure"})
 
-IMPLEMENTED_HELPERS = HELPER_NAMES
-
 # Loads the Docling models for a params set; not an OCR helper.
 LOAD_MODELS_HELPER = "load_models"
 
@@ -55,8 +53,6 @@ DEFAULT_VISION_INSERT_MODE = "html"
 
 def merge_vision_params(ctx: Any = None, template_params: dict[str, Any] | None = None) -> dict[str, Any]:
     """Apply persisted vision.* settings defaults; template params win on conflict."""
-    # get_config takes no ctx, so read Settings even when ctx is None.
-    # Log config failures instead of swallowing them.
     merged: dict[str, Any] = {}
     try:
         from plugin.framework.config import get_config
@@ -193,8 +189,6 @@ def bbox_to_xywh(bbox: Any, *, page_height: float | None = None) -> list[int]:
 
 def resolve_engine(params: dict[str, Any]) -> str:
     """Resolve vision engine name, raising ValueError on unknown engines."""
-    # Unknown engine names raise ValueError. Falling back to DEFAULT_ENGINE
-    # turned a typo like 'padle' into a silent Docling run.
     raw = params.get("engine")
     if raw is None or str(raw).strip() == "":
         return DEFAULT_ENGINE
@@ -384,9 +378,6 @@ def table_from_span_cells(
 
 def table_to_tsv_lines(table: dict[str, Any]) -> list[str]:
     """Format a table dict into TSV lines, preserving empty cells to avoid column misalignment."""
-    # Keep empty cells so columns stay aligned, and share table_to_tsv_lines
-    # between Paddle and Docling. Dropping falsy cells with `if str(c)` shifts
-    # columns, and keeping only the last row drops the rest of the table.
     lines: list[str] = []
     cols = table.get("columns")
     if isinstance(cols, list) and cols:

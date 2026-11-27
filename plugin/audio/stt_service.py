@@ -109,12 +109,12 @@ def stt_controls_enabled(provider: str) -> tuple[bool, bool]:
 
 def get_stt_local_model() -> str:
     """``audio.stt_local_model``, default ``base``."""
-    return normalize_stt_local_model(str(get_config("audio.stt_local_model") or ""))
+    return normalize_stt_local_model(get_config("audio.stt_local_model"))
 
 
 def uses_local_stt() -> bool:
     """True when Record should transcribe in the venv instead of over HTTP."""
-    return normalize_stt_provider(str(get_config("audio.stt_provider") or "")) == STT_PROVIDER_LOCAL
+    return normalize_stt_provider(get_config("audio.stt_provider")) == STT_PROVIDER_LOCAL
 
 
 def _hf_hub_cache_dir() -> str:
@@ -189,12 +189,9 @@ def _local_whisper_weights_cached(model_name: str) -> bool:
     ``download_model`` (``faster_whisper/transcribe.py``). A size or HF id is
     cached when its hub snapshot already contains ``model.bin``.
     """
-    text = str(model_name or "").strip()
-    if not text:
-        return False
-    if os.path.isdir(text):
+    if os.path.isdir(model_name):
         return True
-    repo_id = _faster_whisper_repo_id(text)
+    repo_id = _faster_whisper_repo_id(model_name)
     if repo_id is None:
         return True
     return _weights_cached_in_hub(repo_id)
@@ -244,7 +241,7 @@ def _close_stt_pipe(stream: Any) -> None:
 
 
 def _read_stt_pipe(stream: Any, sink: list[str]) -> None:
-    data = best_effort(stream.read, "STT pipe read failed", default="") if stream is not None else ""
+    data = best_effort(stream.read, "STT pipe read failed", default="")
     sink.append(data if isinstance(data, str) else "")
 
 
@@ -371,7 +368,7 @@ def parse_whisper_stdout(stdout: str) -> str:
             last_error = message if isinstance(message, str) and message.strip() else "Local Whisper failed"
     if last_error:
         raise ConfigError(_("Local Whisper failed: {0}").format(last_error))
-    raise ConfigError(_("Local Whisper did not return a transcript."))
+    raise ConfigError(_("Local Whisper did not return a transcript."), code="WHISPER_NO_TRANSCRIPT")
 
 
 def _local_timeout_message(cached: bool) -> str:
@@ -438,7 +435,7 @@ def _transcribe_local(
                     "Install with: {0}. Settings → Python Test lists it under Audio optional packages."
                 ).format(_FASTER_WHISPER_PIP_INSTALL)
             ) from exc
-        if "did not return a transcript" in msg:
+        if exc.code == "WHISPER_NO_TRANSCRIPT":
             detail = tail or "no error output"
             err_msg = f"Local Whisper exited {completed.returncode}: {detail}."
             if completed.returncode is not None and completed.returncode < 0:
@@ -468,6 +465,6 @@ def transcribe(
             on_status,
             on_spawn=on_spawn,
         )
-    if client is None or not hasattr(client, "transcribe_audio"):
+    if client is None:
         raise ConfigError(_("No language-model client is available for endpoint speech-to-text."))
-    return str(client.transcribe_audio(wav_path, model=model, status_callback=on_status) or "")
+    return client.transcribe_audio(wav_path, model=model, status_callback=on_status)

@@ -44,8 +44,6 @@ from plugin.framework.managed_subprocess import kill_process_tree
 
 log = logging.getLogger(__name__)
 
-# CLI path/name filters from ``python -m plugin.testing_runner <filter>``.
-# File-path filters select modules; leftover ``test_*`` names select functions.
 _LC_INITIAL = {
     "last_qual": "",
     "last_result": "",
@@ -284,11 +282,6 @@ def _fail_reason(exc: BaseException) -> str:
         return text[:397] + "..."
     return text
 
-
-# Last completed native test + soffice PIDs. A DisposedException on the *next*
-# factory open is often leftover from this test's close, not a bug in the victim.
-# Reset at the start of run_all_tests (not per suite — first test of suite N+1
-# may die because suite N's last close toasted URP).
 
 # Named Draw pairs for ``--pair`` / ``make test-uno-soak PAIR=…`` (same office).
 _SOAK_PAIRS: Dict[str, List[str]] = {
@@ -1131,7 +1124,7 @@ def _recycle_harness_office(old_ctx: Any) -> tuple[Any, Any]:
     Do **not** ``close`` leftover docs first — that is the hung path.
     Do **not** mark URP dead unless the new bootstrap fails.
     """
-    _progress_verbose("LIFECYCLE recycle office after impress start")
+    _progress_verbose("LIFECYCLE recycle office start")
     _terminate_bootstrap_soffice()
     time.sleep(0.5)
     _office.reset_death_signals(clear_proc=True)
@@ -1141,8 +1134,6 @@ def _recycle_harness_office(old_ctx: Any) -> tuple[Any, Any]:
     _NATIVE_DOC_POOL.clear()
     try:
         new_ctx = _bootstrap_office()
-        if new_ctx is None:
-            raise RuntimeError("recycle bootstrap returned None")
         _rebootstrap_ctx(new_ctx)
         new_keeper = None
         if not _office.options.use_user_profile:
@@ -1306,15 +1297,12 @@ def run_module_suite(
     ctx: Any,
     module: Any,
     name: str,
-    office: HarnessOffice | None = None,
-    options: RunOptions | None = None,
 ) -> tuple[int, int, list[str]]:
     """Monolithic entry point for running a test module (legacy/menu support).
     Returns (passed, failed, log).
     """
     log.info(f"run_module_suite start: {name}")
-    office = office or _office
-    options = options or office.options
+    options = _office.options
     total_passed = 0
     total_failed = 0
     suite_log = []
@@ -1324,7 +1312,7 @@ def run_module_suite(
     test_funcs = []
 
     # Discover decorators, iterating over module dict to preserve insertion (definition) order
-    for _unused, attr in module.__dict__.items():
+    for attr in module.__dict__.values():
         if callable(attr):
             # `MagicMock` returns truthy values for any attribute access, so we must
             # check for an explicit boolean marker set by our decorators.
@@ -1410,11 +1398,7 @@ def run_module_suite(
                 % (qual, _office.lc.current_start_pids, _office.lc.current_bridge or "-")
             )
             # Per-test faulthandler abort (30s default, or @native_test(timeout=...)).
-            per_test_timeout = getattr(test_func, "_timeout_sec", None)
-            if isinstance(per_test_timeout, int) and per_test_timeout > 0:
-                _arm_native_test_watchdog(per_test_timeout)
-            else:
-                _arm_native_test_watchdog()
+            _arm_native_test_watchdog(getattr(test_func, "_timeout_sec", None))
             try:
                 # SalAbort can print after the previous TEST end OK. Fail-closed
                 # here so we do not open another Draw factory on a dying office.
@@ -1554,8 +1538,6 @@ def run_all_tests(ctx: Any) -> str:
     inside LibreOffice. External callers can parse this JSON, print a report,
     and use total_failed as an exit code condition.
     """
-    # Office and options are owned by the singleton _office; reading directly ensures
-    # the harness has a single source of truth without hidden rebinding side effects.
     office = _office
     options = office.options
     office.urp_bridge_dead = False
@@ -1592,223 +1574,226 @@ def run_all_tests(ctx: Any) -> str:
     setattr(plugin.framework.config, "get_config", test_get_config)
     setattr(plugin.framework.config, "save", test_save)
     setattr(plugin.framework.config, "get_config_dict", test_get_config_dict)
+    try:
 
-    suites: List[Dict[str, Any]] = []
-
-
-    total_passed = 0
-    total_failed = 0
+        suites: List[Dict[str, Any]] = []
 
 
-    keeper_doc = None
+        total_passed = 0
+        total_failed = 0
 
-    if not options.use_user_profile:
+
+        keeper_doc = None
+
+        if not options.use_user_profile:
+            try:
+                _progress_verbose(
+                    "KEEPER load start target=_blank hidden=True "
+                    "python_pid=%s soffice=%s" % (os.getpid(), _soffice_pids())
+                )
+                keeper_doc = _open_keeper(ctx)
+                keeper_uid = str(getattr(keeper_doc, "RuntimeUID", None) or "-")
+                _progress_verbose(
+                    "KEEPER load done ok=%s uid=%s python_pid=%s soffice=%s"
+                    % (keeper_doc is not None, keeper_uid, os.getpid(), _soffice_pids())
+                )
+            except Exception as e:
+                log.warning("run_all_tests: could not create keeper document: %s", e)
+                if _is_uno_bridge_disposed(e):
+                    _mark_urp_dead(e, "keeper document")
+                    return json.dumps(
+                        {
+                            "total_passed": 0,
+                            "total_failed": 1,
+                            "suites": [
+                                {
+                                    "name": "bootstrap",
+                                    "failed": 1,
+                                    "log": [
+                                        "could not create keeper document: %s" % e,
+                                        "ABORT: URP disposed; not running remaining UNO suites",
+                                    ],
+                                }
+                            ],
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+
+        # Initialize the tool registry (Writer/Calc/Draw modules) before loading any
+        # UNO test file, so every suite's get_tools() sees the full registry.
+        # Extension startup already calls mark_initialized; this is a no-op then.
         try:
-            _progress_verbose(
-                "KEEPER load start target=_blank hidden=True "
-                "python_pid=%s soffice=%s" % (os.getpid(), _soffice_pids())
-            )
-            keeper_doc = _open_keeper(ctx)
-            keeper_uid = str(getattr(keeper_doc, "RuntimeUID", None) or "-")
-            _progress_verbose(
-                "KEEPER load done ok=%s uid=%s python_pid=%s soffice=%s"
-                % (keeper_doc is not None, keeper_uid, os.getpid(), _soffice_pids())
-            )
+            _rebootstrap_ctx(ctx)
         except Exception as e:
-            log.warning("run_all_tests: could not create keeper document: %s", e)
-            if _is_uno_bridge_disposed(e):
-                _mark_urp_dead(e, "keeper document")
-                return json.dumps(
-                    {
-                        "total_passed": 0,
-                        "total_failed": 1,
-                        "suites": [
+            log.warning("run_all_tests: bootstrap failed (in-LO tool tests may fail): %s", e)
+
+        from plugin.framework.constants import get_plugin_dir
+        import importlib.util
+
+        repo_root = os.path.dirname(get_plugin_dir())
+        tests_root = os.path.join(repo_root, "tests")
+
+        if os.path.isdir(tests_root):
+            # Discover ``*_uno.py`` recursively under tests/ (collocated with the module).
+            # Gather all candidates
+            test_candidates = []
+            has_scripts = os.path.isdir(os.path.join(repo_root, "scripts"))
+
+            for root, dirs, files in os.walk(tests_root):
+                if not has_scripts and root == tests_root and "scripts" in dirs:
+                    dirs.remove("scripts")
+                for filename in files:
+                    if not (filename.startswith("test_") and filename.endswith("_uno.py")):
+                        continue
+                    # Demo scenes drive the user's real profile, so they are user-profile-only
+                    # too; without this, --user-profile skipped them ("No native test suites matched").
+                    user_only = filename in _USER_PROFILE_ONLY_UNO or filename in _DEMO_ONLY_UNO
+                    if user_only != options.use_user_profile:
+                        continue
+                    # Demo scenes only via make demo-video (WRITERAGENT_DEMO=1).
+                    if filename in _DEMO_ONLY_UNO and os.environ.get("WRITERAGENT_DEMO") != "1":
+                        continue
+                    full_path = os.path.join(root, filename)
+                    if options.shard:
+                        rel_path = os.path.relpath(full_path, repo_root).replace(os.sep, "/")
+                        if _uno_shard(rel_path) != options.shard:
+                            continue
+                    if _module_matches_filters(full_path, options.filters):
+                        test_candidates.append(full_path)
+
+            if not test_candidates:
+                reason = (
+                    "No native test suites matched filters %r" % (options.filters,)
+                    if options.filters
+                    else "No native test suites found under %s" % tests_root
+                )
+                _progress("SUITE discovery miss: %s" % reason)
+                suites.append({"name": "discovery", "failed": 1, "log": [reason]})
+                total_failed += 1
+
+            skip_keeper_close = False
+            if options.soak_repeat > 1:
+                _progress_verbose(
+                    "SOAK start rounds=%s suites=%s filter=%s"
+                    % (options.soak_repeat, len(test_candidates), options.filters or "-")
+                )
+            for soak_i in range(options.soak_repeat):
+                if options.soak_repeat > 1:
+                    _progress_verbose("SOAK iter %s/%s" % (soak_i + 1, options.soak_repeat))
+                if office.urp_bridge_dead:
+                    _progress("SOAK stop: URP already disposed")
+                    break
+                ordered_candidates = sorted(test_candidates, key=_native_suite_sort_key)
+                skip_keeper_close = False
+                for i, module_path in enumerate(ordered_candidates):
+                    if not office.urp_bridge_dead:
+                        # Nothing closes the component context except office shutdown, so any
+                        # failure here means the office is dead.
+                        try:
+                            ctx.getServiceManager()
+                        except Exception as exc:
+                            _mark_urp_dead(exc, "start of %s" % os.path.basename(module_path))
+                    if office.urp_bridge_dead:
+                        _progress("SUITE skip remaining: URP already disposed")
+                        break
+                    filename = os.path.basename(module_path)
+
+                    # Construct a unique module name for sys.modules to avoid collisions
+                    # during the recursive walk.
+                    rel_path = os.path.relpath(module_path, tests_root)
+                    sys_module_name = "plugin.tests." + rel_path[:-3].replace(os.sep, ".")
+
+                    try:
+                        spec = importlib.util.spec_from_file_location(sys_module_name, module_path)
+                        assert spec is not None and spec.loader is not None
+                        test_module = importlib.util.module_from_spec(spec)
+                        sys.modules[sys_module_name] = test_module
+                        spec.loader.exec_module(test_module)
+
+                        # Menu-only facade (e.g. calc ``test_calc_uno``): aggregates other UNO
+                        # modules via ``run_calc_tests`` / ``run_integration_tests`` and must not
+                        # run here — ``'_uno.py' in filename`` matches it, but it has no
+                        # ``@native_test`` and the generic fallback name would not map to those runners.
+                        if getattr(test_module, "SKIP_NATIVE_RUN_ALL", False):
+                            continue
+
+                        suite_name = sys_module_name.replace("plugin.tests.", "")
+                        p, f, suite_log = run_module_suite(ctx, test_module, suite_name)
+                        entry: Dict[str, Any] = {"name": suite_name, "log": suite_log}
+                        if f:
+                            entry["failed"] = f
+                        suites.append(entry)
+                        total_passed += p
+                        total_failed += f
+                        if office.consume_recycle_request():
+                            more = i + 1 < len(ordered_candidates)
+                            if more:
+                                ctx, keeper_doc = _recycle_harness_office(ctx)
+                            else:
+                                # GHA 34551644954: rebootstrap then hung the next
+                                # scalc load. No remaining suites — just kill.
+                                _progress_verbose(
+                                    "LIFECYCLE recycle office skipped; no remaining suites"
+                                )
+                                skip_keeper_close = True
+                    except Exception as e:
+                        # A *_uno.py that fails to import or has a syntax error counts as one failed suite. SKIP_NATIVE_RUN_ALL above is the only skip.
+                        load_name = sys_module_name.replace("plugin.tests.", "")
+                        message = "%s: %s" % (type(e).__name__, e)
+                        print("Error loading %s: %s" % (filename, message), flush=True)
+                        suites.append(
                             {
-                                "name": "bootstrap",
+                                "name": load_name,
                                 "failed": 1,
                                 "log": [
-                                    "could not create keeper document: %s" % e,
-                                    "ABORT: URP disposed; not running remaining UNO suites",
+                                    "Error loading %s: %s" % (load_name, message),
+                                    traceback.format_exc(),
                                 ],
                             }
-                        ],
-                    },
-                    ensure_ascii=False,
-                    indent=2,
-                )
+                        )
+                        total_failed += 1
 
-    # Initialize the tool registry (Writer/Calc/Draw modules) before loading any
-    # UNO test file, so every suite's get_tools() sees the full registry.
-    # Extension startup already calls mark_initialized; this is a no-op then.
-    try:
-        _rebootstrap_ctx(ctx)
-    except Exception as e:
-        log.warning("run_all_tests: bootstrap failed (in-LO tool tests may fail): %s", e)
-
-    from plugin.framework.constants import get_plugin_dir
-    import importlib.util
-
-    repo_root = os.path.dirname(get_plugin_dir())
-    tests_root = os.path.join(repo_root, "tests")
-
-    if os.path.isdir(tests_root):
-        # Discover ``*_uno.py`` recursively under tests/ (collocated with the module).
-        # Gather all candidates
-        test_candidates = []
-        has_scripts = os.path.isdir(os.path.join(repo_root, "scripts"))
-
-        for root, dirs, files in os.walk(tests_root):
-            if not has_scripts and root == tests_root and "scripts" in dirs:
-                dirs.remove("scripts")
-            for filename in files:
-                if not (filename.startswith("test_") and filename.endswith("_uno.py")):
-                    continue
-                # Demo scenes drive the user's real profile, so they are user-profile-only
-                # too; without this, --user-profile skipped them ("No native test suites matched").
-                user_only = filename in _USER_PROFILE_ONLY_UNO or filename in _DEMO_ONLY_UNO
-                if user_only != options.use_user_profile:
-                    continue
-                # Demo scenes only via make demo-video (WRITERAGENT_DEMO=1).
-                if filename in _DEMO_ONLY_UNO and os.environ.get("WRITERAGENT_DEMO") != "1":
-                    continue
-                full_path = os.path.join(root, filename)
-                if options.shard:
-                    rel_path = os.path.relpath(full_path, repo_root).replace(os.sep, "/")
-                    if _uno_shard(rel_path) != options.shard:
-                        continue
-                if _module_matches_filters(full_path, options.filters):
-                    test_candidates.append(full_path)
-
-        if not test_candidates:
-            reason = (
-                "No native test suites matched filters %r" % (options.filters,)
-                if options.filters
-                else "No native test suites found under %s" % tests_root
-            )
+            if skip_keeper_close:
+                # Leftover peer docs / Impress: do not close(True). Kill soffice.
+                _progress_verbose("LIFECYCLE terminate office start")
+                _terminate_bootstrap_soffice()
+                _progress_verbose("LIFECYCLE terminate office done")
+                keeper_doc = None
+        else:
+            reason = "Tests directory not found: %s (tests not bundled?)" % tests_root
             _progress("SUITE discovery miss: %s" % reason)
             suites.append({"name": "discovery", "failed": 1, "log": [reason]})
             total_failed += 1
 
-        skip_keeper_close = False
-        if options.soak_repeat > 1:
-            _progress_verbose(
-                "SOAK start rounds=%s suites=%s filter=%s"
-                % (options.soak_repeat, len(test_candidates), options.filters or "-")
+        if keeper_doc is not None:
+            try:
+                _progress_verbose("KEEPER close start")
+                keeper_doc.close(True)
+                _progress_verbose("KEEPER close done")
+            except Exception:
+                _progress("KEEPER close failed")
+
+        if office.urp_bridge_dead and not total_failed:
+            # The office died outside any test (suite teardown, failed recycle), so no test
+            # failed, but the remaining suites did not run.
+            suites.append(
+                {
+                    "name": "office",
+                    "failed": 1,
+                    "log": ["office died; remaining suites did not run"],
+                }
             )
-        for soak_i in range(options.soak_repeat):
-            if options.soak_repeat > 1:
-                _progress_verbose("SOAK iter %s/%s" % (soak_i + 1, options.soak_repeat))
-            if office.urp_bridge_dead:
-                _progress("SOAK stop: URP already disposed")
-                break
-            ordered_candidates = sorted(test_candidates, key=_native_suite_sort_key)
-            skip_keeper_close = False
-            for i, module_path in enumerate(ordered_candidates):
-                if not office.urp_bridge_dead:
-                    # Nothing closes the component context except office shutdown, so any
-                    # failure here means the office is dead.
-                    try:
-                        ctx.getServiceManager()
-                    except Exception as exc:
-                        _mark_urp_dead(exc, "start of %s" % os.path.basename(module_path))
-                if office.urp_bridge_dead:
-                    _progress("SUITE skip remaining: URP already disposed")
-                    break
-                filename = os.path.basename(module_path)
+            total_failed += 1
 
-                # Construct a unique module name for sys.modules to avoid collisions
-                # during the recursive walk.
-                rel_path = os.path.relpath(module_path, tests_root)
-                sys_module_name = "plugin.tests." + rel_path[:-3].replace(os.sep, ".")
-
-                try:
-                    spec = importlib.util.spec_from_file_location(sys_module_name, module_path)
-                    assert spec is not None and spec.loader is not None
-                    test_module = importlib.util.module_from_spec(spec)
-                    sys.modules[sys_module_name] = test_module
-                    spec.loader.exec_module(test_module)
-
-                    # Menu-only facade (e.g. calc ``test_calc_uno``): aggregates other UNO
-                    # modules via ``run_calc_tests`` / ``run_integration_tests`` and must not
-                    # run here — ``'_uno.py' in filename`` matches it, but it has no
-                    # ``@native_test`` and the generic fallback name would not map to those runners.
-                    if getattr(test_module, "SKIP_NATIVE_RUN_ALL", False):
-                        continue
-
-                    suite_name = sys_module_name.replace("plugin.tests.", "")
-                    p, f, suite_log = run_module_suite(ctx, test_module, suite_name)
-                    entry: Dict[str, Any] = {"name": suite_name, "log": suite_log}
-                    if f:
-                        entry["failed"] = f
-                    suites.append(entry)
-                    total_passed += p
-                    total_failed += f
-                    if office.consume_recycle_request():
-                        more = i + 1 < len(ordered_candidates)
-                        if more:
-                            ctx, keeper_doc = _recycle_harness_office(ctx)
-                        else:
-                            # GHA 34551644954: rebootstrap then hung the next
-                            # scalc load. No remaining suites — just kill.
-                            _progress_verbose(
-                                "LIFECYCLE recycle office skipped; no remaining suites"
-                            )
-                            skip_keeper_close = True
-                except Exception as e:
-                    # A *_uno.py that fails to import (renamed symbol or
-                    # Import/syntax errors must increment failures—do not print-and-continue with exit 0.
-                    # SKIP_NATIVE_RUN_ALL above is the only skip.
-                    load_name = sys_module_name.replace("plugin.tests.", "")
-                    message = "%s: %s" % (type(e).__name__, e)
-                    print("Error loading %s: %s" % (filename, message), flush=True)
-                    suites.append(
-                        {
-                            "name": load_name,
-                            "failed": 1,
-                            "log": [
-                                "Error loading %s: %s" % (load_name, message),
-                                traceback.format_exc(),
-                            ],
-                        }
-                    )
-                    total_failed += 1
-
-        if skip_keeper_close:
-            # Leftover peer docs / Impress: do not close(True). Kill soffice.
-            _progress_verbose("LIFECYCLE terminate office after peer leftovers start")
-            _terminate_bootstrap_soffice()
-            _progress_verbose("LIFECYCLE terminate office after peer leftovers done")
-            keeper_doc = None
-    else:
-        reason = "Tests directory not found: %s (tests not bundled?)" % tests_root
-        _progress("SUITE discovery miss: %s" % reason)
-        suites.append({"name": "discovery", "failed": 1, "log": [reason]})
-        total_failed += 1
-
-    if keeper_doc is not None:
-        try:
-            _progress_verbose("KEEPER close start")
-            keeper_doc.close(True)
-            _progress_verbose("KEEPER close done")
-        except Exception:
-            _progress("KEEPER close failed")
-
-    if office.urp_bridge_dead and not total_failed:
-        # The office died outside any test (suite teardown, failed recycle), so no test
-        # failed, but the remaining suites did not run.
-        suites.append(
-            {
-                "name": "office",
-                "failed": 1,
-                "log": ["office died; remaining suites did not run"],
-            }
-        )
-        total_failed += 1
-
-    summary: Dict[str, Any] = {"total_passed": total_passed, "suites": suites}
-    if total_failed:
-        summary["total_failed"] = total_failed
-    return json.dumps(summary, ensure_ascii=False, indent=2)
+        summary: Dict[str, Any] = {"total_passed": total_passed, "suites": suites}
+        if total_failed:
+            summary["total_failed"] = total_failed
+        return json.dumps(summary, ensure_ascii=False, indent=2)
+    finally:
+        setattr(plugin.framework.config, "get_config", original_get_config)
+        setattr(plugin.framework.config, "save", original_save)
+        setattr(plugin.framework.config, "get_config_dict", original_get_config_dict)
 
 
 def _ensure_libreoffice_python_path() -> None:
@@ -1848,8 +1833,7 @@ def _ensure_libreoffice_python_path() -> None:
 
 def _alias_runner_module() -> None:
     """``python -m`` executes this file as ``__main__``; tests import the package name."""
-    if __name__ == "__main__":
-        sys.modules["plugin.testing_runner"] = sys.modules[__name__]
+    sys.modules["plugin.testing_runner"] = sys.modules[__name__]
 
 
 def main() -> int:
@@ -1893,7 +1877,7 @@ def main() -> int:
         print("  (%s: %s)" % (type(exc).__name__, exc), flush=True)
         return 1
 
-    _office.options.filters = list(_parse_cli_args(sys.argv[1:]))
+    _office.options.filters = _parse_cli_args(sys.argv[1:])
 
     # WRITERAGENT_TESTING only short-circuits MainThread inline execution; it does
     # NOT disable Layer A (WRITERAGENT_UNO_THREAD_GUARD). Use make lo-test-threadguard
@@ -1915,10 +1899,6 @@ def main() -> int:
         )
         return 1
 
-    if ctx is None:
-        print("ERROR: Could not bootstrap LibreOffice (headless Popen/UNO connect returned None).", flush=True)
-        return 1
-
     summary_json = run_all_tests(ctx)
     print(summary_json, flush=True)
 
@@ -1928,8 +1908,8 @@ def main() -> int:
 
     # Print a compact "tail" summary so callers can scan results quickly
     # even when the output above includes verbose tracebacks/log spam.
-    total_passed = int(summary.get("total_passed", 0) or 0)
-    total_failed = int(summary.get("total_failed", 0) or 0)
+    total_passed = summary["total_passed"]
+    total_failed = summary.get("total_failed", 0)
     print(f'"total_passed": {total_passed},', flush=True)
     if total_failed:
         print(f'"total_failed": {total_failed},', flush=True)
@@ -1941,10 +1921,9 @@ def _exit_after_summary(code: int) -> None:
     """End ``python -m plugin.testing_runner`` after the suite summary.
 
     After a clean pass, normal interpreter shutdown runs pyuno / LibreOffice
-    destructors. Those can SIGABRT (``FATAL: exception not rethrown`` /
-    ``Fatal Python error: Aborted``) once every suite has already printed
-    ``total_passed`` with zero failures. That turned a green Ubuntu
-    ``test-uno`` into make Error 134 (GHA 35527291175, tip cc281f17).
+    destructors, which can SIGABRT (``FATAL: exception not rethrown`` /
+    ``Fatal Python error: Aborted``) after every suite has printed
+    ``total_passed`` with zero failures, failing ``test-uno`` with exit 134.
     A clean pass stops the headless office and deletes its profiles before
     ``os._exit(0)`` skips atexit and GC of UNO proxies. A failure keeps both
     so diagnostics remain available; the Makefile ``lo-kill`` still reaps

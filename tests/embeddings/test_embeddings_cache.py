@@ -502,8 +502,8 @@ def test_corpus_meta_corrupt_file_handling(tmp_path):
 @pytest.mark.parametrize(
     ("mode", "path_fn_name", "marker_name", "probe_name", "chunk_count"),
     [
-        pytest.param("zvec", "zvec_collection_path", "segment", "zvec_collection_looks_populated", "3", id="zvec"),
-        pytest.param("lancedb", "lancedb_collection_path", "data.lance", "lancedb_collection_looks_populated", "2", id="lancedb"),
+        pytest.param("zvec", "zvec_collection_path", "segment", "_store_dir_populated", "3", id="zvec"),
+        pytest.param("lancedb", "lancedb_collection_path", "data.lance", "_store_dir_populated", "2", id="lancedb"),
     ],
 )
 def test_folder_store_lists_collection_once(tmp_path, mode, path_fn_name, marker_name, probe_name, chunk_count):

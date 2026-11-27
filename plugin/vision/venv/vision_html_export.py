@@ -358,12 +358,12 @@ def prepare_html_for_lo_import(html: str) -> str:
             f"Install in your Settings → Python venv: {sys.executable} -m pip install css-inline"
         ) from exc
 
-    if not (html or "").strip():
-        return html or ""
+    if not html.strip():
+        return html
     # css_inline.inline() loads remote stylesheets by default. Pass
     # CSSInliner(load_remote_stylesheets=False) so export does not fetch them.
     inliner = css_inline.CSSInliner(load_remote_stylesheets=False)
-    inlined = inliner.inline((html or "").strip())
+    inlined = inliner.inline(html.strip())
     with_headings = augment_lo_heading_styles(inlined)
     with_body = augment_lo_body_paragraph_styles(with_headings)
     with_math = convert_latex_delimiters_to_mathml(with_body)

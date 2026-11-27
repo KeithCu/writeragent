@@ -61,7 +61,7 @@ def g2p_fallback_warning(lang: str, exc: BaseException | None = None) -> str:
     fallback = "Kokoro fell back to espeak-ng for %s; non-English text may be misread" % lang
     if exc is None:
         return fallback
-    return ("Misaki G2P failed for %s: %s" % (lang, exc)) + " " + fallback
+    return (f"{G2P_FAILED_MARK} for %s: %s" % (lang, exc)) + " " + fallback
 
 
 @dataclass(frozen=True)

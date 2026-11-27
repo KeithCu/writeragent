@@ -32,9 +32,10 @@ import threading
 from typing import Any, Optional, List, Tuple, Mapping
 
 from plugin.acp.base import AgentBackend
-from plugin.acp.acp_connection import ACPConnection, ACPTimeoutError
+from plugin.acp.acp_connection import ACPConnection, ACPTimeoutError, cancelled_permission
 from plugin.framework.client.shim_helpers import snapshot_text
 from plugin.framework.client.provider_detection import get_provider_from_endpoint
+from plugin.framework import config as _config
 from plugin.framework.config import get_api_key_for_endpoint, get_current_endpoint
 from plugin.framework.stream_batch import StreamQueueKind
 from plugin.framework.errors import format_error_payload
@@ -262,17 +263,12 @@ def _binary_candidates(binary_name: str) -> list[str]:
     return [os.path.join(directory, name) for directory in directories for name in names]
 
 
-def _cancelled_permission() -> dict[str, Any]:
-    return {"outcome": {"outcome": "cancelled"}}
-
-
 def _permission_description(params: dict[str, Any]) -> str:
     """Dialog text from the ACP fields that actually carry it.
 
     ACP puts the human text on ``toolCall.title`` and ``options[].name``.
-    ``params["description"]`` is a private key, so a conformant request
-    showed only the generic fallback. Build the dialog string from those
-    fields and ignore the private key.
+    ``params["description"]`` is a private key that a conformant request
+    does not send, so the dialog text is built from those two fields.
     """
     tool_call = params.get("toolCall")
     title = ""
@@ -337,7 +333,7 @@ def _permission_result(options: list[Any], approved: bool) -> dict[str, Any]:
     if option_id is None:
         if approved:
             log.warning("ACP permission approve had no optionId; sending cancelled")
-        return _cancelled_permission()
+        return cancelled_permission()
     return {"outcome": {"outcome": "selected", "optionId": option_id}}
 
 
@@ -556,55 +552,41 @@ class ACPBackend(AgentBackend):
         return found
 
     def _launch_extra_args(self, binary: str | None, args_str: str) -> list[str]:
+        # str.split() breaks a quoted path into several argv entries.
+        # posix=False on Windows so backslashes in paths stay literal.
         try:
             extra = _split_cli_args(args_str, posix=(os.name != "nt")) if args_str else []
         except ValueError as e:
             raise ValueError(f"unbalanced quote: {e}") from e
         if not extra and binary and self._binary_matches(binary):
-            defaults = list(self.default_extra_args)
-            if defaults:
-                return defaults
+            return list(self.default_extra_args)
         return extra
 
     def _load_config(self) -> None:
         """Load configuration from WriterAgent settings."""
         path, args_str = _agent_backend_settings()
         self._binary_path = self._resolve_binary(path, args_str)
-
-        # str.split() breaks a quoted path into several argv entries.
-        # posix=False on Windows so backslashes in paths stay literal.
         self._extra_args = self._launch_extra_args(self._binary_path, args_str)
 
-    def _resolve_agy_log_path(self) -> str | None:
-        """Path agy should log to; None when logging is unavailable or already in argv."""
+    def _resolve_agy_log_path(self) -> tuple[str | None, bool]:
+        """Return ``(path, already_in_argv)`` for Antigravity logging, or ``(None, False)``."""
         if self.backend_id != "antigravity":
-            return None
+            return None, False
         log_flags = ("--log-file", "--cli_log_file")
         for idx, arg in enumerate(self._extra_args):
             if arg in log_flags:
                 if idx + 1 < len(self._extra_args):
-                    return self._extra_args[idx + 1]
+                    return self._extra_args[idx + 1], True
                 log.warning("Antigravity --log-file has no path; executor errors will use the banner only")
-                return None
-        try:
-            from plugin.framework.config import user_config_dir
-
-            cfg_dir = user_config_dir()
-        except Exception:
-            log.warning("user_config_dir unavailable; Antigravity will run without --log-file")
-            return None
-        if not cfg_dir:
-            log.warning("user_config_dir unavailable; Antigravity will run without --log-file")
-            return None
-        return os.path.join(cfg_dir, "agy-acp.log")
+                return None, True
+        cfg_dir = _config.user_config_dir()
+        return os.path.join(cfg_dir, "agy-acp.log"), False
 
     def _managed_log_args(self) -> list[str]:
         """Antigravity-only ``--log-file`` when settings did not already pass one."""
-        path = self._resolve_agy_log_path()
+        path, already_in_argv = self._resolve_agy_log_path()
         self._agent_log_path = path
-        if path is None:
-            return []
-        if any(flag in self._extra_args for flag in ("--log-file", "--cli_log_file")):
+        if path is None or already_in_argv:
             return []
         return ["--log-file", path]
 
@@ -715,8 +697,7 @@ class ACPBackend(AgentBackend):
             cmd_line.extend(self._extra_args)
             cmd_line.extend(self._managed_log_args())
 
-            # ACPConnection.start merges os.environ itself. Passing a full copy
-            # here merged the process environment twice.
+            # Pass only the extra variables. ACPConnection.start merges them over os.environ.
             conn = ACPConnection(cmd_line=cmd_line, env=self.get_env_vars() or None)
             with self._state_lock:
                 self._conn = conn
@@ -765,7 +746,7 @@ class ACPBackend(AgentBackend):
             if lost_slot:
                 conn.stop()
                 return
-            log.info(f"ACP initialized: {result}")
+            log.info("ACP initialized: %s", result)
         except _TurnStopped:
             # Stop won before initialize was sent. Leave the child so the
             # next message can finish the handshake. _ready stays false.
@@ -834,7 +815,7 @@ class ACPBackend(AgentBackend):
                 self._model_choices = choices
                 self._session_model = None
                 self._model_warn_key = None
-            log.debug(f"ACP session created: {self._session_id}")
+            log.debug("ACP session created: %s", self._session_id)
             self._select_session_model(conn)
         except _TurnStopped:
             # Stop won before session/new was sent. Not a session failure,
@@ -935,12 +916,9 @@ class ACPBackend(AgentBackend):
             if include_system and system_prompt:
                 prompt_blocks.append({"type": "text", "text": f"{system_prompt}\n\n"})
                 included_manual = True
-            # Add document URL if provided
             if document_url:
                 prompt_blocks.append({"type": "text", "text": f"Document URL: {document_url}\n\n"})
-            # User message
             prompt_blocks.append({"type": "text", "text": user_message})
-            # Add document snapshot last if provided
             if document_context:
                 snap = snapshot_text(document_context)
                 if snap:
@@ -972,15 +950,13 @@ class ACPBackend(AgentBackend):
                 else:
                     _queue_text_blocks(update.get("content"), queue, StreamQueueKind.CHUNK)
             elif session_update == "agent_thought_chunk":
-                # Thought text lives in ``content`` with ``type: text``. The legacy
-                # path queued that as CHUNK, and the agent drain appends every
-                # non-thinking chunk into the saved assistant row. THINKING is
-                # displayed when thinking is on and is left out of that row.
+                # Thought text is a ``content`` block with ``type: text``. It is queued as THINKING
+                # because the agent drain appends every CHUNK to the saved assistant row; THINKING
+                # is shown when thinking is on and is left out of that row.
                 _queue_text_blocks(update.get("content"), queue, StreamQueueKind.THINKING)
             elif session_update in ("tool_call", "tool_call_update"):
-                # These updates have no ``content`` list of ``type: tool_call``
-                # blocks. The old handler returned before queueing anything, so
-                # the transcript never showed the tool.
+                # The update object itself is the tool event; it has no ``content`` list of
+                # ``type: tool_call`` blocks, so it is queued directly.
                 queue.put((_tool_stream_kind(update), _tool_activity_payload(update)))
             # user_message_chunk is already the user turn. plan / usage / mode
             # updates are not the assistant answer, so they are not queued.
@@ -1014,8 +990,7 @@ class ACPBackend(AgentBackend):
 
     def _finish_antigravity_prompt(self, result: dict[str, Any], queue: Any) -> bool:
         """Queue Antigravity terminal events. True when the turn is fully handled."""
-        content_blocks = result.get("contentBlocks") or []
-        blocks_text = _text_from_content_blocks(content_blocks) if content_blocks else ""
+        blocks_text = _text_from_content_blocks(result.get("contentBlocks") or [])
         buffered = "".join(self._answer_buf)
         if _is_terminated_banner(buffered, blocks_text):
             if not self._user_stopped():
@@ -1024,9 +999,8 @@ class ACPBackend(AgentBackend):
             self._answer_buf.clear()
             return True
         if self._answer_buf:
-            joined = "".join(self._answer_buf)
-            if joined.strip():
-                queue.put((StreamQueueKind.CHUNK, joined))
+            if buffered.strip():
+                queue.put((StreamQueueKind.CHUNK, buffered))
             self._answer_buf.clear()
         return False
 
@@ -1088,7 +1062,7 @@ class ACPBackend(AgentBackend):
             hash(msg_id)
         except TypeError:
             log.warning("ACP permission request id is unhashable; cancelling without storing it")
-            conn.send_response(msg_id, result=_cancelled_permission())
+            conn.send_response(msg_id, result=cancelled_permission())
             return
         # Keep the options so Approve/Reject can echo optionId. The HITL
         # dialog only returns a bool; the id has to live with the request.
@@ -1100,7 +1074,7 @@ class ACPBackend(AgentBackend):
             if not reply_cancelled:
                 self._pending_permissions[msg_id] = (conn, stored)
         if reply_cancelled:
-            conn.send_response(msg_id, result=_cancelled_permission())
+            conn.send_response(msg_id, result=cancelled_permission())
             return
         description = _permission_description(params)
         tool_name = _permission_tool_name(tool_call)
@@ -1141,7 +1115,7 @@ class ACPBackend(AgentBackend):
         with self._state_lock:
             pending_permissions = self._pop_pending_permission_ids()
         for request_id, conn in pending_permissions:
-            conn.send_response(request_id, result=_cancelled_permission())
+            conn.send_response(request_id, result=cancelled_permission())
 
     def _finish_stopped(self, queue: Any) -> None:
         queue.put((StreamQueueKind.STOPPED, None))
@@ -1202,13 +1176,13 @@ class ACPBackend(AgentBackend):
         """Stop the CLI captured for ``token`` when that request is still in flight."""
         # Check token and clear slot under _state_lock so a subsequent send does not adopt a killed connection.
         with self._state_lock:
-            if token is None or self._inflight_token is not token or self._conn is not conn:
+            if self._inflight_token is not token or self._conn is not conn:
                 return
             pending_permissions = self._pop_pending_permission_ids()
             self._clear_slot_locked(conn)
         log.info("ACP cancel was not answered within %ss; killing the CLI", _CANCEL_GRACE_SEC)
         for request_id, req_conn in pending_permissions:
-            req_conn.send_response(request_id, result=_cancelled_permission())
+            req_conn.send_response(request_id, result=cancelled_permission())
         if conn is None:
             return
         conn.set_notification_callback(None)
@@ -1296,7 +1270,7 @@ class ACPBackend(AgentBackend):
                     self._answer_buf.clear()
                     self._record_agent_log_offset()
                     result = self._request(conn, "session/prompt", {"sessionId": self._session_id, "prompt": prompt_blocks}, _PROMPT_IDLE_SEC)
-                    # _session_prompted tracks whether the manual block was included in this prompt.
+                    # The session now has the manual; later prompts leave it out.
                     if included_manual:
                         self._session_prompted = True
 
@@ -1389,17 +1363,14 @@ class ACPBackend(AgentBackend):
 
         ACP does not define ``session/interrupt``. Cancellation is the
         ``session/cancel`` notification, and every outstanding permission
-        must be ``cancelled``. Killing here threw away the session on every
-        Stop. The process dies only if the request is still in flight after
-        ``_CANCEL_GRACE_SEC``, or when the sidebar calls ``shutdown``.
+        must be ``cancelled``. Stop does not kill the process, because that would
+        discard the session. The process dies only if the request is still in flight
+        after ``_CANCEL_GRACE_SEC``, or when the sidebar calls ``shutdown``.
 
         The cancel bytes are queued ahead of any later kill. This does not
         wait on the success path. Stop waits up to the grace for the prompt
         result. Activity after Stop does not extend that wait.
         """
-        send_cancel = False
-        cancel_conn: ACPConnection | None = None
-        cancel_sid: str | None = None
         with self._state_lock:
             inflight = self._inflight_token is not None
             token = self._inflight_token
@@ -1415,11 +1386,8 @@ class ACPBackend(AgentBackend):
             )
             if send_cancel:
                 self._session_cancel_notified = True
-                cancel_conn = conn
-                cancel_sid = session_id
-        if send_cancel:
-            assert cancel_conn is not None and cancel_sid is not None
-            cancel_conn.send_notification("session/cancel", {"sessionId": cancel_sid})
+        if send_cancel and conn is not None and session_id:
+            conn.send_notification("session/cancel", {"sessionId": session_id})
         # Reply while stdin is still open. A later shutdown closes it.
         self._cancel_pending_permissions()
         if inflight:

@@ -21,10 +21,8 @@ _VISION_TOOL_NAME = "image_extract_structure"
 def specialized_domain_available(domain: str, ctx: Any = None) -> bool:
     """Whether a specialized domain can actually run, for the exposure layers that advertise it.
 
-    Some domains need a backend the install may not have. The discovery catalog has always hidden
-    such a domain, but the MCP tool list advertised its tools anyway, so the same install offered
-    a capability in one exposure mode and not the other — and a direct_discovery client could not
-    reach a tool it had no way to learn about. One rule, consulted by both.
+    Both the discovery catalog and the MCP tool list consult this single rule so
+    a capability is advertised consistently across exposure modes.
 
     Unknown domains are available: the default is to advertise, and only a domain with a known
     prerequisite opts into being gated (``vision`` requires a Settings venv; ``mcp`` requires at
@@ -59,7 +57,7 @@ def filter_vision_specialized_tools(tools: list[Any], ctx: Any = None) -> list[A
     """Omit image_extract_structure when no Settings venv is configured."""
     if vision_venv_configured(ctx):
         return tools
-    return [t for t in tools if getattr(t, "name", None) != _VISION_TOOL_NAME]
+    return [t for t in tools if t.name != _VISION_TOOL_NAME]
 
 
 def filter_delegate_domains(schemas: list[dict[str, Any]], keep: Callable[[str], bool]) -> list[dict[str, Any]]:

@@ -307,7 +307,6 @@ def test_kokoro_worker_once_subprocess(tmp_path):
         str(out_wav),
         "m.onnx",
         "v.bin",
-        "en-us",
     ]
     proc = subprocess.run(
         cmd,

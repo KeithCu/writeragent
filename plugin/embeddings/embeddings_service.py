@@ -10,8 +10,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from plugin.embeddings.embedding_client import embedding_session_id
 from plugin.embeddings.embeddings_cache import parse_search_mode
-from plugin.framework.constants import configured_folder_search_mode
-from plugin.framework.constants import WORKER_POOL_EMBEDDINGS
+from plugin.framework.constants import WORKER_POOL_EMBEDDINGS, configured_folder_search_mode
 from plugin.framework.errors import ToolExecutionError
 from plugin.scripting.config_limits import embeddings_worker_timeout_sec
 from plugin.scripting.trusted_rpc import run_trusted_worker_action
@@ -31,6 +30,13 @@ def _folder_search_rerank_options(search_mode: str) -> dict[str, Any]:
     return {"use_mmr": True}
 
 
+def _model_or_raise(model: str, *, required: bool = True) -> str:
+    model_name = (model or "").strip()
+    if required and not model_name:
+        raise ToolExecutionError("No embedding model configured.", code="EMBEDDING_MODEL_MISSING")
+    return model_name
+
+
 def _run_embeddings_action(
     ctx: Any,
     helper: str,
@@ -48,7 +54,7 @@ def _run_embeddings_action(
         helper=helper,
         params=params,
         # Worker params carry model from each caller; empty slug uses the shared corpus session key.
-        session_id=embedding_session_id((model or "").strip() or "corpus"),
+        session_id=embedding_session_id(model or "corpus"),
         timeout_sec=timeout_sec,
         worker_pool=WORKER_POOL_EMBEDDINGS,
         allow_heartbeat=allow_heartbeat,
@@ -75,9 +81,7 @@ def maintain_folder_index(
     """Run full folder corpus maintenance in the embeddings venv.
     Optional heartbeat_fn will receive per‑file progress dicts.
     """
-    model_name = (model or "").strip()
-    if not model_name:
-        raise ToolExecutionError("No embedding model configured.", code="EMBEDDING_MODEL_MISSING")
+    model_name = _model_or_raise(model)
     resolved_mode = parse_search_mode(search_mode or configured_folder_search_mode())
     return _run_embeddings_action(
         ctx,
@@ -103,9 +107,7 @@ def index_paragraphs(
     cancel: SendCancellation | None = None,
 ) -> dict[str, Any]:
     """Persist paragraph rows + vectors via the warm venv worker."""
-    model_name = (model or "").strip()
-    if build_vectors and not model_name:
-        raise ToolExecutionError("No embedding model configured.", code="EMBEDDING_MODEL_MISSING")
+    model_name = _model_or_raise(model, required=build_vectors)
     # Pass search_mode. Without it, dispatch uses the sqlite default and a
     # configured zvec, LanceDB, or LlamaIndex backend never sees the rows.
     resolved_mode = parse_search_mode(search_mode or configured_folder_search_mode())
@@ -139,7 +141,7 @@ def delete_paragraphs(
     cancel: SendCancellation | None = None,
 ) -> dict[str, Any]:
     """Remove paragraph index rows via the warm venv worker."""
-    model_name = (model or "").strip()
+    model_name = _model_or_raise(model, required=False)
     resolved_mode = parse_search_mode(search_mode or configured_folder_search_mode())
     return _run_embeddings_action(
         ctx,
@@ -171,9 +173,7 @@ def hybrid_search(
 ) -> dict[str, Any]:
     """Hybrid FTS + semantic search over corpus.db via the warm venv worker."""
     search_mode = configured_folder_search_mode()
-    model_name = (model or "").strip()
-    if not model_name:
-        raise ToolExecutionError("No embedding model configured.", code="EMBEDDING_MODEL_MISSING")
+    model_name = _model_or_raise(model)
     return _run_embeddings_action(
         ctx,
         "hybrid_search",
@@ -204,9 +204,7 @@ def knn_search(
 ) -> dict[str, Any]:
     """Semantic search over a folder corpus.db via the warm venv worker."""
     search_mode = configured_folder_search_mode()
-    model_name = (model or "").strip()
-    if not model_name:
-        raise ToolExecutionError("No embedding model configured.", code="EMBEDDING_MODEL_MISSING")
+    model_name = _model_or_raise(model)
     return _run_embeddings_action(
         ctx,
         "knn_search",
@@ -233,7 +231,7 @@ def collection_stats(
     cancel: SendCancellation | None = None,
 ) -> dict[str, Any]:
     """Lightweight corpus stats for host empty/stale checks."""
-    model_name = (model or "").strip()
+    model_name = _model_or_raise(model, required=False)
     return _run_embeddings_action(
         ctx,
         "collection_stats",

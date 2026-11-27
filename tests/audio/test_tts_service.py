@@ -233,7 +233,6 @@ def test_speak_kokoro_local_uses_misaki_script_for_non_english(tmp_path):
     assert any(a.endswith("kokoro_worker.py") for a in ja_cmd)
     assert "--once" in ja_cmd
     assert "jf_alpha" in ja_cmd
-    assert "ja" in ja_cmd
 
 
 def test_speak_kokoro_local_skips_synthesis_when_phonemizer_install_cancelled(tmp_path):
@@ -262,7 +261,7 @@ def test_sentence_pipeline_installs_misaki_once_per_reply(tmp_path):
     ensure = MagicMock(return_value=True)
     synthesized: list[str] = []
 
-    def synth(sentence, provider, voice, speed, on_status, cancel):
+    def synth(sentence, provider, voice, speed, on_status, cancel, **_kwargs):
         del provider, voice, speed, on_status, cancel
         synthesized.append(sentence)
         path = tmp_path / f"{len(synthesized)}.wav"
@@ -357,7 +356,7 @@ def test_prefetch_keeps_synthesizing_during_playback(tmp_path):
     long_started = threading.Event()
     paths = []
 
-    def synth(sentence, provider, voice, speed, on_status, cancel):
+    def synth(sentence, provider, voice, speed, on_status, cancel, **_kwargs):
         del provider, voice, speed, on_status, cancel
         if sentence == longer:
             long_started.set()
@@ -402,7 +401,7 @@ def test_ready_queue_backpressure_stops_past_the_cap(max_clips):
     started: list[str] = []
     release_play = threading.Event()
 
-    def synth(sentence, provider, voice, speed, on_status, cancel):
+    def synth(sentence, provider, voice, speed, on_status, cancel, **_kwargs):
         del provider, voice, speed, on_status, cancel
         started.append(sentence)
         return tts._ReadyClip(None, sentence, 0)
@@ -459,7 +458,7 @@ def test_stop_drops_ready_clips_and_ignores_late_synth(tmp_path):
     first_playing = threading.Event()
     late_path = tmp_path / "S.wav"
 
-    def synth(sentence, provider, voice, speed, on_status, cancel):
+    def synth(sentence, provider, voice, speed, on_status, cancel, **_kwargs):
         del provider, voice, speed, on_status, cancel
         if sentence.startswith("Second"):
             hold_second.wait(2)
@@ -545,7 +544,7 @@ def test_stop_during_synthesis_plays_nothing(tmp_path):
 
         return real_bg(wrapped, **kwargs)
 
-    def blocking_synth(sentence, provider, voice, speed, on_status, utt):
+    def blocking_synth(sentence, provider, voice, speed, on_status, utt, **_kwargs):
         del sentence, provider, voice, speed, on_status
         cancel = utt.scope
         path = tts._new_speech_temp(".wav", cancel)
@@ -853,7 +852,7 @@ def test_speak_system_security(mock_which, mock_popen):
 def test_sentence_pipeline_producer_crash_speaks_only_remaining(tmp_path):
     calls = []
 
-    def synth(sentence, *args):
+    def synth(sentence, *args, **_kwargs):
         del args
         calls.append(sentence)
         if sentence == "Two.":
@@ -1133,7 +1132,7 @@ def test_sentence_pipeline_consumer_error_unblocks_producer(tmp_path, max_clips)
     started: list[str] = []
     producer_threads: list[tuple[threading.Thread, threading.Event]] = []
 
-    def synth(sentence, *args):
+    def synth(sentence, *args, **_kwargs):
         del args
         started.append(sentence)
         path = tmp_path / f"{len(started)}.wav"

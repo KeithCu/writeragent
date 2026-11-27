@@ -37,9 +37,9 @@ def format_index_heartbeat_line(
     elapsed_sec: float,
 ) -> str:
     """Format one per-file rebuild progress line (native paragraphs + embed chunks)."""
-    para_label = "paragraph" if int(paragraphs) == 1 else "paragraphs"
-    chunk_label = "chunk" if int(chunks) == 1 else "chunks"
-    return f"{filename}: {int(paragraphs)} {para_label}, {int(chunks)} {chunk_label}, {elapsed_sec:.2f}s"
+    para_label = "paragraph" if paragraphs == 1 else "paragraphs"
+    chunk_label = "chunk" if chunks == 1 else "chunks"
+    return f"{filename}: {paragraphs} {para_label}, {chunks} {chunk_label}, {elapsed_sec:.2f}s"
 
 
 def heartbeat_counts_from_payload(payload: dict[str, Any]) -> tuple[int, int]:
@@ -48,8 +48,7 @@ def heartbeat_counts_from_payload(payload: dict[str, Any]) -> tuple[int, int]:
     chunks = int(payload.get("upserted") or payload.get("chunks") or paragraphs)
     return paragraphs, chunks
 
-# UNO Key.RETURN (same code as chat sidebar; single-line edits have no newline use for Shift+Enter)
-_SEARCH_KEY_RETURN = 1280
+from plugin.chatbot.slash_commands import KEY_RETURN as _SEARCH_KEY_RETURN
 
 
 def format_cache_age(age_secs: float) -> str:
@@ -270,19 +269,19 @@ class SearchDialog:
 
                 resolved = main.call(self._resolve_doc_index_context)
                 if resolved is None:
-                    self._update_results_ui(_("No active document found."), enable_search_btn=True)
+                    self._finish(_("No active document found."), "BtnSearch")
                     return
                 doc, (folder_key, db_path, meta_path, listing_root) = resolved
 
                 if not folder_search_enabled():
-                    self._update_results_ui(
+                    self._finish(
                         _("Cross-file search is disabled. Enable Embeddings + FTS in Settings → Embeddings."),
-                        enable_search_btn=True,
+                        "BtnSearch",
                     )
                     return
 
                 if folder_key is None or db_path is None or meta_path is None:
-                    self._update_results_ui(_("Error: ") + str(listing_root), enable_search_btn=True)
+                    self._finish(_("Error: ") + str(listing_root), "BtnSearch")
                     return
 
                 store = folder_store(listing_root, meta_path, db_path)
@@ -295,9 +294,9 @@ class SearchDialog:
                         search_path = None
                 if search_path is None:
                     main.call(ensure_index_wakeup, ctx, doc)
-                    self._update_results_ui(
+                    self._finish(
                         _("Folder index is building in the background. Please retry search shortly."),
-                        enable_search_btn=True,
+                        "BtnSearch",
                     )
                     return
 
@@ -314,13 +313,13 @@ class SearchDialog:
                 main.call(ensure_index_wakeup, ctx, doc)
 
                 if not hits:
-                    self._update_results_ui(_("No matches found."), enable_search_btn=True)
+                    self._finish(_("No matches found."), "BtnSearch")
                     return
 
                 formatted_lines = []
                 for idx, hit in enumerate(hits, 1):
                     doc_url = hit.get("doc_url", "")
-                    filename = doc_url.split("/")[-1] if "/" in doc_url else doc_url
+                    filename = doc_url.split("/")[-1]
                     score = hit.get("score", 0.0)
                     snippet = (hit.get("snippet") or "").strip()
                     formatted_lines.append(f"[{idx}] {filename} (Score: {score:.4f})")
@@ -328,16 +327,11 @@ class SearchDialog:
                     formatted_lines.append("-" * 40)
 
                 output_text = "\n".join(formatted_lines)
-                self._update_results_ui(output_text, enable_search_btn=True)
-
-                def _do_refresh():
-                    dlg = self._dlg
-                    if dlg:
-                        self._refresh_cache_status(dlg)
-                main.call(_do_refresh)
+                self._finish(output_text, "BtnSearch")
+                main.call(self._refresh_status_if_open)
             except Exception as e:
                 log.exception("Background search failed")
-                self._update_results_ui(_("Error running search: ") + str(e), enable_search_btn=True)
+                self._finish(_("Error running search: ") + str(e), "BtnSearch")
 
         run_in_background(_do_background_search, name="search-dialog-query", dedicated=True)
 
@@ -358,11 +352,11 @@ class SearchDialog:
 
                 resolved = main.call(self._resolve_doc_index_context)
                 if resolved is None:
-                    self._update_rebuild_ui(_("No active document found."), enable_rebuild_btn=True)
+                    self._finish(_("No active document found."), "BtnRebuild")
                     return
                 _doc, (_folder_key, _db_path, _meta_path, listing_root) = resolved
                 if not listing_root:
-                    self._update_rebuild_ui(_("No active folder resolved."), enable_rebuild_btn=True)
+                    self._finish(_("No active folder resolved."), "BtnRebuild")
                     return
 
                 # Clear local cache files to force a full cold index rebuild
@@ -388,8 +382,8 @@ class SearchDialog:
                             return
                         elapsed = now - info["start"]
                         payload_paragraphs, payload_chunks = heartbeat_counts_from_payload(payload)
-                        paragraphs = payload_paragraphs or int(info.get("paragraphs") or 0)
-                        chunks = payload_chunks or int(info.get("chunks") or 0)
+                        paragraphs = payload_paragraphs or info["paragraphs"]
+                        chunks = payload_chunks or info["chunks"]
                         line = format_index_heartbeat_line(
                             str(file),
                             paragraphs=paragraphs,
@@ -412,8 +406,8 @@ class SearchDialog:
 
                         # The return value is unused, and call blocks this pipe holder
                         # for up to 30s when the UI thread is not pumping;
-                        # bound_scope=None because run_in_background copies the caller
-                        # context (worker_pool.py:217-219) and a chat SendCancellation
+                        # bound_scope=None because `run_in_background` in `plugin/framework/worker_pool.py`
+                        # (`caller_ctx = contextvars.copy_context()`) copies the caller context and a chat SendCancellation
                         # must not drop the progress paint (is_cancelled(None) is false;
                         # cancel_pending_work(scope) keeps a different scope).
                         main.post(ui_update, bound_scope=None)
@@ -429,23 +423,24 @@ class SearchDialog:
                         search_mode=configured_folder_search_mode(),
                         heartbeat_fn=heartbeat_fn,
                     )
-                    self._update_rebuild_ui(_("Cache rebuild completed successfully."), enable_rebuild_btn=True)
+                    self._finish(_("Cache rebuild completed successfully."), "BtnRebuild")
                 except Exception as exc:
                     log.exception("maintain_folder_index failed during rebuild")
-                    self._update_rebuild_ui(_("Rebuild failed: ") + str(exc), enable_rebuild_btn=True)
+                    self._finish(_("Rebuild failed: ") + str(exc), "BtnRebuild")
 
-                def _do_refresh():
-                    d = self._dlg
-                    if d:
-                        self._refresh_cache_status(d)
-                main.call(_do_refresh)
+                main.call(self._refresh_status_if_open)
             except Exception as e:
                 log.exception("Cache rebuild failed")
-                self._update_rebuild_ui(_("Rebuild failed: ") + str(e), enable_rebuild_btn=True)
+                self._finish(_("Rebuild failed: ") + str(e), "BtnRebuild")
 
         run_in_background(_do_rebuild, name="search-dialog-rebuild", dedicated=True)
 
-    def _update_results_ui(self, text: str, enable_search_btn: bool = False) -> None:
+    def _refresh_status_if_open(self) -> None:
+        dlg = self._dlg
+        if dlg:
+            self._refresh_cache_status(dlg)
+
+    def _finish(self, text: str, button: str) -> None:
         from plugin.framework.queue_executor import main
 
         def _update() -> None:
@@ -456,32 +451,11 @@ class SearchDialog:
                 results_ctrl = dlg.getControl("ResultsEdit")
                 if results_ctrl:
                     results_ctrl.getModel().Text = text
-                if enable_search_btn:
-                    btn_search = dlg.getControl("BtnSearch")
-                    if btn_search:
-                        btn_search.getModel().Enabled = True
+                btn = dlg.getControl(button)
+                if btn:
+                    btn.getModel().Enabled = True
             except Exception as exc:
-                log.debug("search results UI update failed (%s)", type(exc).__name__)
-
-        main.call(_update)
-
-    def _update_rebuild_ui(self, text: str, enable_rebuild_btn: bool = False) -> None:
-        from plugin.framework.queue_executor import main
-
-        def _update() -> None:
-            try:
-                dlg = self._dlg
-                if not dlg:
-                    return
-                results_ctrl = dlg.getControl("ResultsEdit")
-                if results_ctrl:
-                    results_ctrl.getModel().Text = text
-                if enable_rebuild_btn:
-                    btn_rebuild = dlg.getControl("BtnRebuild")
-                    if btn_rebuild:
-                        btn_rebuild.getModel().Enabled = True
-            except Exception as exc:
-                log.debug("search rebuild UI update failed (%s)", type(exc).__name__)
+                log.debug("search UI update failed (%s)", type(exc).__name__)
 
         main.call(_update)
 

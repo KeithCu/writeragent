@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Periodic background embeddings folder indexer (mtime vs last_indexed_at)."""
+"""Periodic background embeddings folder indexer."""
 from __future__ import annotations
 
 import logging
@@ -39,11 +39,11 @@ def _embeddings_periodic_tick(ctx: Any) -> None:
     from plugin.embeddings.embeddings_indexer import enqueue_folder_index
     from plugin.framework.uno_context import get_active_document
 
-    model = get_active_document(ctx)
-    if model is None:
+    doc = get_active_document(ctx)
+    if doc is None:
         return
     try:
-        enqueue_folder_index(ctx, model)
+        enqueue_folder_index(ctx, doc)
     except Exception:
         log.exception("embeddings periodic indexer tick failed")
 

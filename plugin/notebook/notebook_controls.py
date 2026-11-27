@@ -4,10 +4,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Wire notebook ▶ buttons to run handlers (form URL buttons do not reach ProtocolHandler).
 
-``controller.getControl(model)`` realizes each control view. On a 144-button import
-that was ~2.4s (and ~10s on some machines). PUSH buttons fire ``XActionListener`` on
-the *view*; the form controller's ``XControlContainer`` already holds realized views
-and notifies ``XContainerListener`` when later views appear (scroll / first paint).
+``controller.getControl(model)`` realizes each control view, which is slow on
+large imports. PUSH buttons fire ``XActionListener`` on the *view*; the form
+controller's ``XControlContainer`` already holds realized views and notifies
+``XContainerListener`` when later views appear (scroll / first paint).
 
 Live check (Writer ``XFormLayerAccess.getFormController``):
 ``org.openoffice.comp.svx.FormController`` is *not* ``XApproveActionBroadcaster``
@@ -93,7 +93,7 @@ def _query_interface(obj: Any, typename: str) -> Any:
 
 
 def _hex_id_from_control_name(name: str) -> str | None:
-    if not isinstance(name, str) or not name.startswith(RUN_PREFIX):
+    if not name.startswith(RUN_PREFIX):
         return None
     hex_id = name[len(RUN_PREFIX) :]
     return hex_id or None
@@ -112,11 +112,11 @@ def _control_name(obj: Any) -> str:
 
 
 def _hex_id_from_event(rEvent: Any) -> str | None:
-    cmd = str(getattr(rEvent, "ActionCommand", "") or "")
+    cmd = str(rEvent.ActionCommand or "")
     hex_id = _hex_id_from_control_name(cmd)
     if hex_id:
         return hex_id
-    return _hex_id_from_control_name(_control_name(getattr(rEvent, "Source", None)))
+    return _hex_id_from_control_name(_control_name(rEvent.Source))
 
 
 def form_run_listeners(doc: Any | None = None) -> list[Any]:
@@ -129,7 +129,7 @@ def form_run_listeners(doc: Any | None = None) -> list[Any]:
     if doc is None:
         return out
     key = doc_key(doc)
-    return [lis for lis in out if getattr(lis, "_doc_key_val", None) == key]
+    return [lis for lis in out if lis._doc_key_val == key]
 
 
 def prune_dead_listeners() -> None:
@@ -175,12 +175,7 @@ class NotebookFormRunListener(BaseActionListener):
             functools.partial(resolve_document_by_url, self._ctx, self._runtime_uid),
             "notebook controls: runtime uid resolution failed",
         )
-        if resolved is not None:
-            doc, _doc_type = resolved
-            if doc is not None:
-                return doc
-
-        return None
+        return resolved[0] if resolved is not None else None
 
     def on_action_performed(self, rEvent: Any) -> None:
         hex_id = _hex_id_from_event(rEvent)
@@ -211,8 +206,7 @@ class NotebookFormContainerListener(BaseContainerListener):
         return self._form_listener._resolve_doc()
 
     def on_element_inserted(self, Event: Any) -> None:
-        elem = getattr(Event, "Element", None)
-        _attach_action_listener(elem, self._form_listener)
+        _attach_action_listener(Event.Element, self._form_listener)
 
     def _forget_attached_name(self, elem: Any, what: str) -> None:
         if elem is None:
@@ -222,11 +216,11 @@ class NotebookFormContainerListener(BaseContainerListener):
             self._form_listener._attached_names.discard(name)
 
     def on_element_removed(self, Event: Any) -> None:
-        self._forget_attached_name(getattr(Event, "Element", None), "notebook controls: failed to read removed control name")
+        self._forget_attached_name(Event.Element, "notebook controls: failed to read removed control name")
 
     def on_element_replaced(self, Event: Any) -> None:
-        self._forget_attached_name(getattr(Event, "ReplacedElement", None), "notebook controls: failed to read replaced control name")
-        _attach_action_listener(getattr(Event, "Element", None), self._form_listener)
+        self._forget_attached_name(Event.ReplacedElement, "notebook controls: failed to read replaced control name")
+        _attach_action_listener(Event.Element, self._form_listener)
 
     def on_disposing(self, Source: Any) -> None:
         with _lock:
@@ -259,25 +253,23 @@ def _attach_action_listener(control: Any, listener: NotebookFormRunListener) -> 
     return best_effort(_attach, "notebook controls: form attach failed") is True
 
 
-def _form_and_container(doc: Any) -> tuple[Any | None, Any | None]:
-    """Return ``(form_controller, view_container)`` or ``(None, None)``."""
+def _form_and_container(doc: Any) -> Any | None:
+    """Return the form ``view_container``, or ``None``."""
     try:
         controller = doc.getCurrentController()
         if controller is None:
-            return None, None
-        forms = None
-        if hasattr(doc, "getDrawPage"):
-            forms = doc.getDrawPage().getForms()
+            return None
+        forms = doc.getDrawPage().getForms()
         if forms is None:
-            return None, None
-        count = getattr(forms, "getCount", lambda: 0)()
+            return None
+        count = forms.getCount()
         if count < 1:
-            return None, None
+            return None
 
         target_form = None
         for i in range(count):
             form = forms.getByIndex(i)
-            elem_count = getattr(form, "getCount", lambda: 0)()
+            elem_count = form.getCount()
             for j in range(elem_count):
                 name = getattr(form.getByIndex(j), "Name", "")
                 if name and name.startswith(RUN_PREFIX):
@@ -288,22 +280,19 @@ def _form_and_container(doc: Any) -> tuple[Any | None, Any | None]:
         if target_form is None:
             target_form = forms.getByIndex(0)
 
-        if target_form is not None:
-            fc = None
-            if hasattr(controller, "getFormController"):
-                fc = controller.getFormController(target_form)
-            if fc is None:
-                access = _query_interface(controller, "com.sun.star.view.XFormLayerAccess")
-                if access is not None:
-                    fc = access.getFormController(target_form)
-            if fc is not None:
-                container = fc.getContainer() if hasattr(fc, "getContainer") else None
-                if container is not None:
-                    return fc, container
-        return None, None
+        fc = None
+        if hasattr(controller, "getFormController"):
+            fc = controller.getFormController(target_form)
+        if fc is None:
+            access = _query_interface(controller, "com.sun.star.view.XFormLayerAccess")
+            if access is not None:
+                fc = access.getFormController(target_form)
+        if fc is not None:
+            return fc.getContainer() if hasattr(fc, "getContainer") else None
+        return None
     except Exception:
         log.debug("notebook controls: form controller lookup failed", exc_info=True)
-        return None, None
+        return None
 
 
 def _detach_wiring(container: Any, listener: Any, container_lis: Any) -> None:
@@ -328,7 +317,7 @@ def forget_document_wiring(doc: Any) -> None:
     key = doc_key(doc)
     with _lock:
         _warned_no_container.discard(key)
-        to_drop = [lis for lis in _listener_refs if getattr(lis, "_doc_key_val", None) == key]
+        to_drop = [lis for lis in _listener_refs if lis._doc_key_val == key]
     if not to_drop:
         return
     for lis in to_drop:
@@ -393,8 +382,8 @@ def _claim_container(
             return False
 
 
-def wire_all_notebook_run_buttons(ctx: Any, doc: Any, new_view: bool = True) -> int:
-    """Attach the shared form-level ▶ listener if missing. Returns 1 when wired.
+def wire_all_notebook_run_buttons(ctx: Any, doc: Any, new_view: bool = True) -> bool:
+    """Attach the shared form-level ▶ listener if missing. Returns True when wired.
 
     Does **not** call ``controller.getControl(model)`` per code cell.
     """
@@ -402,16 +391,16 @@ def wire_all_notebook_run_buttons(ctx: Any, doc: Any, new_view: bool = True) -> 
     if not new_view:
         if _claim_container(key):
             ensure_form_design_mode_off(doc)
-            return 1
+            return True
 
     state = load_registry(doc)
     if state is None or not state.code_cells:
-        return 0
+        return False
 
     prune_dead_listeners()
     ensure_form_design_mode_off(doc)
     t0 = time.monotonic()
-    _fc, container = _form_and_container(doc)
+    container = _form_and_container(doc)
     if container is None:
         with _lock:
             warn = key not in _warned_no_container
@@ -419,11 +408,11 @@ def wire_all_notebook_run_buttons(ctx: Any, doc: Any, new_view: bool = True) -> 
                 _warned_no_container.add(key)
         if warn:
             log.warning("notebook controls: no form controller container; ▶ clicks will not run (%d code cells)", len(state.code_cells))
-        return 0
+        return False
 
     if _claim_container(key, container):
         log.debug("notebook controls: form listener already attached doc=%s", key)
-        return 1
+        return True
 
     listener = NotebookFormRunListener(ctx, doc)
     attached = 0
@@ -442,7 +431,7 @@ def wire_all_notebook_run_buttons(ctx: Any, doc: Any, new_view: bool = True) -> 
     except Exception:
         log.warning("notebook controls: addContainerListener failed", exc_info=True)
         _detach_wiring(container, listener, container_lis)
-        return 0
+        return False
 
     if _claim_container(key, container, listener, container_lis):
         # File Open (Dummy-2) and view creation can both get past the first
@@ -450,14 +439,14 @@ def wire_all_notebook_run_buttons(ctx: Any, doc: Any, new_view: bool = True) -> 
         # ▶ click does not run the cell twice.
         _detach_wiring(container, listener, container_lis)
         log.debug("notebook controls: lost wiring race; detached duplicate doc=%s", key)
-        return 1
+        return True
     elapsed_ms = mono_ms(t0)
     log.info("notebook import attach_form_listener elapsed_ms=%d attached_views=%d code_cells=%d", elapsed_ms, attached, len(state.code_cells))
-    return 1
+    return True
 
 
 def _install_doc_event_listener(ctx: Any) -> None:
-    """Attach a global listener so documents/views opened AFTER bootstrap get the menu too."""
+    """Attach a global listener so documents/views opened after bootstrap get their ▶ buttons wired."""
     global _doc_listener
     with _lock:
         if _doc_listener is not None:
@@ -472,12 +461,12 @@ def _install_doc_event_listener(ctx: Any) -> None:
 
             def on_document_event(self, Event: Any) -> None:  # noqa: N803 -- UNO signature
                 try:
-                    name = getattr(Event, "EventName", "") or ""
+                    name = Event.EventName or ""
                     if name not in ("OnViewCreated", "OnLoadFinished", "OnLoad", "OnNew", "OnUnload"):
                         return
 
-                    controller = getattr(Event, "ViewController", None)
-                    doc = controller.getModel() if controller else getattr(Event, "Source", None)
+                    controller = Event.ViewController
+                    doc = controller.getModel() if controller else Event.Source
 
                     if name == "OnUnload":
                         if doc is not None:

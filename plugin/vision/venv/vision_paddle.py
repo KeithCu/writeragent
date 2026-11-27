@@ -298,8 +298,6 @@ def decode_image_bytes(image: Any, *, scale: float = 1.0) -> Any:
     """Return a numpy RGB array from raw PNG/JPEG bytes, optionally scaled."""
     # Transpose EXIF orientation, then composite transparent pixels onto white.
     # convert('RGB') drops alpha and paints transparent images black-on-black.
-    if image is None:
-        raise ValueError("image bytes are required")
     if not isinstance(image, (bytes, bytearray)):
         raise ValueError("image must be raw bytes")
     try:
@@ -327,7 +325,7 @@ def decode_image_bytes(image: Any, *, scale: float = 1.0) -> Any:
 
 
 def _decode_image(image: Any, params: dict[str, Any]) -> Any:
-    """Decode image bytes, applying the persisted images_scale (Paddle ignored it before)."""
+    """Decode image bytes, applying the persisted ``images_scale``."""
     try:
         scale = float(params.get("images_scale") or 1.0)
     except (TypeError, ValueError):
@@ -411,7 +409,7 @@ def _positive_span(value: str | None) -> int:
 class _HtmlTableParser(HTMLParser):
     """PP-Structure table HTML as origin cells with colspan/rowspan.
 
-    The old parser ignored spans, so a merged header sat in column 0.
+    Spans are kept so a merged header covers its columns.
     Covered slots are skipped; ``table_from_span_cells`` builds the grid.
     """
 
@@ -456,7 +454,7 @@ class _HtmlTableParser(HTMLParser):
                 self._row = 0
             while (self._row, self._col) in self._covered:
                 self._col += 1
-            attr_map = {name: value for name, value in attrs}
+            attr_map = dict(attrs)
             self._pending_rowspan = _positive_span(attr_map.get("rowspan"))
             self._pending_colspan = _positive_span(attr_map.get("colspan"))
             self._in_cell = True
@@ -555,7 +553,7 @@ def _table_from_structure_res(res: Any, *, name: str) -> dict[str, Any] | None:
                     rows.append([str(c.get("text", c) if isinstance(c, dict) else c) for c in row])
             if rows:
                 columns = rows[0]
-                data = rows[1:] if len(rows) > 1 else []
+                data = rows[1:]
                 return {
                     "name": name,
                     "columns": columns,
@@ -655,9 +653,11 @@ def _parse_v3_structure_page(
         label, content, bbox = _v3_block_fields(block)
         box = bbox_to_xywh(bbox) if bbox is not None else [0, 0, 0, 0]
         if label == "table":
-            html = htmls[html_at] if html_at < len(htmls) else ""
             if html_at < len(htmls):
+                html = htmls[html_at]
                 html_at += 1
+            else:
+                html = ""
             if not html.strip():
                 html = content
             _take_table(html)
@@ -681,10 +681,9 @@ def _parse_v3_structure_page(
 def _normalize_structure_pages(raw: Any) -> list[Any]:
     """Pages as a flat list: 2.x per-page region lists are flattened into their regions; 3.x pages stay Results.
 
-    PPStructureV3.predict() yields per-page Results (often a generator). The old
-    normalizer peeled ``parsing_res_list`` off that dict and dropped
-    ``table_res_list``. LayoutBlock entries are not ``{type, bbox, res}``, so
-    ``_parse_structure_output`` then returned no blocks, tables, or HTML.
+    ``PPStructureV3.predict()`` yields per-page Results (often a generator) that
+    bundle ``parsing_res_list`` and ``table_res_list`` together, so 3.x pages
+    must stay whole for ``_parse_v3_structure_page``.
     """
     if isinstance(raw, Iterator):
         raw = [page for page in raw if page is not None]
@@ -783,8 +782,8 @@ def html_from_paddle_structure(
         block_type = str(block.get("type") or "text").strip().lower()
         text = str(block.get("text") or "").strip()
         # Tables come from ``tables`` below. Skip empty text or raw ``<table>``
-        # markup (the old empty-only guard escaped it into a second ``<p>``).
-        # Plain prose on a table block is kept.
+        # markup so it is not escaped into a second ``<p>``; plain prose on a
+        # table block is kept.
         if block_type == "table" and (not text or "<table" in text.lower()):
             continue
         fragment = _block_to_html(block)

@@ -17,7 +17,7 @@ import sys
 import tempfile
 import threading
 from collections import deque
-from typing import Any, Callable, NamedTuple, cast
+from typing import Any, Callable, NamedTuple
 
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 from plugin.audio.kokoro_g2p import (
@@ -28,10 +28,12 @@ from plugin.audio.kokoro_g2p import (
     kokoro_lang_uses_misaki,
 )
 from plugin.audio.kokoro_pool import (
+    SCRIPT_PATH as _KOKORO_WORKER_SCRIPT,
+    WORKER_CANCELLED,
     get_kokoro_pool,
     resolve_kokoro_python,
 )
-from plugin.audio.tts_endpoint import download_endpoint_speech
+from plugin.audio.tts_endpoint import DEFAULT_ENDPOINT_TTS_MODEL, download_endpoint_speech
 from plugin.audio.tts_models import (
     clear_tts_status,
     notify_tts_status,
@@ -197,29 +199,27 @@ class _ReadyQueue:
             return paths
 
 
-def _proc_running(proc: subprocess.Popen[Any] | None) -> bool:
-    return proc is not None and proc.poll() is None
+def _proc_running(proc: subprocess.Popen[Any]) -> bool:
+    return proc.poll() is None
 
 
-def _is_spd_say(proc: subprocess.Popen[Any] | None) -> bool:
-    args = getattr(proc, "args", None)
+def _is_spd_say(proc: subprocess.Popen[Any]) -> bool:
+    args = proc.args
     return isinstance(args, (list, tuple)) and bool(args) and os.path.basename(str(args[0])) == "spd-say"
 
 
-def _signal_stop_proc(proc: subprocess.Popen[Any] | None) -> None:
+def _signal_stop_proc(proc: subprocess.Popen[Any]) -> None:
     """Signal a speech process to stop immediately without blocking the caller.
 
     Unix sends SIGKILL. Windows kill() is TerminateProcess. terminate()
     and then an immediate kill() never lets a SIGTERM handler run.
     """
-    if proc is None:
-        return
     if proc.stdin:
         best_effort(proc.stdin.close, "stdin close failed")
     try:
         log.info("Terminating speech process (PID %s)", proc.pid)
         proc.kill()
-    except Exception as exc:
+    except OSError as exc:
         log.debug("speech terminate error: %s", exc)
 
 
@@ -233,10 +233,8 @@ def _run_quiet(cmd: list[str], timeout: float) -> None:
     )
 
 
-def _reap_proc(proc: subprocess.Popen[Any] | None) -> None:
+def _reap_proc(proc: subprocess.Popen[Any]) -> None:
     """Reap a terminated process in a background thread."""
-    if proc is None:
-        return
     try:
         if sys.platform == "win32":
             try:
@@ -246,7 +244,7 @@ def _reap_proc(proc: subprocess.Popen[Any] | None) -> None:
                 proc.wait(timeout=5)
         else:
             proc.wait(timeout=5)
-    except Exception as exc:
+    except (OSError, subprocess.TimeoutExpired) as exc:
         log.debug("speech reap error: %s", exc)
 
 
@@ -475,7 +473,7 @@ def _popen_for_speech(
         label="tts",
     )
     managed.start()
-    proc = cast("subprocess.Popen[Any]", managed.popen)
+    proc = managed.popen
     assert proc is not None
 
     with _speech_lock:
@@ -641,7 +639,7 @@ def _play_audio_file(file_path: str, cancel: SendCancellation, rate: float = 1.0
     """Play an audio file. True only when a player exits 0.
 
     ``rate`` is applied as a pitch-preserving tempo where the player supports one.
-    Callers fall back to OS speech when this returns False and the utterance was not cancelled. False distinguishes a player that exited non-zero from success.
+    Callers fall back to OS speech when this returns False and the utterance was not cancelled.
     """
     candidates = _get_player_candidates(file_path, rate)
     if not candidates:
@@ -688,7 +686,10 @@ def _play_audio_file(file_path: str, cancel: SendCancellation, rate: float = 1.0
     return False
 
 
-def _chunk_text(text: str, max_chunk: int = 4000) -> list[str]:
+_DEFAULT_CHUNK_CHARS = 4000
+
+
+def _chunk_text(text: str, max_chunk: int = _DEFAULT_CHUNK_CHARS) -> list[str]:
     """Split very long text so one speech request stays under host limits.
 
     A sentence end in the latter half of the window wins. Otherwise the
@@ -730,10 +731,10 @@ def _endpoint_chunks(text: str) -> list[str]:
     Replies <= 4000 chars are split with _chunk_text(text, 4000). Longer replies
     use a first chunk capped near 600 characters followed by 4000-character chunks.
     """
-    if len(text) <= 4000:
-        return _chunk_text(text, 4000)
+    if len(text) <= _DEFAULT_CHUNK_CHARS:
+        return _chunk_text(text, _DEFAULT_CHUNK_CHARS)
     cut = _chunk_cut(text, 600)
-    return [text[:cut].strip()] + _chunk_text(text[cut:].strip(), 4000)
+    return [text[:cut].strip()] + _chunk_text(text[cut:].strip(), _DEFAULT_CHUNK_CHARS)
 
 
 def _speak_system(text: str, speed: float = 1.0, *, cancel: SendCancellation) -> None:
@@ -774,7 +775,7 @@ def _speak_system(text: str, speed: float = 1.0, *, cancel: SendCancellation) ->
                 rate_pct = int((speed - 1.0) * 100)
                 rate_pct = max(-100, min(100, rate_pct))
                 # spd-say takes text as argv; chunk if text is long
-                chunks = _chunk_text(text, 4000)
+                chunks = _chunk_text(text, _DEFAULT_CHUNK_CHARS)
                 for chunk in chunks:
                     if is_cancelled(cancel):
                         return
@@ -892,8 +893,8 @@ def _prepare_kokoro_misaki(
     if ready is None or is_cancelled(cancel):
         return None
     clear_tts_status(on_status)
-    utt.remember_misaki(lang, bool(ready))
-    return bool(ready)
+    utt.remember_misaki(lang, ready)
+    return ready
 
 
 def _synth_timeout(text: str, floor: float) -> float:
@@ -936,8 +937,7 @@ def _run_synth(
             proc.kill()
             best_effort(lambda: proc.wait(timeout=5.0), "synth proc wait failed")
             raise
-        code = proc.returncode if proc.returncode is not None else 1
-        return code, str(stdout or ""), str(stderr or "")
+        return proc.returncode, stdout, stderr
     finally:
         _clear_speech_proc(proc)
 
@@ -1021,7 +1021,6 @@ def _kokoro_warm_to_file(
                 "text": text,
                 "voice": voice,
                 "speed": speed,
-                "lang": lang,
                 "model_path": model_path,
                 "voices_path": voices_path,
                 "out_path": tmp_wav,
@@ -1034,7 +1033,7 @@ def _kokoro_warm_to_file(
         log.exception("Kokoro warm worker raised; falling back to one-shot synthesis")
         _release_temp(tmp_wav)
         return None, True
-    if is_cancelled(cancel) or result.get("code") == "WORKER_CANCELLED":
+    if is_cancelled(cancel) or result.get("code") == WORKER_CANCELLED:
         _release_temp(tmp_wav)
         return None, False
     if (
@@ -1076,8 +1075,7 @@ def _kokoro_oneshot_to_file(
     if tmp_wav is None:
         return None
     lang = kokoro_g2p_lang(text, voice)
-    worker_py = os.path.join(os.path.dirname(os.path.abspath(__file__)), "kokoro_worker.py")
-    cmd = [py_exe, worker_py, "--once", "-", voice, str(speed), tmp_wav, model_path, voices_path, lang]
+    cmd = [py_exe, _KOKORO_WORKER_SCRIPT, "--once", "-", voice, str(speed), tmp_wav, model_path, voices_path]
     wav_path, stdout = _run_synth_to_temp(
         tmp_wav,
         cmd,
@@ -1099,7 +1097,7 @@ def _kokoro_oneshot_to_file(
                     g2p = data["g2p"]
                 if isinstance(data.get("warning"), str):
                     warning = data["warning"]
-        except Exception:
+        except ValueError:
             log.debug("Kokoro once stdout was not JSON: %s", out_str)
     if warning.strip():
         log.warning("Kokoro: %s", warning.strip())
@@ -1113,9 +1111,12 @@ def _kokoro_audio_file(
     speed: float,
     on_status: Callable[[str], None] | None,
     utt: Utterance,
+    *,
+    py_exe: str | None = None,
 ) -> str | None:
     """Write one Kokoro wav. Warm worker first, then kokoro_worker.py --once."""
-    py_exe = resolve_kokoro_python()
+    if py_exe is None:
+        py_exe = resolve_kokoro_python()
     # Return before model download when no Kokoro python is configured so sentence mode can fall back to OS speech without pulling large files.
     if not py_exe:
         return None
@@ -1154,10 +1155,13 @@ def _piper_audio_file(
     speed: float,
     on_status: Callable[[str], None] | None,
     utt: Utterance,
+    *,
+    py_exe: str | None = None,
 ) -> str | None:
     """One Piper wav via CLI. Timeout scales with text length."""
     cancel = utt.scope
-    py_exe = resolve_kokoro_python()
+    if py_exe is None:
+        py_exe = resolve_kokoro_python()
     if not py_exe:
         return None
     model_file = resolve_piper_model_file(
@@ -1222,9 +1226,9 @@ def _speak_local(
         log.info("Kokoro G2P lang=%s for voice=%s", lang, voice)
         if _prepare_kokoro_misaki(text, voice, on_status, utt, py_exe=py_exe) is None:
             return
-        wav_path = _kokoro_audio_file(text, voice, speed, on_status, utt)
+        wav_path = _kokoro_audio_file(text, voice, speed, on_status, utt, py_exe=py_exe)
     else:
-        wav_path = _piper_audio_file(text, voice, speed, on_status, utt)
+        wav_path = _piper_audio_file(text, voice, speed, on_status, utt, py_exe=py_exe)
     if _wav_played_or_blocked(wav_path, cancel):
         return
     if provider == "kokoro":
@@ -1245,14 +1249,16 @@ def _synthesize_sentence_clip(
     speed: float,
     on_status: Callable[[str], None] | None,
     utt: Utterance,
+    *,
+    py_exe: str | None = None,
 ) -> _ReadyClip | None:
     """Synthesize one sentence without playing it for sentence prefetch."""
     cancel = utt.scope
     path: str | None = None
     if provider == "kokoro":
-        path = _kokoro_audio_file(sentence, voice, speed, on_status, utt)
+        path = _kokoro_audio_file(sentence, voice, speed, on_status, utt, py_exe=py_exe)
     elif provider == "piper":
-        path = _piper_audio_file(sentence, voice, speed, on_status, utt)
+        path = _piper_audio_file(sentence, voice, speed, on_status, utt, py_exe=py_exe)
 
     if is_cancelled(cancel):
         _release_temp(path)
@@ -1356,7 +1362,8 @@ def _run_sentence_pipeline(
 ) -> None:
     """Play sentences in order while synthesis keeps running ahead."""
     cancel = utt.scope
-    if provider == "kokoro" and not resolve_kokoro_python():
+    py_exe = resolve_kokoro_python() if provider in ("kokoro", "piper") else None
+    if provider == "kokoro" and not py_exe:
         # Warn once per reply; _kokoro_audio_file does not log when the venv is missing.
         log.warning(
             "Local Kokoro TTS requires a configured Python venv. "
@@ -1365,7 +1372,7 @@ def _run_sentence_pipeline(
 
     def _synth(index: int, sentence: str) -> _ReadyClip | None:
         if provider == "kokoro" and _prepare_kokoro_misaki(
-            sentence, voice, on_status, utt,
+            sentence, voice, on_status, utt, py_exe=py_exe,
         ) is None:
             return None
         return _synthesize_sentence_clip(
@@ -1375,6 +1382,7 @@ def _run_sentence_pipeline(
             speed,
             on_status if index == 0 else None,
             utt,
+            py_exe=py_exe,
         )
 
     def _produce(ready: _ReadyQueue) -> None:
@@ -1395,7 +1403,7 @@ def _speak_endpoint(
     on_status: Callable[[str], None] | None = None,
 ) -> None:
     """Download audio from an OpenAI-compatible speech endpoint and play it."""
-    # raw endpoint: see log_target
+    # log_target() strips credentials and query from the URL before it is logged.
     log.info("Speaking via endpoint TTS (%s, model=%s, voice=%s)", log_target(endpoint_url), model, voice)
     chunks = _endpoint_chunks(text)
     if not chunks:
@@ -1421,7 +1429,7 @@ def _speak_endpoint(
         if is_cancelled(cancel):
             return None
 
-        def _bail(notify: bool = False) -> _ReadyClip:
+        def _bail(notify: bool) -> _ReadyClip:
             nonlocal bailed
             bailed = True
             log.warning("Endpoint TTS failed; falling back to OS system speech.")
@@ -1508,10 +1516,10 @@ def speak_text_async(
                 from plugin.framework.client.model_fetcher import get_tts_model
 
                 try:
-                    model_name = get_tts_model() or "hexgrad/Kokoro-82M"
+                    model_name = get_tts_model() or DEFAULT_ENDPOINT_TTS_MODEL
                 except ConfigError:
                     # An invalid endpoint URL raises here; download_endpoint_speech reports it and falls back to system speech.
-                    model_name = "hexgrad/Kokoro-82M"
+                    model_name = DEFAULT_ENDPOINT_TTS_MODEL
 
             if voice and voice.strip():
                 voice_name = clean_voice_name(voice)
@@ -1566,10 +1574,10 @@ def speak_text_async(
     try:
         run_in_background(_worker, dedicated=True, name="tts-speak")
     except Exception:
-        # _begin_utterance has already set _speech_active. Thread.start can
-        # raise (RuntimeError at shutdown or when the process cannot create a
-        # thread). The worker finally never runs, so is_speaking() stayed true
-        # and the sidebar Stop control stayed enabled.
+        # _begin_utterance has already set _speech_active, and starting the worker can raise
+        # (RuntimeError at shutdown, or no thread available). The worker's finally would never run,
+        # so end the utterance here; otherwise is_speaking() stays true and the sidebar Stop control
+        # stays enabled.
         log.exception("speak_text_async: failed to start speech worker")
         _end_utterance(utt)
         raise
