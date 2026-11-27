@@ -127,6 +127,25 @@ def test_writer_reuse_next_test_sees_original_builtin_heading_style(ctx, doc):
 
 @native_test
 @with_native_doc("writer")
+def test_writer_pool_reset_builds_no_fixed_pitch_font_styles(ctx, doc):
+    # Reading every built-in style builds Preformatted Text, which brings a fixed-pitch
+    # Liberation Mono into the document; a paragraph font set by name then exports as
+    # Liberation Mono1 in a full read.
+    from plugin.writer import html_export
+
+    text = doc.getText()
+    text.setString("Mono paragraph")
+    cursor = text.createTextCursor()
+    cursor.gotoStart(False)
+    cursor.gotoEndOfParagraph(True)
+    cursor.setPropertyValue("CharFontName", "Liberation Mono")
+    content = html_export.document_to_content(doc, ctx, scope="full")
+    assert "font-family:Liberation Mono" in content, content
+    assert "Liberation Mono1" not in content, content
+
+
+@native_test
+@with_native_doc("writer")
 def test_writer_default_reuse_writes_then_leaves_dirt(ctx, doc):
     from plugin.writer.html_import import insert_content_at_position
 

@@ -796,11 +796,18 @@ def _reset_calc_doc(doc, ctx) -> None:  # ctx unused; same signature as writer r
     _native_teardown_progress("native_doc: _reset_calc_doc done")
 
 
-# A fresh Writer document's built-in paragraph and character styles, captured once from the
-# first pooled document, so reset can undo a test that rewrote one (inserting HTML restyles
-# Heading 1 and Heading 2, for example). Style name -> (fingerprint property names,
-# fingerprint values, {property: (set directly, value)}).
+# Built-in styles that tests rewrite (inserting HTML restyles Heading 1 and Heading 2, for
+# example), captured once from the first pooled document so reset can undo it. Only the short
+# list below is read and restored: touching a style makes LibreOffice build it, and building
+# Preformatted Text or Source Text puts a fixed-pitch Liberation Mono font into the document,
+# so a later test that sets that font by name would export it as Liberation Mono1.
+# Style name -> (fingerprint property names, fingerprint values, {property: (set directly, value)}).
 _WRITER_STYLE_FAMILIES = ("ParagraphStyles", "CharacterStyles")
+_WRITER_STYLE_SENTINELS: dict[str, tuple[str, ...]] = {
+    "ParagraphStyles": tuple("Heading %d" % level for level in range(1, 11))
+    + ("Title", "Subtitle", "Text Body", "Quotations", "Table Heading", "Table Contents"),
+    "CharacterStyles": ("Emphasis", "Strong Emphasis", "Internet Link"),
+}
 _WRITER_STYLE_FINGERPRINT_PROPS = (
     "CharFontName",
     "CharHeight",
@@ -857,7 +864,7 @@ def _writer_style_snapshot(style: Any) -> dict[str, tuple[bool, Any]]:
 
 
 def _capture_writer_style_baseline(doc: Any) -> None:
-    """Record the built-in styles of a freshly created Writer document, once per process."""
+    """Record the sentinel built-in styles and the built-in style names of a fresh Writer document, once per process."""
     if _WRITER_STYLE_BASELINE:
         return
     try:
@@ -868,10 +875,17 @@ def _capture_writer_style_baseline(doc: Any) -> None:
         captured: dict[str, tuple[tuple[str, ...], tuple[Any, ...], dict[str, tuple[bool, Any]]]] = {}
         try:
             styles = families.getByName(family_name)
+            # Names only: getElementNames lists every built-in style without building it.
             style_names = list(styles.getElementNames())
         except Exception:
             continue
-        for name in style_names:
+        if family_name == "ParagraphStyles":
+            _BUILTIN_PARA_STYLES.update(style_names)
+        elif family_name == "CharacterStyles":
+            _BUILTIN_CHAR_STYLES.update(style_names)
+        for name in _WRITER_STYLE_SENTINELS.get(family_name, ()):
+            if name not in style_names:
+                continue
             try:
                 style = styles.getByName(name)
                 info = style.getPropertySetInfo()
@@ -883,7 +897,7 @@ def _capture_writer_style_baseline(doc: Any) -> None:
 
 
 def _restore_writer_builtin_styles(doc: Any) -> None:
-    """Put back any built-in paragraph or character style a test rewrote.
+    """Put back any sentinel built-in paragraph or character style a test rewrote.
 
     One batched read of a few key properties per style spots a changed style cheaply; only
     those are compared property by property and restored.
