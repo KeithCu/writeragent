@@ -847,7 +847,7 @@ test could reach it.
 - **Bugfix comments deleted while the guard stayed**, against `AGENTS.md`:
   `56e1f5f19` (the BibliographicType int-range and name-mapping notes),
   `b2d9cce2c` (the `uno_same` identity-ladder history), `f4e4d9695` (the
-  `refuse_tracked_insert_or_delete` rationale). A cheap check for next time:
+  `refuse_streamed_selection` rationale). A cheap check for next time:
   `git show <hash> | grep '^-.*Bugfix'` and confirm each hit has a replacement.
 - **Unverified reviewer notes:** `192018692` `should_emit_silence_progress`
   dropped its `self._config.enabled` check (is the caller gating?);
@@ -1116,4 +1116,4 @@ in the same comment-only PR.
 
 - `[eng S few]` Dispose the LibrePy sidebar controller when panel setup fails after `PythonSidebarController` is built, and restore the test removed with that cleanup. (§ New items for "Known risks" (verified in the diffs unless noted))
 - `[eng S few]` Restore unit coverage for hands-free restart (`sticky_restart` and `stop_during_take` matrices) and a `_prepare_mcp_execution` test with non-string, `None` and missing-key arguments. (§ Known risks of this process)
-- `[eng S few]` Put back the deleted bugfix rationale comments on `resolve_bibliographic_type` and `_BIB_FIELD_FOLDED` in `plugin/writer/specialized/indexes.py` (`uno_same` in `plugin/framework/uno_context.py` and `refuse_tracked_insert_or_delete` in `plugin/writer/edit_review.py` already carry their rationale docstrings). (§ New items for "Known risks" (verified in the diffs unless noted))
+- `[eng S few]` Put back the deleted bugfix rationale comments on `resolve_bibliographic_type` and `_BIB_FIELD_FOLDED` in `plugin/writer/specialized/indexes.py` (`uno_same` in `plugin/framework/uno_context.py` and `refuse_streamed_selection` in `plugin/writer/edit_review.py` already carry their rationale docstrings). (§ New items for "Known risks" (verified in the diffs unless noted))

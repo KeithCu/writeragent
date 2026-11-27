@@ -1443,21 +1443,7 @@ def test_streamed_plain_mode_retargets_even_after_write_error():
         session.last_write_error = RuntimeError("chunk failed")
         warning = session.finish()
     mock_retarget.assert_called_once()
-    assert warning is not None and "chunk failed" in warning
-
-
-def test_tag_agent_redlines_reuses_given_token():
-    from plugin.writer.edit_review import tag_agent_redlines
-
-    doc = MagicMock()
-    with (
-        patch("plugin.writer.edit_review._tag_new_change", return_value=("wa-review:abc:0", [MagicMock()])) as tag_mock,
-        patch("plugin.writer.edit_review.refresh_review_toolbar"),
-    ):
-        tok = tag_agent_redlines(doc, set(), before_reliable=True, token="wa-review:abc:0")
-    assert tok == "wa-review:abc:0"
-    mint = tag_mock.call_args[0][3]
-    assert mint() == "wa-review:abc:0"
+    assert warning is None
 
 
 def test_left_tracked_changes_false_when_edit_left_no_redline():

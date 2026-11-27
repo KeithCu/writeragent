@@ -62,7 +62,13 @@ from plugin.doc.text_helpers import FAILED, go_right, is_text_table, iter_elemen
 # suites run (review mode reads "off" unless a test sets it); a from-import would keep the original.
 from plugin.framework import config
 from plugin.framework.doc_type import is_writer
-from plugin.framework.errors import ToolExecutionError, document_is_disposed, reraise_if_disposed, uno_read
+from plugin.framework.errors import (
+    DocumentDisposedError,
+    ToolExecutionError,
+    document_is_disposed,
+    reraise_if_disposed,
+    uno_read,
+)
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 from plugin.framework.i18n import N_, _
 from plugin.framework.uno_context import get_ctx
@@ -1280,14 +1286,21 @@ class StreamedSelectionRefused(Exception):
 
 
 class TrackedChangesInSelection(StreamedSelectionRefused):
-    """The selection contains, touches, or lies inside a tracked change."""
+    """The selection contains, touches, or lies inside a tracked change.
+
+    Replacing the range would drop another author's pending Format or ParagraphFormat
+    change, and an untracked write accepts or flattens an Insert or Delete.
+    """
 
     def __init__(self) -> None:
         super().__init__(TRACKED_SELECTION_MESSAGE)
 
 
 class TableInSelection(StreamedSelectionRefused):
-    """The selection includes a text table."""
+    """The selection includes a text table.
+
+    Replacing the range deletes the table, and Reject cannot bring it back.
+    """
 
     def __init__(self) -> None:
         super().__init__(TABLE_SELECTION_MESSAGE)
@@ -1318,7 +1331,8 @@ def _open_enum(owner: Any) -> Any:
 def _is_blocking_redline(node: Any, kinds: frozenset[str] | None = None) -> bool:
     """True for a redline portion matching *kinds* (any redline when *kinds* is None).
 
-    An unreadable ``RedlineType`` on a confirmed redline portion fails closed.
+    An unreadable ``RedlineType`` on a confirmed redline portion fails closed
+    because a write could resolve it.
     """
     if _portion_type(node) != "Redline":
         return False
@@ -1409,6 +1423,10 @@ def range_contains_table(text_range: Any) -> bool:
 def refuse_streamed_selection(doc: Any, text_range: Any) -> None:
     """Raise before any streamed-edit write when the range touches any redline or a table.
 
+    Replacing the range would drop another author's pending Format/ParagraphFormat
+    change, accept or flatten an Insert/Delete on an untracked write, or delete a
+    table that Reject cannot bring back.
+
     Both streamed session constructors call this before opening the undo context
     and before any write (the slash whole-body target calls it too).
     """
@@ -1431,6 +1449,9 @@ def _stream_write_warning(exc: Exception | None) -> str | None:
 
 
 def _write_stream_chunk(session: Any, text: str, label: str) -> None:
+    if document_is_disposed(session.doc):
+        # The chunk is dropped, because a write into a closed document's range aborts LibreOffice.
+        return
     try:
         recording = is_recording_changes(session.doc)
         if recording and not session._preview_recorded:
@@ -1502,6 +1523,9 @@ class _WriterStreamedSessionBase:
                 if before_ids is not None and self._token is not None:
                     try:
                         # Tag redlines so the inline review UI treats the streamed edit as one agent change.
+                        # If the second-half tag call (at finish) returns None or raises, the start Delete
+                        # keeps self._token while the final Insert stays untagged (author-based agent
+                        # identity still recognizes WriterAgent redlines).
                         self._token = tag_agent_redlines(
                             self.doc,
                             before_ids,
@@ -1539,7 +1563,12 @@ class _WriterStreamedSessionBase:
     ) -> str | None:
         """Replace the streamed preview with the final write (recorded once when ``self.recorded``)."""
         try:
+            if document_is_disposed(self.doc):
+                # A closed document must not reach getRedlines or setString.
+                raise DocumentDisposedError("Document closed during streamed edit")
             try:
+                # Remove the preview untracked (it may be the user's own recorded Insert)
+                # so that only the final write is recorded as one Insert.
                 with record_changes(self.doc, False):
                     self._preview.setString("")
                 if self.recorded:
@@ -1547,8 +1576,7 @@ class _WriterStreamedSessionBase:
                 else:
                     with record_changes(self.doc, False):
                         write_final()
-                link_warning = self._retarget_links()
-                return _stream_write_warning(self.last_write_error) or link_warning
+                return self._retarget_links()
             except Exception as exc:
                 # A closed document is not "the text was kept".
                 reraise_if_disposed(exc)
@@ -1629,6 +1657,9 @@ class WriterStreamedRewriteSession(_WriterStreamedSessionBase):
 
             def _write_final() -> None:
                 if self.preserve_paragraph_breaks:
+                    # _replace_range_with_paragraph_text writes via its own internal cursor,
+                    # leaving _preview collapsed at the end; a rare partial failure there would
+                    # append fallback_text after the partial paragraphs.
                     _replace_range_with_paragraph_text(
                         self._preview,
                         final_text,

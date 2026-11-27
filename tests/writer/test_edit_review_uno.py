@@ -645,6 +645,19 @@ def test_streamed_sessions_refuse_table_and_any_redline_uno(ctx, doc):
     for cls in (WriterStreamedRewriteSession, WriterStreamedAppendSession):
         with unittest.TestCase().assertRaises(TableInSelection):
             cls(doc, whole, whole.getString(), track_reviewable=True)
+
+    # Body-into-table partial view selection is also refused.
+    cell_cur = tbl.getCellByName("A1").createTextCursor()
+    cell_cur.gotoStart(False)
+    view_cur = doc.getCurrentController().getViewCursor()
+    before_hit = find_first(doc, "Before table")
+    assert before_hit is not None
+    view_cur.gotoRange(before_hit.getStart(), False)
+    view_cur.gotoRange(cell_cur, True)
+    for cls in (WriterStreamedRewriteSession, WriterStreamedAppendSession):
+        with unittest.TestCase().assertRaises(TableInSelection):
+            cls(doc, view_cur, view_cur.getString(), track_reviewable=True)
+
     assert doc.getTextTables().getCount() == 1
     assert doc.getUndoManager().getAllUndoActionTitles() == undo_before
     assert doc.getPropertyValue("RecordChanges") is False
@@ -730,7 +743,17 @@ def test_streamed_rewrite_user_typing_midstream_is_recorded_uno(ctx, doc):
         session.append_chunk("Second")
         assert session.finish() is None
         assert "Outro para. USERTYPED" in text.getString()
-        assert any(r["type"] == "Insert" for r in list_redlines(doc))
+        redlines = doc.getRedlines()
+        insert_texts = []
+        for idx in range(redlines.getCount()):
+            rl = redlines.getByIndex(idx)
+            if rl.getPropertyValue("RedlineType") == "Insert":
+                rs = rl.getPropertyValue("RedlineStart")
+                re_end = rl.getPropertyValue("RedlineEnd")
+                rcur = rs.getText().createTextCursorByRange(rs)
+                rcur.gotoRange(re_end, True)
+                insert_texts.append(rcur.getString())
+        assert " USERTYPED" in insert_texts
     finally:
         doc.setPropertyValue("RecordChanges", False)
 
