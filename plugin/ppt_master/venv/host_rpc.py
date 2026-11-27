@@ -73,15 +73,11 @@ def handle_llm_request(payload: dict[str, Any]) -> dict[str, Any]:
         }
 
     # resolve_exception_message, not str(exc): this runs on the pipe holder (see errors._exception_text).
-    except ToolExecutionError as exc:
+    except Exception as exc:
         # Preserve USER_STOPPED. A generic error string lets the child keep
         # the turn going after Stop.
-        if getattr(exc, "code", None) == "USER_STOPPED":
+        if isinstance(exc, ToolExecutionError) and exc.code == "USER_STOPPED":
             return format_error_payload(exc)
-        log.exception("ppt-master llm_request failed")
-        text = resolve_exception_message(exc)
-        return format_error_payload(ToolExecutionError(text))
-    except Exception as exc:
         log.exception("ppt-master llm_request failed")
         text = resolve_exception_message(exc)
         return format_error_payload(ToolExecutionError(text))

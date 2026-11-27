@@ -179,8 +179,16 @@ def test_writer_invalidate_does_not_call_process_events_to_idle() -> None:
 def test_writer_invalidate_skips_non_writer_doc() -> None:
     doc = MagicMock()
     doc.supportsService.return_value = False
+    page = MagicMock()
+    page.getCount.return_value = 1
+    ctx = MagicMock()
+    ctx.doc = doc
+    ctx.active_page_index = 0
 
-    _try_writer_invalidate_and_pump(doc)
+    with patch("plugin.draw.shapes.DrawBridge") as bridge_cls, patch("plugin.draw.shapes.DrawShapes") as ds_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
+        ds_cls.return_value.safe_create_shape.return_value = (MagicMock(), None, None)
+        UpsertShape().execute(ctx, action="create", shape_type="TextShape", x=0, y=0, width=100, height=100)
 
     doc.getCurrentController.assert_not_called()
 
@@ -996,10 +1004,10 @@ def test_writer_invalidate_disposal_propagates():
 
 
 def test_writer_anchor_disposal_propagates():
-    doc = MagicMock()
-    doc.supportsService.side_effect = DisposedException("gone")
+    shape = MagicMock()
+    shape.setPropertyValue.side_effect = DisposedException("gone")
     with pytest.raises(DisposedException):
-        _try_writer_anchor_shape_before_add(doc, MagicMock())
+        _try_writer_anchor_shape_before_add(shape)
 
 
 def test_draw_summary_nested_group_shapes():

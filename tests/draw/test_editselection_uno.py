@@ -55,7 +55,7 @@ def test_impress_text_shape_selection_target(ctx: Any, doc: Any) -> None:
     targets, saw_table = iter_draw_rewrite_targets(controller_selection(doc))
     assert saw_table is False
     assert len(targets) == 1
-    assert targets[0].getString() == "Hello"
+    assert targets[0][0].getString() == "Hello"
 
     title = _("WriterAgent: Edit Selection (Draw)")
     with patch("plugin.draw.editselection.get_config", side_effect=_config), patch(
@@ -67,7 +67,7 @@ def test_impress_text_shape_selection_target(ctx: Any, doc: Any) -> None:
     ):
         do_draw_extend_edit(ctx, doc, is_edit=True, preset_instruction="Rewrite.")
 
-    assert targets[0].getString() == "Rewritten"
+    assert targets[0][0].getString() == "Rewritten"
 
     um = doc.getUndoManager()
     undo_titles = um.getAllUndoActionTitles()
@@ -75,7 +75,7 @@ def test_impress_text_shape_selection_target(ctx: Any, doc: Any) -> None:
     assert undo_titles[0] == title, f"top undo action title should be {title!r}, got {undo_titles[0]!r}"
 
     um.undo()
-    assert targets[0].getString() == "Hello", "undo should restore original text 'Hello'"
+    assert targets[0][0].getString() == "Hello", "undo should restore original text 'Hello'"
 
 
 @native_test

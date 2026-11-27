@@ -61,7 +61,6 @@ def copy_shapes_to_page(source_page: Any, target_doc: Any, target_page: Any, uno
 
 def load_pptx_as_impress_doc(ctx: Any, pptx_path: Path) -> Any | None:
     """Open a PPTX as a hidden Impress document (LO extension-based filter)."""
-    pptx_path = Path(pptx_path).expanduser().resolve()
     if not pptx_path.is_file():
         return None
     try:
@@ -124,7 +123,6 @@ def _copy_page_notes(source_page: Any, target_page: Any) -> None:
         # Re-raising aborts the import after earlier slides were replaced.
         # A disposed document still re-raises.
         log.warning("Skipping slide notes copy due to error: %s", exc)
-        return
 
 
 def _import_slides_from_source(
@@ -200,7 +198,6 @@ def import_pptx_to_doc(
         return format_error_payload(ToolExecutionError(f"PPTX import failed: {pptx_path.name}"))
     try:
         if save_mirror_odp is not None:
-            save_mirror_odp = Path(save_mirror_odp).expanduser().resolve()
             save_mirror_odp.parent.mkdir(parents=True, exist_ok=True)
             source_doc.storeToURL(save_mirror_odp.as_uri(), ())
         result = _import_slides_from_source(ctx, target_doc, source_doc, clear_existing=clear_existing)
@@ -244,7 +241,6 @@ def import_pptx_slide_to_odp(
         if result.get("status") != "ok":
             return None
         page = target_doc.getDrawPages().getByIndex(0)
-        odp_path = Path(odp_path).expanduser().resolve()
         odp_path.parent.mkdir(parents=True, exist_ok=True)
         target_doc.storeToURL(odp_path.as_uri(), ())
         imported = (target_doc, page)

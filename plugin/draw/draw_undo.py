@@ -56,12 +56,11 @@ def DrawTextEditUndoAction(text_objects: list[tuple[typing.Any, str]], final_tex
 
         def redo(self) -> None:
             """Re-apply final text to all text objects."""
-            for i, (text_obj, _original) in enumerate(self._text_objects):
-                if i < len(self._final_texts):
-                    try:
-                        text_obj.setString(self._final_texts[i])
-                    except Exception:
-                        log.debug("DrawTextEditUndoAction.redo: setString failed for one object", exc_info=True)
+            for (text_obj, _original), final_text in zip(self._text_objects, self._final_texts):
+                try:
+                    text_obj.setString(final_text)
+                except Exception:
+                    log.debug("DrawTextEditUndoAction.redo: setString failed for one object", exc_info=True)
 
     return _DrawTextEditUndoActionImpl()
 

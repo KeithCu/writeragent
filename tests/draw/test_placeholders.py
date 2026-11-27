@@ -11,6 +11,7 @@ from plugin.draw.placeholders import (
     _list_placeholders,
     _role_from_label,
     _role_miss_error_kwargs,
+    _scan_shapes,
 )
 import pytest
 from plugin.tests.testing_utils import DisposedException
@@ -80,7 +81,7 @@ def test_subtitle_not_classified_as_title():
     _unused_title, title_idx = find_placeholder(page, "title")
     assert sub_idx == 0
     assert title_idx == 1
-    assert _list_placeholders(page)[0]["role"] == "subtitle"
+    assert _list_placeholders(_scan_shapes(page))[0]["role"] == "subtitle"
 
 
 def test_body_on_title_only_slide_is_not_the_title():
@@ -95,7 +96,7 @@ def test_list_placeholders_roles_from_class_map():
             _FakeShape(class_name="OutlinerShape", text="B"),
         ]
     )
-    listed = _list_placeholders(page)
+    listed = _list_placeholders(_scan_shapes(page))
     assert [entry.get("role") for entry in listed] == ["title", "body"]
 
 
@@ -121,7 +122,7 @@ def test_role_from_shape_type_when_class_name_is_missing():
     )
     assert find_placeholder(page, "title")[1] == 0
     assert find_placeholder(page, "body")[1] == 1
-    listed = _list_placeholders(page)
+    listed = _list_placeholders(_scan_shapes(page))
     assert [entry.get("role") for entry in listed] == ["title", "body"]
     assert "TitleTextShape" in listed[0]["class"]
 
@@ -135,14 +136,14 @@ def test_untagged_text_shapes_are_not_positional_roles():
     )
     assert find_placeholder(page, "title") == (None, None)
     assert find_placeholder(page, "body") == (None, None)
-    listed = _list_placeholders(page)
+    listed = _list_placeholders(_scan_shapes(page))
     assert "role" not in listed[0]
     assert "role" not in listed[1]
 
 
 def test_role_miss_empty_available_is_actionable():
     """C1: available=[] includes hint + suggest_layout so the model can recover."""
-    extra = _role_miss_error_kwargs(_FakePage([]))
+    extra = _role_miss_error_kwargs(_scan_shapes(_FakePage([])))
     assert extra["available"] == []
     assert extra["suggest_layout"] == "text"
     assert extra["shape_text_count"] == 0
@@ -153,7 +154,7 @@ def test_role_miss_empty_available_is_actionable():
 
 def test_role_miss_nonempty_available_stays_simple():
     page = _FakePage([_FakeShape(class_name="TitleTextShape", text="T")])
-    extra = _role_miss_error_kwargs(page)
+    extra = _role_miss_error_kwargs(_scan_shapes(page))
     assert extra["available"]
     assert "suggest_layout" not in extra
     assert "hint" not in extra
@@ -167,7 +168,7 @@ def test_role_miss_fallback_indices_for_class_only_shapes():
             self.ClassName = "TitleTextShape"
             self.Name = "Title"
 
-    extra = _role_miss_error_kwargs(_FakePage([_ClassOnly()]))
+    extra = _role_miss_error_kwargs(_scan_shapes(_FakePage([_ClassOnly()])))
     assert extra["available"] == []
     assert extra["suggest_layout"] == "text"
     assert extra["shape_text_count"] == 0
@@ -259,7 +260,7 @@ def test_shape_type_exact_map_title_not_body_and_plain_text_has_no_role():
     ])
     assert find_placeholder(page, "title")[1] == 0
     assert find_placeholder(page, "body") == (None, None)
-    listed = _list_placeholders(page)
+    listed = _list_placeholders(_scan_shapes(page))
     assert listed[0]["class"] == "TitleTextShape"
     assert "role" not in listed[1]
 
@@ -274,7 +275,7 @@ def test_scan_skips_shape_whose_property_raises():
             return "bad"
 
     page = _FakePage([_BadName(), _FakeShape(class_name="TitleTextShape", text="T")])
-    listed = _list_placeholders(page)
+    listed = _list_placeholders(_scan_shapes(page))
     # The bad Name only loses the name; the shape is still listed, next to the good one.
     assert [entry["text"] for entry in listed] == ["bad", "T"]
     assert listed[1]["role"] == "title"
@@ -286,7 +287,7 @@ def test_scan_skips_shape_whose_get_string_raises():
             raise RuntimeError("boom")
 
     page = _FakePage([_BadText(class_name="TitleTextShape"), _FakeShape(class_name="OutlinerShape", text="B")])
-    assert [entry["role"] for entry in _list_placeholders(page)] == ["body"]
+    assert [entry["role"] for entry in _list_placeholders(_scan_shapes(page))] == ["body"]
 
 
 def test_scan_re_raises_disposal_from_shape_property():
@@ -302,7 +303,7 @@ def test_scan_re_raises_disposal_from_shape_property():
     from plugin.framework.errors import DocumentDisposedError
 
     with pytest.raises(DocumentDisposedError):
-        _list_placeholders(page)
+        _list_placeholders(_scan_shapes(page))
 
 
 def test_get_and_set_role_miss_payloads_match_on_empty_page():

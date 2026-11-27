@@ -37,7 +37,7 @@ import re
 from typing import Any, Iterator
 
 from plugin.doc.text_helpers import normalize_linebreaks
-from plugin.draw.base import DRAW_PAGE_PROPERTY
+from plugin.draw.base import DRAW_AND_IMPRESS, DRAW_PAGE_PROPERTY
 from plugin.framework.errors import is_disposal, uno_read
 from plugin.framework.tool import ToolBase, ToolContext
 
@@ -84,7 +84,7 @@ def coerce_control_state(value: Any) -> int | None:
         return None
     if isinstance(value, bool):
         return 1 if value else 0
-    if isinstance(value, int) and not isinstance(value, bool):
+    if isinstance(value, int):
         return value
     if isinstance(value, float) and value.is_integer():
         return int(value)
@@ -444,7 +444,7 @@ def find_shape_on_page(
             if control is not None and _safe_attr(control, "Name") == wanted:
                 control_hits.append((hit_addr, shape, parent_obj))
 
-    hits = name_hits if name_hits else control_hits
+    hits = name_hits or control_hits
     if len(hits) == 1:
         return hits[0][0], hits[0][1], hits[0][2], None
     if not hits:
@@ -512,7 +512,7 @@ def build_shape_tree(xshapes: Any, base_index: str | None = None) -> list[dict[s
         if control:
             model: Any = uno_read(lambda: getattr(shape, "Control", None), None)
             unknown = {"type": "unknown", "name": name}
-            # A non-disposal snapshot failure still degrades to "unknown" (as before); disposal leaves.
+            # A snapshot that fails for any reason other than disposal reports the control as "unknown".
             node["control"] = uno_read(lambda: control_snapshot(model), unknown) if model is not None else unknown
 
         for attr, key in (("Description", "alt_description"), ("Title", "alt_title")):
@@ -588,7 +588,7 @@ class GetDrawTree(ToolBase):
         "— draw-page index shifts when other shapes sit between fields."
     )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": DRAW_PAGE_PROPERTY}, "required": []}
-    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = DRAW_AND_IMPRESS
     doc_types: list[str] | None = ["draw", "impress"]
     tier: str = "core"
 

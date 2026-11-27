@@ -40,14 +40,13 @@ def run_script(data_root: Path, script_relative: str, args: list[str] | None = N
     """Run an upstream script under data_root/scripts/ using the current venv python."""
     rel = str(script_relative or "").strip().replace("\\", "/").lstrip("/")
     if not rel.startswith("scripts/"):
-        rel = f"scripts/{rel}" if not rel.startswith("/") else rel.lstrip("/")
+        rel = f"scripts/{rel}"
     script_path = resolve_under_root(data_root, rel)
     if script_path is None or not script_path.is_file():
         return {"status": "error", "message": f"Script not found or not allowed: {script_relative}"}
 
     cmd = [sys.executable, str(script_path)]
-    for arg in args or []:
-        cmd.append(str(arg))
+    cmd.extend(args or [])
     env = dict(os.environ)
     env.setdefault("PPT_MASTER_DATA_ROOT", str(data_root))
     try:

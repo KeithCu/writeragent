@@ -156,6 +156,7 @@ def test_set_slide_master_unknown_name_lists_available():
     res = SetSlideMaster().execute(ctx, page=0, master="Unknown")
     assert res["status"] == "error"
     assert res["details"]["available"] == ["Default", "Sunset"]
+    assert res["details"]["hint"] == "Valid names are in details.available."
 
 
 def test_set_slide_master_disposal_propagates():

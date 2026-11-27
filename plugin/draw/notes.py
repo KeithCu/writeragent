@@ -51,27 +51,24 @@ class SetSpeakerNotes(ToolDrawSpeakerNotesBase):
         bridge = DrawBridge(ctx.doc)
         page, actual_idx = bridge.resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
         text = normalize_linebreaks(text)
+
+        def _notes_unavailable_error() -> dict[str, Any]:
+            notes_page = uno_read(lambda: page.getNotesPage(), None)
+            detail = "no notes page" if notes_page is None else "a notes page but no notes body (no NotesShape)"
+            return self._tool_error(
+                "Slide %d has %s." % (actual_idx, detail),
+                code="NOTES_UNAVAILABLE",
+                page=actual_idx,
+            )
+
         if append:
             existing = notes_text(page)
             if existing is None:
-                notes_page = uno_read(lambda: page.getNotesPage(), None)
-                detail = "no notes page" if notes_page is None else "a notes page but no notes body (no NotesShape)"
-                return self._tool_error(
-                    "Slide %d has %s." % (actual_idx, detail),
-                    code="NOTES_UNAVAILABLE",
-                    page=actual_idx,
-                )
+                return _notes_unavailable_error()
             if existing.strip():
                 text = existing + ("" if existing.endswith("\n") else "\n") + text
             set_notes_text(page, text)
-        else:
-            if not set_notes_text(page, text):
-                notes_page = uno_read(lambda: page.getNotesPage(), None)
-                detail = "no notes page" if notes_page is None else "a notes page but no notes body (no NotesShape)"
-                return self._tool_error(
-                    "Slide %d has %s." % (actual_idx, detail),
-                    code="NOTES_UNAVAILABLE",
-                    page=actual_idx,
-                )
+        elif not set_notes_text(page, text):
+            return _notes_unavailable_error()
 
         return {"status": "ok", "page": actual_idx, "message": "Speaker notes updated."}

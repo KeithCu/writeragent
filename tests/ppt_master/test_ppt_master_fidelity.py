@@ -190,10 +190,10 @@ def test_structural_metrics_pptx_detects_dropped_text_shapes(tmp_path: Path):
 
     # Imported page has 1 text shape, but source PPTX had 2
     metrics = structural_metrics_pptx(ImportedPage(), pptx_path=pptx, slide_index=0)
-    assert metrics.svg_text_elements == 2
+    assert metrics.pptx_text_shapes == 2
     assert metrics.odf_text_shapes == 1
-    # text loss gate condition: odf_text_shapes >= svg_text_elements is False
-    assert metrics.odf_text_shapes < metrics.svg_text_elements
+    # text loss gate condition: odf_text_shapes >= pptx_text_shapes is False
+    assert metrics.odf_text_shapes < metrics.pptx_text_shapes
 
 
 def test_evaluate_slide_fidelity_closes_on_early_returns(monkeypatch, tmp_path: Path):
@@ -221,7 +221,6 @@ def test_evaluate_slide_fidelity_closes_on_early_returns(monkeypatch, tmp_path: 
 
     res1 = fidelity.evaluate_slide_fidelity(
         None,
-        project_dir=tmp_path,
         slide_label="test.svg",
         slide_index=0,
         pptx_path=tmp_path / "nonexistent.pptx",
@@ -242,7 +241,6 @@ def test_evaluate_slide_fidelity_closes_on_early_returns(monkeypatch, tmp_path: 
 
     res2 = fidelity.evaluate_slide_fidelity(
         None,
-        project_dir=tmp_path,
         slide_label="test.svg",
         slide_index=0,
         pptx_path=tmp_path / "nonexistent.pptx",
@@ -262,7 +260,6 @@ def test_evaluate_slide_fidelity_closes_on_early_returns(monkeypatch, tmp_path: 
 
     res3 = fidelity.evaluate_slide_fidelity(
         None,
-        project_dir=tmp_path,
         slide_label="test.svg",
         slide_index=0,
         pptx_path=tmp_path / "nonexistent.pptx",
@@ -288,7 +285,6 @@ def test_evaluate_slide_fidelity_closes_on_early_returns(monkeypatch, tmp_path: 
     )
     fidelity.evaluate_slide_fidelity(
         None,
-        project_dir=tmp_path,
         slide_label="test.svg",
         slide_index=0,
         pptx_path=tmp_path / "nonexistent.pptx",
@@ -346,7 +342,6 @@ def test_evaluate_slide_fidelity_marshals_pptx_import_once(monkeypatch, tmp_path
     with patch.object(fidelity, "import_pptx_slide_to_odp", return_value=(doc, page)) as import_fn:
         fidelity.evaluate_slide_fidelity(
             None,
-            project_dir=tmp_path,
             slide_label="test.svg",
             slide_index=0,
             pptx_path=tmp_path / "test.pptx",
