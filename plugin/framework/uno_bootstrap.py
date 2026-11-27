@@ -29,6 +29,8 @@ if TYPE_CHECKING:
 
 import importlib.abc
 
+log = logging.getLogger(__name__)
+
 _WRITERAGENT_API = "plugin.scripting.writeragent_api"
 _WRITERAGENT_NAMESPACE = "plugin.scripting.writeragent_namespace"
 
@@ -62,27 +64,22 @@ class AliasLoader(importlib.abc.Loader):
     """Loader that returns the already loaded or newly imported real module."""
 
     real_name: str
-    _alias_name: str | None
+    _alias_name: str
     _saved_attrs: dict[str, Any] | None
 
-    def __init__(self, real_name: str, alias_name: str | None = None) -> None:
+    def __init__(self, real_name: str, alias_name: str) -> None:
         self.real_name = real_name
         self._alias_name = alias_name
         self._saved_attrs = None
 
     def create_module(self, spec: Any) -> Any:
-        if spec is not None and hasattr(spec, "name") and not self._alias_name:
-            self._alias_name = spec.name
         mod = importlib.import_module(self.real_name)
         existing_saved = getattr(mod, _SAVED_ATTRS_KEY, None)
         if isinstance(existing_saved, dict):
             saved = dict(existing_saved)
         else:
             saved = {attr: getattr(mod, attr, _ABSENT) for attr in _ATTRS_TO_PRESERVE}
-            try:
-                setattr(mod, _SAVED_ATTRS_KEY, saved)
-            except Exception:
-                logging.getLogger(__name__).debug("Could not save preserved attrs on %s", self.real_name, exc_info=True)
+            setattr(mod, _SAVED_ATTRS_KEY, saved)
         self._saved_attrs = saved
         return mod
 
@@ -100,49 +97,36 @@ class AliasLoader(importlib.abc.Loader):
                         continue
                     if val is _ABSENT:
                         if hasattr(module, attr):
-                            try:
-                                delattr(module, attr)
-                            except AttributeError:
-                                pass
+                            delattr(module, attr)
                     else:
                         setattr(module, attr, val)
             except Exception:
-                logging.getLogger(__name__).debug(
-                    "Failed to restore module attributes on %s", self.real_name, exc_info=True
-                )
+                log.debug("Failed to restore module attributes on %s", self.real_name, exc_info=True)
             finally:
                 if hasattr(module, _SAVED_ATTRS_KEY):
-                    try:
-                        delattr(module, _SAVED_ATTRS_KEY)
-                    except AttributeError:
-                        pass
+                    delattr(module, _SAVED_ATTRS_KEY)
 
 
-def _log_find_spec_failure(fullname: str, exc: BaseException) -> None:
-    logging.getLogger(__name__).debug("AliasImporter.find_spec failed for %s", fullname, exc_info=True)
+def _log_find_spec_failure(fullname: str) -> None:
+    log.debug("AliasImporter.find_spec failed for %s", fullname, exc_info=True)
 
 
-def _writeragent_namespace_spec(fullname: str = "writeragent") -> Any:
+def _writeragent_namespace_spec(fullname: str) -> Any:
     # LibrePy excludes writeragent_api; fall back to namespace stub or in-memory package.
     try:
         real_spec = importlib.util.find_spec(_WRITERAGENT_NAMESPACE)
-    except Exception as exc:
-        _log_find_spec_failure(_WRITERAGENT_NAMESPACE, exc)
+    except Exception:
+        _log_find_spec_failure(_WRITERAGENT_NAMESPACE)
         real_spec = None
-    if real_spec is not None:
-        try:
-            spec = importlib.machinery.ModuleSpec(fullname, AliasLoader(_WRITERAGENT_NAMESPACE, fullname))
-            spec.submodule_search_locations = []
-            return spec
-        except Exception as exc:
-            _log_find_spec_failure(fullname, exc)
-            return None
+    loader: importlib.abc.Loader = (
+        AliasLoader(_WRITERAGENT_NAMESPACE, fullname) if real_spec is not None else _WriteragentNamespaceLoader()
+    )
     try:
-        spec = importlib.machinery.ModuleSpec(fullname, _WriteragentNamespaceLoader())
+        spec = importlib.machinery.ModuleSpec(fullname, loader)
         spec.submodule_search_locations = []
         return spec
-    except Exception as exc:
-        _log_find_spec_failure(fullname, exc)
+    except Exception:
+        _log_find_spec_failure(fullname)
         return None
 
 
@@ -180,7 +164,7 @@ class AliasImporter:
 
         authorized, has_child = get_alias_authorizer()
         if authorized is None or has_child is None:
-            logging.getLogger(__name__).error(
+            log.error(
                 "AliasImporter: alias authorizer is not registered (writeragent import %s)",
                 fullname,
             )
@@ -197,8 +181,8 @@ class AliasImporter:
             real_name = fullname.replace("writeragent", "plugin", 1)
         try:
             real_spec = importlib.util.find_spec(real_name)
-        except Exception as exc:
-            _log_find_spec_failure(fullname, exc)
+        except Exception:
+            _log_find_spec_failure(fullname)
             return None
         if real_spec is None and fullname == "writeragent":
             return _writeragent_namespace_spec(fullname)
@@ -211,8 +195,8 @@ class AliasImporter:
             elif real_spec.submodule_search_locations is not None:
                 spec.submodule_search_locations = list(real_spec.submodule_search_locations)
             return spec
-        except Exception as exc:
-            _log_find_spec_failure(fullname, exc)
+        except Exception:
+            _log_find_spec_failure(fullname)
             return None
 
 
@@ -239,7 +223,7 @@ def ensure_utf8_stdio() -> None:
             try:
                 reconfigure(encoding="utf-8", errors="replace")
             except Exception:
-                logging.getLogger(__name__).debug("ensure_utf8_stdio: reconfigure failed", exc_info=True)
+                log.debug("ensure_utf8_stdio: reconfigure failed", exc_info=True)
 
 
 def ensure_plugin_on_path(module_file: str, levels_up: int = 3, also_add_lib: bool = False, also_add_contrib: bool = False, also_add_plugin_dir: bool = False, also_add_vendor: bool = False) -> str:

@@ -47,7 +47,7 @@ def dispatch_command_from_url(url: Any) -> str:
 
 def host_matches(host: str, *domains: str) -> bool:
     """True when host equals any domain or is a subdomain of it."""
-    h = (host or "").lower()
+    h = host.lower()
     return any(h == domain or h.endswith("." + domain) for domain in domains)
 
 
@@ -166,14 +166,13 @@ def path_to_file_url(path: str) -> str:
 
 
 def normalize_file_url(url: str) -> str:
-    """Repair ``file:/path`` URLs from the old ``urljoin('file:', ...)`` form.
+    """Repair ``file:/path`` URLs (one slash) to ``file:///home/...``.
 
-    That join wrongly yields ``file:/home/...`` (two slashes).
-    ``loadComponentFromURL`` and ``fileUrlToSystemPath`` need ``file:///home/...``.
+    ``loadComponentFromURL`` and ``fileUrlToSystemPath`` need three slashes.
     Shared by ``get_document_path`` and document-research URL→path.
     Sandbox / session_manager keep their own stdlib copies (no UNO, Windows).
     """
-    raw = str(url).strip()
+    raw = url.strip()
     if raw.startswith("file:/") and not raw.startswith("file://"):
         return "file://" + raw[len("file:") :]
     return raw

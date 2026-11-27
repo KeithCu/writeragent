@@ -24,8 +24,8 @@ log = logging.getLogger(__name__)
 
 _AGENT_ACTIVE_LOCK = threading.Lock()
 # Scopes whose agent_session has not exited yet (identity, under the lock).
-_AGENT_OPEN_SCOPES: list["SendCancellation"] = []
-_current_send_cancellation: ContextVar["SendCancellation | None"] = ContextVar("current_send_cancellation", default=None)
+_AGENT_OPEN_SCOPES: list[SendCancellation] = []
+_current_send_cancellation: ContextVar[SendCancellation | None] = ContextVar("current_send_cancellation", default=None)
 
 
 class ScopeUnset:
@@ -93,7 +93,7 @@ class SendCancellation:
     def is_cancelled(self) -> bool:
         return self._cancelled.is_set()
 
-    def bind_executor(self, executor: "MainThread") -> None:
+    def bind_executor(self, executor: MainThread) -> None:
         """Track a :class:`MainThread` whose pending work Stop must cancel."""
         with self._lock:
             if executor not in self._executors:
@@ -102,7 +102,7 @@ class SendCancellation:
     def register_client(self, client: CancellableClient) -> None:
         # Resolve .stop() at registration time so cancel() only needs one list of
         # plain callables — no duck-type dispatch needed there.
-        # B13: Stop can fire before the drain creates/registers the client. If the
+        # Stop can fire before the drain creates/registers the client; if the
         # scope is already cancelled, register_on_cancel calls stop() immediately.
         self.register_on_cancel(client.stop)
 
@@ -150,9 +150,9 @@ class SendCancellation:
                     hook()
                 except Exception:
                     log.exception("SendCancellation: error in cancel hook")
-            # Unbound Stop only latches the flag. Falling back to main
-            # cancelled MCP, grammar, and peer items posted before the drain bound
-            # this scope. The sidebar drain checks is_cancelled() and returns.
+            # Unbound Stop only latches the flag; bound executors cancel pending
+            # MCP, grammar, and peer items on Stop. The sidebar drain checks
+            # is_cancelled() and returns.
             for executor in executors:
                 executor.cancel_pending_work(self)
 
@@ -212,7 +212,7 @@ def agent_session(scope: SendCancellation | None = None) -> Generator[SendCancel
         _restore_send_cancellation(scope, token, previous_open)
 
 
-def _restore_send_cancellation(scope: SendCancellation, token: Any, previous_open: bool) -> None:
+def _restore_send_cancellation(scope: SendCancellation, token: Token[SendCancellation | None], previous_open: bool) -> None:
     """Undo agent_session's ``set`` without resurrecting a finished scope.
 
     The event-driven drain keeps a session open across VCL callbacks, so
@@ -224,7 +224,7 @@ def _restore_send_cancellation(scope: SendCancellation, token: Any, previous_ope
     dropped by its Stop, LLM lane and indexer waits seeing "cancelled").
     Leave the variable alone if another session is now current; when this
     scope is current, restore the earlier value only while that session is
-    still open, otherwise None. Strict nesting behaves as before.
+    still open, otherwise None.
     """
     if _current_send_cancellation.get() is not scope:
         return

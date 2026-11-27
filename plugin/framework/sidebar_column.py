@@ -42,18 +42,17 @@ def sidebar_column_width(n_width: int, parent_w: int, min_w: int = 180) -> int:
         return parent_w if parent_w > 0 else min_w
     if n_width == _XDL_APPFONT_LEAK_PX and _XDL_APPFONT_LEAK_PX < parent_w <= _XDL_LEAK_PARENT_MAX:
         return parent_w
-    # Document frame is several times the column. A grow with a lagging
-    # ChildFrame request is only a little larger (Keith 900 vs 806).
+    # Document frame is several times the column; a grow with a lagging
+    # ChildFrame request is only a little larger.
     if parent_w > 0 and n_width > int(parent_w * _FRAME_VS_COLUMN):
         return parent_w
     return n_width
 
 
 def _pos_size(win: Any) -> tuple[int, int]:
-    if win is not None and hasattr(win, "getPosSize"):
+    if win is not None:
         rect = win.getPosSize()
-        if rect is not None:
-            return (getattr(rect, "Width", 0) or 0, getattr(rect, "Height", 0) or 0)
+        return (rect.Width, rect.Height)
     return (0, 0)
 
 
@@ -74,14 +73,14 @@ def apply_sidebar_height_for_width(
 
         # Width is negotiated here; height stays whatever LO/deck already allocated.
         current_h = panel_h if panel_h > 0 else (parent_h if parent_h > 0 else _LAYOUT_PREFERRED)
-        # Fill the content box. min(nWidth, parent); 180 AppFont is a leak.
+        # Fill the content box; ``sidebar_column_width`` holds the rule.
         # Do not cap at 800px: HiDPI columns are often 900+.
         eff_w = sidebar_column_width(n_width, parent_w, min_w=min_w)
 
-        if panel_window is not None and hasattr(panel_window, "setPosSize"):
-            # Size the AWT dialog only, like last month. ChildFrame setPosSize is
-            # gtk_widget_set_size_request (a minimum); typing grew past it and we
-            # filled the new width (Keith: 995 → 1019).
+        if panel_window is not None:
+            # Size the AWT dialog only; ChildFrame setPosSize is
+            # gtk_widget_set_size_request (a minimum) and can lock the column
+            # narrower than the pane.
             panel_window.setPosSize(0, 0, eff_w, current_h, _POS_SIZE_FLAGS)
 
     return (eff_w, current_h), layout_size

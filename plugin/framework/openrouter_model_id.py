@@ -24,6 +24,7 @@ def _deal_model_id_ok(*args: object, **kwargs: object) -> bool:
 def _deal_catalog_ids_ok(*args: object, **kwargs: object) -> bool:
     return True
 
+
 # Dynamic: routing/behavior shortcuts (any model; strip for catalog lookup).
 OPENROUTER_DYNAMIC_SUFFIXES = frozenset({"nitro", "floor", "exacto", "online"})
 

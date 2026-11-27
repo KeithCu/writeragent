@@ -14,8 +14,6 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-from __future__ import annotations
-
 """Main-chat system prompts for Writer, Calc, and Draw.
 
 Layout: Generic, Writer, Calc, Draw, then Assembly (dispatch).
@@ -29,16 +27,14 @@ Other important prompts (not assembled here):
 - scripts/prompt_optimization/ (Writer eval harness)
 """
 
+from __future__ import annotations
+
 from typing import TYPE_CHECKING, Any
 
 from plugin.framework.constants import DELEGATE_SUBAGENT_TOOL
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-
-# ---------------------------------------------------------------------------
-# Generic
-# ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
 # Delegation primitives (inputs to core directives and tool schemas)
@@ -215,14 +211,6 @@ You have a persistent file-backed memory tool.
 Prioritize what reduces future user steering."""
 
 
-# Shared venv Python prompt text (python_run_script, =PY(), delegate domain=python).
-# CALC_FORMULA_SYNTAX still shows inline =PY("…"; range). Typical scripts fit in
-# Calc MAXSTRLEN (1024) because of auto-imports and domain helpers. If Err:513
-# becomes common for generated formulas, prefer the two-cell pattern
-# (=PY($A$1; range) — Monaco already follows that ref) instead of lengthening
-# this prompt. Not scheduled.
-
-
 def build_specialized_sub_agent_instructions(
     agent_label: str,
     domain: str,
@@ -365,7 +353,7 @@ Follow CHAT RESPONSE FORMAT for sidebar replies."""
 
 # Writer main chat: the file-research rule the domain catalog cannot carry (never ask the user
 # to upload or paste); the web/general-knowledge boundary lives on the document_research catalog
-# line, and python/shapes routing plus the research `task` hint are in DelegateToSpecializedWriter.description.
+# line, and python/shapes routing plus the research `task` hint are in DelegateToSubagent.description_for_services.
 WRITER_CORE_DIRECTIVES = f"""When the user wants {DELEGATION_USER_FILE_DATA_HINT}:
 - You MUST NOT ask the user where to find it, or to upload or paste its contents.
 - You MUST call {DELEGATE_SUBAGENT_TOOL}(domain="document_research") once with their described file(s) and task in task; the sub-agent lists nearby files to match (paths not required)."""
@@ -511,8 +499,6 @@ DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE = "\n\n".join(
 # Calc
 # ---------------------------------------------------------------------------
 
-# : str so checkers keep this as str (Writer/Draw already are, via a str-returning call).
-#
 # The sort and header lines keep distinct shapes so small models do not merge them; has_header itself is taught on sort_range, which only the ranges sub-agent calls. Fill-down is taught on write_range's values parameter.
 _CALC_FILE_DIRECTIVES: str = f"""When the user wants {DELEGATION_USER_FILE_DATA_HINT} (another file/sheet by name or path, e.g. "my spreadsheet", "cell A9 from PythonInCalc"):
 - You MUST NOT ask the user where the file is stored, or to upload, paste, or share its contents.
@@ -664,18 +650,14 @@ def _apply_draw_get_image_tool_line(prompt: str) -> str:
 
     if has_native_vision(get_text_model(), get_current_endpoint()) is not False:
         return prompt
-    line = DRAW_GET_IMAGE_TOOL_LINE
-    return prompt.replace(line + "\n", "")
+    return prompt.replace(DRAW_GET_IMAGE_TOOL_LINE + "\n", "")
 
 
-# Host suffix + outer DO: after an inner peer send, idle on this loop (do not wait
-# inside document_research — that deadlocks the peer). Also used on specialize return.
 def get_greeting_for_document(model: Any) -> str:
     """Return a greeting relevant to the document type.
 
-    English literals must sit inside _() so xgettext extracts them into
-    writeragent.pot. ``_(DEFAULT_*_GREETING)`` alone is invisible to
-    extract-strings, so JA/ES UI kept showing English welcome text.
+    English literals sit inside _() so xgettext extracts them into
+    writeragent.pot; ``_(var)`` would be invisible to extract-strings.
     """
     from plugin.framework.i18n import _
 
@@ -749,13 +731,11 @@ def _assemble_chat_prompt(agent: str, uno_services: frozenset[str] = frozenset()
     core = get_core_directives_for_type(label)
     del_label, del_app = {"Calc": ("CALC", "Calc"), "Draw": ("DRAW", "Draw/Impress")}.get(agent, ("WRITER", "Writer"))
     delegation = SPECIALIZED_DELEGATION_TEMPLATE.format(label=del_label, app=del_app)
-    venv_policy = ""
+    calc_formula_syntax = ""
     if label == "calc":
         if _python_prompt_extras is None:
             raise RuntimeError("python prompt extras are not registered")
         venv_policy = _python_prompt_extras(agent)
-    calc_formula_syntax = ""
-    if label == "calc":
         calc_formula_syntax = CALC_FORMULA_SYNTAX_TEMPLATE.replace("{venv_policy}", venv_policy)
     base = (
         template.replace("{specialized_delegation}", delegation)
@@ -775,9 +755,7 @@ def _assemble_chat_prompt(agent: str, uno_services: frozenset[str] = frozenset()
 def get_chat_system_prompt_for_kind(kind: str, additional_instructions: str = "") -> str:
     """Ambient chat prompt keyed by doc-type label — no document model / get_document_type.
 
-    Eval harnesses call this from LoLane worker threads. ``get_document_type`` is
-    ``@main_thread_only``; MagicMock stubs still entered that guard and either
-    raised (GUARD on) or warned while racing the designated UNO thread (GUARD off).
+    Eval harnesses call this from LoLane worker threads without a UNO document model.
     Same Writer/Calc/Draw assembly as ``get_chat_system_prompt_for_document`` without
     vision / peer / memory injection.
     """
@@ -808,6 +786,7 @@ def get_chat_system_prompt_for_document(model: Any, additional_instructions: str
 
     # After custom instructions so those stay intact and the reminder is last.
     return _finish_chat_system_prompt(base, additional_instructions)
+
 
 # --- Application hooks (registered from plugin.main bootstrap) ---
 
@@ -849,13 +828,16 @@ def set_python_sub_agent_prompt_helpers(
     _python_sub_agent_units_hint = units_hint_fn
 
 
-def _require_prompt_catalog() -> tuple[
-    Callable[..., list[dict[str, str]]],
-    Callable[..., str],
-]:
-    if _prompt_catalog_entries is None or _prompt_catalog_domain_description is None:
+def _require_prompt_catalog_entries() -> Callable[..., list[dict[str, str]]]:
+    if _prompt_catalog_entries is None:
         raise RuntimeError("prompt catalog is not registered")
-    return _prompt_catalog_entries, _prompt_catalog_domain_description
+    return _prompt_catalog_entries
+
+
+def _require_prompt_catalog_domain_description() -> Callable[..., str]:
+    if _prompt_catalog_domain_description is None:
+        raise RuntimeError("prompt catalog is not registered")
+    return _prompt_catalog_domain_description
 
 
 def _call_system_prompt_block(name: str, *args: Any, **kwargs: Any) -> str:
@@ -866,10 +848,8 @@ def _call_system_prompt_block(name: str, *args: Any, **kwargs: Any) -> str:
 
 
 def get_specialized_domain_catalog(*args: Any, **kwargs: Any) -> list[dict[str, str]]:
-    entries, _unused_desc = _require_prompt_catalog()
-    return entries(*args, **kwargs)
+    return _require_prompt_catalog_entries()(*args, **kwargs)
 
 
 def format_specialized_domains_description(*args: Any, **kwargs: Any) -> str:
-    _unused_entries, domain_description = _require_prompt_catalog()
-    return domain_description(*args, **kwargs)
+    return _require_prompt_catalog_domain_description()(*args, **kwargs)

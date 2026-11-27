@@ -157,8 +157,7 @@ class BatchingStreamQueue:
     def __init__(self, raw_q: queue.Queue[Any], batch_interval: float) -> None:
         self._raw: queue.Queue[Any] = raw_q
         self._batch_interval: float = batch_interval
-        # Contiguous runs in arrival order. Emitting every CHUNK buffer before
-        # every THINKING buffer showed the reply before [Thinking].
+        # Contiguous runs in arrival order, keeping THINKING ahead of CHUNK.
         self._runs: list[tuple[StreamQueueKind, list[str]]] = []
         self._lock: threading.Lock = threading.Lock()
         self._dropped: bool = False
@@ -227,7 +226,7 @@ class BatchingStreamQueue:
             self._raw.put(item)
 
     def flush(self) -> None:
-        """Force immediate emission of any pending display text (one joined string per kind)."""
+        """Force immediate emission of any pending display text (one joined string per contiguous run)."""
         with self._lock:
             self._emit_pending_locked()
 
@@ -245,7 +244,7 @@ class BatchingStreamQueue:
             self._runs.clear()
             self._timer.cancel()
 
-    # Convenience factories so existing lambda sites become one-liners
+    # Convenience factories for append_callback / append_thinking_callback.
     def content_cb(self) -> Callable[[str], None]:
         """Return a callback suitable for append_callback=... that feeds through the batcher."""
         def cb(text: str) -> None:

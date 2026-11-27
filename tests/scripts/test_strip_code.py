@@ -24,3 +24,8 @@ def test_thread_guard_release_stub_public_surface() -> None:
         stub_params = [(p.name, p.kind) for p in inspect.signature(stub_fn).parameters.values()]  # type: ignore[arg-type]
         live_params = [(p.name, p.kind) for p in inspect.signature(live_fn).parameters.values()]
         assert stub_params == live_params, f"Signature mismatch for {fn_name}: {stub_params} != {live_params}"
+
+
+def test_thread_guard_release_stub_has_no_postmortem_comments() -> None:
+    for marker in ("What was wrong", "How it happened", "Why this change fixes it"):
+        assert marker not in THREAD_GUARD_RELEASE_STUB

@@ -76,7 +76,7 @@ def test_alias_loader_preserves_real_module_spec_and_path(tmp_path) -> None:
         assert real_mod.__spec__.name == real_name
         assert not hasattr(real_mod, "__path__")
 
-        loader = uno_bootstrap.AliasLoader(real_name)
+        loader = uno_bootstrap.AliasLoader(real_name, "writeragent._test_alias")
         spec = importlib.machinery.ModuleSpec("writeragent._test_alias", loader)
         spec.submodule_search_locations = []
         alias_mod = importlib.util.module_from_spec(spec)
@@ -108,7 +108,7 @@ def test_alias_loader_preserves_package_path(tmp_path) -> None:
         orig_path = list(real_pkg.__path__)
         assert real_pkg.__spec__.name == real_name
 
-        loader = uno_bootstrap.AliasLoader(real_name)
+        loader = uno_bootstrap.AliasLoader(real_name, "writeragent._test_pkg_alias")
         spec = importlib.machinery.ModuleSpec("writeragent._test_pkg_alias", loader)
         spec.submodule_search_locations = ["/some/fake/location"]
         alias_mod = importlib.util.module_from_spec(spec)

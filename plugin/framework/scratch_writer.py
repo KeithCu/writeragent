@@ -5,9 +5,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Hidden scratch documents, with their creation, registry and cleanup.
 
-Split out from ``uno_context`` to separate scratch document lifecycle
-from core context and desktop lookup. The registry also covers user
-files opened hidden and read-only for document research.
+The registry also covers user files opened hidden and read-only for document
+research.
 """
 
 from __future__ import annotations
@@ -184,7 +183,7 @@ def clear_writer_body(doc: Any, *, keep_chars: int = 0) -> bool:
         log.debug("clear_writer_body: could not empty the draw page", exc_info=True)
     try:
         text = doc.getText()
-        if (text.getString() or "")[keep_chars:].strip():
+        if text.getString()[keep_chars:].strip():
             removed = True
         if keep_chars:
             rest = text.createTextCursor()
@@ -206,7 +205,7 @@ def clear_writer_body(doc: Any, *, keep_chars: int = 0) -> bool:
             doc.getTextTables().getCount() == 0
             and doc.getTextFrames().getCount() == 0
             and doc.getDrawPage().getCount() == 0
-            and not (doc.getText().getString() or "")[keep_chars:].strip()
+            and not doc.getText().getString()[keep_chars:].strip()
         )
     except Exception as e:
         reraise_if_disposed(e, uno_disposal_message(e), object_type="Writer")

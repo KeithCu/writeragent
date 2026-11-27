@@ -10,8 +10,6 @@ if TYPE_CHECKING:
     from collections.abc import Container
 
 from plugin.framework.deal_shim import (
-    DEAL_MAX_ARGV,
-    DEAL_MAX_TOKEN,
     deal,
     inverse_ensure,
 )
@@ -22,6 +20,7 @@ def get_subprocess_creationflags() -> dict[str, Any]:
     if sys.platform == "win32":
         return {"creationflags": subprocess.CREATE_NO_WINDOW}
     return {}
+
 
 # --- Subprocess environment ---
 
@@ -77,34 +76,28 @@ _ENV_CREDENTIAL_ALLOW = frozenset({"XAUTHORITY", "PWD"})
 # leak into a venv subprocess causes SRE module mismatch and import failures.
 # LD_PRELOAD, LD_AUDIT, and DYLD_INSERT_LIBRARIES run code before the harness.
 # PYTHONSTARTUP, PYTHONUSERBASE, PYTHONBREAKPOINT, PYTHONINSPECT alter python execution.
-# DATABASE_URL is a common connection string containing database credentials.
 # WRITERAGENT_COMPUTE_WORKER is compute-service only; venv workers support bidirectional tool calls.
-_BLOCKED_ENV_EXACT = {
-    "PYTHONHOME",
-    "PYTHONPATH",
-    "PYTHONSTARTUP",
-    "PYTHONUSERBASE",
-    "PYTHONBREAKPOINT",
-    "PYTHONINSPECT",
-    "PYTHONEXECUTABLE",
-    "PYTHONNOUSERSITE",
-    "LD_LIBRARY_PATH",
-    "LD_PRELOAD",
-    "LD_AUDIT",
-    "DYLD_INSERT_LIBRARIES",
-    "DYLD_LIBRARY_PATH",
-    "DYLD_FRAMEWORK_PATH",
-    "DYLD_FALLBACK_LIBRARY_PATH",
-    "DYLD_FALLBACK_FRAMEWORK_PATH",
-    "DATABASE_URL",
-    "WRITERAGENT_COMPUTE_WORKER",
-}
-
-
-# scrub_subprocess_env: keep pytest wide.
-_DEAL_SCRUB_DICT = DEAL_MAX_ARGV
-_DEAL_SCRUB_KEY = DEAL_MAX_TOKEN
-_DEAL_SCRUB_VAL = DEAL_MAX_ARGV
+_BLOCKED_ENV_EXACT = frozenset(
+    {
+        "PYTHONHOME",
+        "PYTHONPATH",
+        "PYTHONSTARTUP",
+        "PYTHONUSERBASE",
+        "PYTHONBREAKPOINT",
+        "PYTHONINSPECT",
+        "PYTHONEXECUTABLE",
+        "PYTHONNOUSERSITE",
+        "LD_LIBRARY_PATH",
+        "LD_PRELOAD",
+        "LD_AUDIT",
+        "DYLD_INSERT_LIBRARIES",
+        "DYLD_LIBRARY_PATH",
+        "DYLD_FRAMEWORK_PATH",
+        "DYLD_FALLBACK_LIBRARY_PATH",
+        "DYLD_FALLBACK_FRAMEWORK_PATH",
+        "WRITERAGENT_COMPUTE_WORKER",
+    }
+)
 
 
 def _deal_scrub_env_ok_pytest(base: object) -> bool:
@@ -162,7 +155,7 @@ def scrub_subprocess_env(
     """Drop likely-secret vars and LO Python overrides from the environment passed to venv Python.
 
     Only ``base is None`` returns {}. An empty dict still receives the UTF-8
-    and bytecode overrides. Returning {} for {} skipped those overrides.
+    and bytecode overrides.
     """
     if base is None:
         return {}
@@ -174,18 +167,14 @@ def scrub_subprocess_env(
         if ku in _BLOCKED_ENV_EXACT and (keep is None or k not in keep):
             continue
         out[k] = v
-    # setdefault kept whatever the parent already had. Callers pass
-    # dict(os.environ) (venv worker, editor host, compute worker). A latin-1
-    # PYTHONIOENCODING, PYTHONUTF8=0, or PYTHONDONTWRITEBYTECODE=0 then failed
-    # the ensure in deal builds and spawned the child with that encoding once
-    # release builds strip deal. Force the values the postcondition requires.
+    # Force the UTF-8 and bytecode values required by the postcondition rather
+    # than keeping whatever the parent environment already has.
     out["PYTHONIOENCODING"] = "utf-8"
     out["PYTHONUTF8"] = "1"
     out["PYTHONDONTWRITEBYTECODE"] = "1"
-    # Child processes should log to the same writeragent_debug.log. Read the
-    # path at call time (logging may not be initialized at import). Use the
-    # public getter; a private import plus bare ``except Exception`` hid
-    # failures other than a missing logging module.
+    # Child-bundle boundary: the compute bundle ships this module without
+    # plugin/framework/logging.py, so the import can fail there. The path is
+    # read at call time because logging may not be set up at import.
     try:
         from plugin.framework.logging import get_debug_log_path
     except ImportError:

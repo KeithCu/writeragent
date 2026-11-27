@@ -572,9 +572,6 @@ def _patch_payload_codec(module: Any) -> None:
 
 
 def _patch_subprocess_env(module: Any) -> None:
-    module._DEAL_SCRUB_DICT = 1
-    module._DEAL_SCRUB_KEY = 2
-    module._DEAL_SCRUB_VAL = 4
     module._deal_scrub_env_ok = _stub_deal_scrub_env_ok_crosshair
 
 

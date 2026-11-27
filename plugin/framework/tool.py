@@ -43,7 +43,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Callable, ClassVar, NamedTuple, cast
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Iterable, Mapping
     from plugin.framework.send_cancellation import ApprovalCallback, SendCancellation
 
 from plugin.framework.errors import (
@@ -73,7 +73,6 @@ from plugin.framework.tool_schema import (
     without_unknown_kwargs as without_unknown_kwargs,
 )
 
-_log = logging.getLogger(__name__)
 log = logging.getLogger("writeragent.tools")
 
 
@@ -150,11 +149,11 @@ class ToolContext:
     services: Any
     caller: str
     active_page_index: int | None
-    status_callback: Callable[[str], None] | None
-    append_thinking_callback: Callable[[str], None] | None
+    status_callback: Callable[[str], Any] | None
+    append_thinking_callback: Callable[[str], Any] | None
     approval_callback: ApprovalCallback | None
-    chat_append_callback: Callable[[str], None] | None
-    set_active_domain_callback: Callable[[str | None], None] | None
+    chat_append_callback: Callable[[str], Any] | None
+    set_active_domain_callback: Callable[[str | None], Any] | None
     active_domain: str | None
     python_tool_domain: str | None
     read_only_target: bool
@@ -190,16 +189,16 @@ class ToolContext:
         services: Any,
         caller: str = "",
         active_page_index: int | None = None,
-        status_callback: Any = None,
-        append_thinking_callback: Any = None,
-        approval_callback: Any = None,
-        chat_append_callback: Any = None,
-        set_active_domain_callback: Any = None,
+        status_callback: Callable[[str], Any] | None = None,
+        append_thinking_callback: Callable[[str], Any] | None = None,
+        approval_callback: ApprovalCallback | None = None,
+        chat_append_callback: Callable[[str], Any] | None = None,
+        set_active_domain_callback: Callable[[str | None], Any] | None = None,
         active_domain: str | None = None,
         python_tool_domain: str | None = None,
         read_only_target: bool = False,
         send_cancellation: SendCancellation | None = None,
-        uno_services_supported: Any = None,
+        uno_services_supported: frozenset[str] | None = None,
         selection_pin: SelectionPin | None = None,
     ) -> None:
         # crosshair: off
@@ -325,6 +324,7 @@ class ToolBase(_ToolErrorMixin, ABC):
     # (style_list on the page domain). Same list; get_tools admits both tiers.
     required_core_tools: ClassVar[frozenset[str] | None] = None
     is_app_specialized_tool: ClassVar[bool] = False
+    timeout: Any = None
 
     def detects_mutation(self, arguments: Any = None) -> bool:
         """Return True if the tool mutates the document.
@@ -415,7 +415,7 @@ class ToolBase(_ToolErrorMixin, ABC):
             # argument named bypass_thread_guard is dropped by execute().
             if not self.is_async():
                 assert_main_thread(self.name or "synchronous tool")
-                if self.requires_document and ctx is not None and getattr(ctx, "doc", None) is not None:
+                if self.requires_document and ctx is not None and ctx.doc is not None:
                     if document_is_disposed(ctx.doc):
                         return self._tool_error("Document was closed or disposed by LibreOffice", code="DOCUMENT_DISPOSED")
             # Async / review-wait tools skip this probe so wait can run off the main thread.
@@ -425,14 +425,8 @@ class ToolBase(_ToolErrorMixin, ABC):
             return self.execute(ctx, **kwargs)
 
         except Exception as e:
-            _log.exception("Tool '%s' execution failed", self.name if self.name else "<unknown>")
-            # Off the main thread, check only for real disposal exceptions without probing UNO.
-            if main.is_current():
-                disposed = is_disposal(e)
-            else:
-                disposed = is_disposal(e)
-
-            if disposed:
+            log.exception("Tool '%s' execution failed", self.name or "<unknown>")
+            if is_disposal(e):
                 # UNO DisposedException often has an empty str() and the text in .Message; use the same resolver as the branch below.
                 return self._tool_error("Document was closed or disposed by LibreOffice", code="DOCUMENT_DISPOSED", original_error=resolve_exception_message(e), error_type=type(e).__name__)
             # Format domain exceptions directly to preserve code and details.
@@ -521,7 +515,7 @@ class ToolBaseDummy(_ToolErrorMixin):
         return self.parameters
 
 
-def _is_specialized_domain_tool(t: Any, active_domain: str) -> bool:
+def _is_specialized_domain_tool(t: ToolBase, active_domain: str) -> bool:
     """True if *t* is a Writer/Calc/Draw specialized tool for *active_domain*."""
     # "python:writer" → base python, subdomain writer.
     # "a:b:c" → base a, subdomain b. split, not partition.
@@ -532,11 +526,12 @@ def _is_specialized_domain_tool(t: Any, active_domain: str) -> bool:
         return len(parts) > 1 and tool_domain == parts[1]
     if getattr(t, "specialized_cross_cutting", False):
         return True
-    return bool(getattr(t, "is_app_specialized_tool", False))
+    return t.is_app_specialized_tool
 
 
 # Hidden from default chat/MCP tool lists; exposed via delegate_to_subagent or host-only calls.
 _DEFAULT_EXCLUDE_TIERS = frozenset({"specialized", "specialized_control", "mcp", "unlisted"})
+
 
 def tool_supports_document(tool: ToolBase, *, doc_type: str | None, uno_services_supported: frozenset[str] | None) -> bool:
     """Return True when *tool* is allowed on a document with the cached type/services."""
@@ -578,15 +573,13 @@ def prepare_tool_call(tool: ToolBase, ctx: Any, tool_name: str, tool_kwargs: dic
     """
     # Restrict kwargs to this tool's schema so extra keys (e.g. image_model
     # from API/LLM) do not cause "Unknown parameter" validation errors.
-    kwargs = dict(tool_kwargs)
     doc_type = getattr(ctx, "doc_type", None)
     caller = getattr(ctx, "caller", None)
 
     schema = tool.get_parameters(doc_type) or {}
     props = call_properties(schema) or {}
-    kept = without_unknown_kwargs(schema, kwargs)
-    ignored: list[str] = sorted(k for k in tool_kwargs if k not in kept)
-    kwargs = kept
+    kwargs = without_unknown_kwargs(schema, tool_kwargs)
+    ignored: list[str] = sorted(k for k in tool_kwargs if k not in kwargs)
 
     required = required_keys(schema)
     if any(v is None and k not in required for k, v in kwargs.items()):
@@ -734,9 +727,9 @@ class ToolRegistry:
         doc_type: str | None = None,
         names: frozenset[str] | None = None,
         filter_doc_type: bool = True,
-        exclude_tiers: Any = _DEFAULT_EXCLUDE_TIERS,
+        exclude_tiers: Iterable[str] | None = _DEFAULT_EXCLUDE_TIERS,
         active_domain: str | None = None,
-        uno_services_supported: Any = None,
+        uno_services_supported: frozenset[str] | None = None,
         ctx: Any = None,
     ) -> list[ToolBase]:
         """Return a list of ToolBase instances matching the given criteria.
@@ -759,23 +752,19 @@ class ToolRegistry:
             ctx: Optional ToolContext or context for filtering vision specialized tools.
         """
         # crosshair: off
-        tools: Any = list(self._tools.values())
-
-        # Doc-type probe is main-thread-only because get_document_type accesses UNO.
-        # In release builds @main_thread_only logs and continues rather than raising,
-        # so off-thread callers must avoid probing UNO directly.
-        if doc_type is None and doc is not None and filter_doc_type and main.is_current():
+        # get_document_type and get_document_uno_services read UNO, so the probe runs
+        # only on the main thread. The release thread_guard stub does not check the
+        # thread, so an off-thread caller must pass doc_type and uno_services_supported.
+        if doc is not None and filter_doc_type and main.is_current():
             from plugin.framework import doc_type as _doc_type
 
-            doc_type = _doc_type.doc_type_str_from_doc(doc)
-        if uno_services_supported is None and doc is not None and filter_doc_type:
-            from plugin.framework import doc_type as _doc_type
-
-            if main.is_current():
+            if doc_type is None:
+                doc_type = _doc_type.doc_type_str_from_doc(doc)
+            if uno_services_supported is None:
                 uno_services_supported = _doc_type.get_document_uno_services(doc)
 
-        tools = [
-            t for t in tools
+        tools: list[ToolBase] = [
+            t for t in self._tools.values()
             if not filter_doc_type or tool_supports_document(
                 t, doc_type=doc_type, uno_services_supported=uno_services_supported
             )
@@ -783,9 +772,6 @@ class ToolRegistry:
 
         # If we have an active domain, we want to include its tools (and the finish tool),
         # even if they are in the excluded tiers.
-
-        to_exclude = frozenset(exclude_tiers) if exclude_tiers else frozenset()
-
         if active_domain:
             # Restrict the list to this domain, the finish tool, and names the
             # domain listed in required_core_tools. Those names may be core
@@ -807,22 +793,20 @@ class ToolRegistry:
                 if _is_specialized_domain_tool(t, active_domain):
                     filtered_tools.append(t)
                 elif t.name == "workflow_finished" and active_domain not in WRITER_SIDEBAR_ONLY_DOMAINS:
-                    # Sidebar-only domains (brainstorming, writing_plan) use bespoke finish tools.
+                    # Sidebar-only domains use bespoke finish tools.
                     filtered_tools.append(t)
-                elif getattr(t, "tier", None) in ("core", "specialized") and t.name in required_core:
+                elif t.tier in ("core", "specialized") and t.name in required_core:
                     filtered_tools.append(t)
             tools = filtered_tools
-        else:
-            if to_exclude:
-                tools = [t for t in tools if getattr(t, "tier", None) not in to_exclude]
+        elif exclude_tiers:
+            to_exclude = frozenset(exclude_tiers)
+            tools = [t for t in tools if t.tier not in to_exclude]
         if names is not None:
             tools = [t for t in tools if t.name in names]
         if ctx is not None:
-            filtered = list(tools)
             for filt in self.tool_filters:
-                filtered = filt(filtered, ctx)
-            tools = filtered
-        return list(tools)
+                tools = filt(tools, ctx)
+        return tools
 
     def get_schemas(self, protocol: str = "openai", active_domain: str | None = None, **kwargs: Any) -> list[dict[str, Any]]:
         """Return schemas for tools matching the given kwargs criteria.
@@ -837,9 +821,7 @@ class ToolRegistry:
         if protocol not in ("openai", "mcp"):
             raise ValueError(f"Unknown protocol: {protocol}")
 
-        # Doc-type probe is main-thread-only because get_document_type accesses UNO.
-        # In release builds @main_thread_only logs and continues rather than raising,
-        # so off-thread callers must avoid probing UNO directly.
+        # Same main-thread rule as get_tools.
         doc = kwargs.get("doc")
         doc_type = kwargs.get("doc_type")
         if doc_type is None and doc is not None and main.is_current():
@@ -1043,7 +1025,7 @@ class ToolRegistry:
                 return self._unknown_tool_error(tool_name, ctx)
 
             # Check document compatibility using cached doc_type / UNO services (no live doc probe).
-            if not tool_supports_document(tool, doc_type=ctx.doc_type, uno_services_supported=getattr(ctx, "uno_services_supported", None)):
+            if not tool_supports_document(tool, doc_type=ctx.doc_type, uno_services_supported=ctx.uno_services_supported):
                 return make_tool_error(
                     f"Tool '{tool_name}' does not support the current document.",
                     code="UNSUPPORTED_DOCUMENT",
@@ -1055,8 +1037,8 @@ class ToolRegistry:
                 return prepared.error
             kwargs, ignored, common_details = prepared.kwargs, prepared.ignored, prepared.details
 
-            if getattr(ctx, "read_only_target", False) and tool.detects_mutation():
-                # Use the central factory (all tool errors now go through make_tool_error).
+            if ctx.read_only_target and tool.detects_mutation():
+                # Use the central factory.
                 return make_tool_error("This document is open for read-only document_research access; writes are not allowed.", code="READ_ONLY_TARGET", **common_details)
 
             # Execution with simple isolation and timeout.
@@ -1064,12 +1046,7 @@ class ToolRegistry:
             # Sync tools are marshaled to the LO main thread so MCP long-running and any
             # other worker-thread caller cannot touch UNO off-thread.
             runner = tool.execute if bypass_thread_guard else tool.execute_safe
-            # Coerce missing, None, boolean, or non-numeric timeout values to 0.0 (no timeout).
-            raw = getattr(tool, "timeout", 0) or 0
-            if isinstance(raw, bool) or not isinstance(raw, (int, float)):
-                timeout = 0.0
-            else:
-                timeout = float(raw)
+            timeout = float(tool.timeout) if tool.timeout else 0.0
 
             # Invoking runner via a zero-argument closure prevents keyword parameter collisions with caller kwargs.
             def _run_tool() -> Any:

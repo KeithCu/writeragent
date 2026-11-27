@@ -24,13 +24,9 @@ on Desktop). AGENTS.md: use the extension context, not a fresh UNO context.
 All services that need UNO access should call ``get_ctx()`` rather than
 storing a ctx reference from ``initialize()``.
 
-Concurrency: the component context (``ctx``) must be the one LibreOffice
-gave the extension at load, stored in ``_fallback_ctx``. Calling
-``uno.getComponentContext()`` from a background thread or a test runner
-can return a **different** context with no UI, which then segfaults or
-fails to find dialogs. This module does **not** make the Writer/Calc
-document model safe from any thread — wrap document access with
-``guard_uno`` and marshal UI work through ``MainThread``.
+Concurrency: this module does **not** make the Writer/Calc document model
+safe from any thread — wrap document access with ``guard_uno`` and marshal
+UI work through ``MainThread``.
 """
 
 from __future__ import annotations
@@ -74,7 +70,7 @@ _logged_component_context_fallback = False
 # Set by main.py / main_core.py bootstrap; auto-detected from installed packages when unset.
 _package_extension_id: str | None = None
 
-# Probe order: LibrePy first when both family OXTs are installed (existing behavior).
+# Probe order: LibrePy first when both family OXTs are installed.
 _KNOWN_EXTENSION_IDS = (EXTENSION_ID_LIBREPY, EXTENSION_ID_WRITERAGENT, EXTENSION_ID_LIBREHARPER)
 
 # Process image does not change. None means not computed yet (False is a real answer).
@@ -124,22 +120,19 @@ def reset_desktop_create_is_unsafe_for_tests() -> None:
 
 def _desktop_create_is_unsafe_now() -> bool:
     argv = [str(arg) for arg in sys.argv]
-    if argv and _basename_is_uno_helper(argv[0]):
-        return True
     exe_sys = getattr(sys, "executable", "") or ""
-    if exe_sys and _basename_is_uno_helper(exe_sys):
-        return True
     exe, comm, cmdline = _linux_process_tokens()
     # We match the exe, comm and cmdline[0] only, not every cmdline token,
     # because a soffice argument such as /home/u/uno would otherwise mark the
     # whole session as a no-VCL helper and disable Desktop.
-    if exe and _basename_is_uno_helper(exe):
-        return True
-    if comm and _basename_is_uno_helper(comm):
-        return True
-    if cmdline and _basename_is_uno_helper(cmdline[0]):
-        return True
-    return False
+    tokens = (
+        argv[0] if argv else "",
+        exe_sys,
+        exe,
+        comm,
+        cmdline[0] if cmdline else "",
+    )
+    return any(tok and _basename_is_uno_helper(tok) for tok in tokens)
 
 
 def desktop_create_is_unsafe() -> bool:
@@ -166,15 +159,15 @@ def is_libreharper() -> bool:
     if _package_extension_id is not None:
         return _package_extension_id == EXTENSION_ID_LIBREHARPER
     try:
-        from plugin import _manifest
+        from plugin._manifest import MODULES
 
-        return any(m.get("title") == "LibreHarper" for m in getattr(_manifest, "MODULES", []))
+        return any(m.get("title") == "LibreHarper" for m in cast("list[dict[str, Any]]", MODULES))
     except ImportError:
         return False
 
 
 def set_fallback_ctx(ctx: Any) -> Any | None:
-    """Store a fallback ctx for use when uno module is not available.
+    """Store the extension's component context; ``get_ctx`` returns it in preference to ``uno.getComponentContext()``.
 
     Returns the previous fallback ctx so callers can save and restore it.
     """
@@ -218,7 +211,7 @@ def resolve_package_extension_id(ctx: Any | None = None) -> str:
                 _package_extension_id = extension_id
                 return extension_id
 
-    # Last resort: preserve WriterAgent default for older call sites.
+    # Last resort: default to WriterAgent when no package location matches.
     return EXTENSION_ID_WRITERAGENT
 
 
@@ -278,10 +271,6 @@ def get_ctx() -> Any:
     is only used when that fallback is unset (and must not be preferred in test
     runners — see module docstring).
     """
-    # In standalone runner processes (test runners), uno.getComponentContext()
-    # returns a local pyuno context with no VCL. Creating
-    # com.sun.star.frame.Desktop on that context segfaults. Prefer
-    # _fallback_ctx, the remote connection stored at extension init.
     if _fallback_ctx is not None:
         return _stable_component_context(_fallback_ctx)
     try:
@@ -316,10 +305,9 @@ def get_service_manager(ctx: Any) -> Any | None:
     """Return the UNO ServiceManager from *ctx*, or None."""
     if ctx is None:
         return None
-    ctx_any = cast("Any", ctx)
-    smgr = getattr(ctx_any, "ServiceManager", None)
+    smgr = getattr(ctx, "ServiceManager", None)
     if smgr is None:
-        getter = getattr(ctx_any, "getServiceManager", None)
+        getter = getattr(ctx, "getServiceManager", None)
         smgr = getter() if callable(getter) else None
     return smgr
 
@@ -374,11 +362,7 @@ def get_package_info(ctx: Any | None = None) -> Any:
         ctx = get_ctx()
     if ctx is None:
         return None
-    ctx_any = cast("Any", ctx)
-    gvn = getattr(ctx_any, "getValueByName", None)
-    if gvn is None:
-        return None
-    pip = gvn("/singletons/com.sun.star.deployment.PackageInformationProvider")
+    pip = ctx.getValueByName("/singletons/com.sun.star.deployment.PackageInformationProvider")
     return _guard_returned_uno(pip)
 
 
@@ -411,8 +395,8 @@ def get_extension_path(ctx: Any | None = None, extension_id: str | None = None) 
         import uno
 
         return str(uno.fileUrlToSystemPath(url))
-    # A vnd.sun.star.extension:// URL is not a filesystem path. Callers join
-    # this with os.path; returning the URL made that join look like a file.
+    # A vnd.sun.star.extension:// URL is not a filesystem path; returning it
+    # would make os.path.join treat the URL as a file path.
     return ""
 
 
@@ -589,11 +573,7 @@ def iter_open_models(desktop: Any, *, strict: bool = True, label: str = "iter_op
 
     try:
         comps = desktop.getComponents()
-        if comps is None:
-            return
         enum = comps.createEnumeration()
-        if enum is None:
-            return
         while enum_has_more(enum):
             elem = enum.nextElement()
             try:
@@ -604,12 +584,12 @@ def iter_open_models(desktop: Any, *, strict: bool = True, label: str = "iter_op
                     # Desktop enumeration can yield frames, not models. Frames
                     # expose the document via getController().getModel().
                     controller = elem.getController()
-                    if controller is not None and hasattr(controller, "getModel"):
+                    if controller is not None:
                         model = controller.getModel()
                 if model is not None and is_scratch_document(model):
                     continue
                 if model is not None and not strict:
-                    getattr(model, "getCurrentController", lambda: None)()
+                    model.getCurrentController()
             except Exception as e:
                 log.debug("%s element error: %s", label, type(e).__name__)
                 continue
@@ -647,7 +627,7 @@ def resolve_document_by_url(ctx: Any, url: Any) -> tuple[Any, str | None]:
         others: list[tuple[Any, Any]] = []
         for model in iter_open_models(desktop):
             try:
-                model_url = model.getURL() if hasattr(model, "getURL") else ""
+                model_url = model.getURL()
                 doc_url = _doc_identity_url(model_url)
                 uid = get_runtime_uid(model)
                 if (doc_url and doc_url == target) or (uid and uid == target):
@@ -745,7 +725,7 @@ def supports_service(obj: Any, name: str) -> bool:
 def property_arg(args: Any, name: str) -> Any:
     """Extract PropertyValue from args by Name."""
     for pv in args or ():
-        if hasattr(pv, "Name") and pv.Name == name:
+        if pv.Name == name:
             return pv.Value
     return None
 
