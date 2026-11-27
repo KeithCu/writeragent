@@ -27,7 +27,7 @@ from plugin.doc.compound_undo import UndoLock
 from plugin.doc.document_helpers import is_cacheable_doc_key
 from plugin.doc.paragraph_search import get_paragraph_ranges, paragraph_entries, paragraph_index_for_anchor
 from plugin.doc.text_helpers import TrackedDeletions
-from plugin.framework.errors import best_effort, name_miss_details, reraise_if_disposed
+from plugin.framework.errors import best_effort, make_tool_error, name_miss_details, reraise_if_disposed
 from plugin.framework.service import ServiceBase
 from plugin.framework.uno_context import uno_same
 from plugin.framework.uno_listeners import BaseDocumentEventListener
@@ -480,7 +480,6 @@ _RESERVED_MCP_NAME_ERROR = "Bookmark names starting with '_mcp_' are reserved fo
 
 
 def _bookmark_target(
-    tool: Any,
     doc: Any,
     name: str,
     *,
@@ -496,9 +495,9 @@ def _bookmark_target(
     (bookmark_get and bookmark_resolve read them). An empty name is "Bookmark name is required.".
     """
     if not name:
-        return tool._tool_error("Bookmark name is required.")
+        return make_tool_error("Bookmark name is required.")
     if is_mcp_bookmark_name(name) and not reserved_ok:
-        return tool._tool_error(_RESERVED_MCP_NAME_ERROR)
+        return make_tool_error(_RESERVED_MCP_NAME_ERROR)
     bookmarks = doc.getBookmarks()
     has_bm = bookmarks.hasByName(name)
     if must_exist and not has_bm:
@@ -508,12 +507,12 @@ def _bookmark_target(
             if mcp_miss_hint and is_mcp_bookmark_name(name)
             else f"Bookmark '{name}' not found."
         )
-        return tool._tool_error(
+        return make_tool_error(
             hint,
             **name_miss_details(name, names, "bookmark_list"),
         )
     if not must_exist and has_bm:
-        return tool._tool_error(f"A bookmark named '{name}' already exists.")
+        return make_tool_error(f"A bookmark named '{name}' already exists.")
     return bookmarks
 
 
@@ -525,7 +524,7 @@ class BookmarkCreate(ToolWriterBookmarkBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         name = kwargs["name"]
-        err = _bookmark_target(self, ctx.doc, name, must_exist=False)
+        err = _bookmark_target(ctx.doc, name, must_exist=False)
         if isinstance(err, dict):
             return err
 
@@ -551,7 +550,7 @@ class BookmarkDelete(ToolWriterBookmarkBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         name = kwargs["name"]
-        bookmarks = _bookmark_target(self, ctx.doc, name, must_exist=True)
+        bookmarks = _bookmark_target(ctx.doc, name, must_exist=True)
         if isinstance(bookmarks, dict):
             return bookmarks
 
@@ -584,11 +583,11 @@ class BookmarkRename(ToolWriterBookmarkBase):
         if not old_name or not new_name:
             return self._tool_error("Both old_name and new_name are required.")
 
-        bookmarks = _bookmark_target(self, doc, old_name, must_exist=True)
+        bookmarks = _bookmark_target(doc, old_name, must_exist=True)
         if isinstance(bookmarks, dict):
             return bookmarks
 
-        taken = _bookmark_target(self, doc, new_name, must_exist=False)
+        taken = _bookmark_target(doc, new_name, must_exist=False)
         if isinstance(taken, dict):
             return taken
 
@@ -606,7 +605,7 @@ class BookmarkGet(ToolWriterBookmarkBase):
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         name = kwargs["name"]
-        bookmarks = _bookmark_target(self, doc, name, must_exist=True, reserved_ok=True)
+        bookmarks = _bookmark_target(doc, name, must_exist=True, reserved_ok=True)
         if isinstance(bookmarks, dict):
             return bookmarks
 
@@ -637,7 +636,7 @@ class BookmarkResolve(ToolWriterBookmarkBase):
 
         doc = ctx.doc
         bookmarks = _bookmark_target(
-            self, doc, bookmark_name, must_exist=True, reserved_ok=True, mcp_miss_hint=True
+            doc, bookmark_name, must_exist=True, reserved_ok=True, mcp_miss_hint=True
         )
         if isinstance(bookmarks, dict):
             return bookmarks

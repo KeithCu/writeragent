@@ -29,6 +29,7 @@ from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_CHARACTER, 
 from plugin.doc.text_helpers import TrackedDeletions, get_string_without_tracked_deletions
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.doc.visual_helpers import anchor_type_index, mm_to_unit
+from plugin.framework.errors import make_tool_error
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import uno_same
 from plugin.writer.record_changes import insert_recorded_content, record_changes
@@ -59,7 +60,7 @@ def _frame_text(frame: Any, deletions: TrackedDeletions, limit: int | None = Non
 
 def _frame_or_error(tool: Any, ctx: Any, name: str | None) -> Any:
     if not name:
-        return tool._tool_error("name is required.")
+        return make_tool_error("name is required.")
     return tool.get_item(
         ctx.doc,
         "getTextFrames",
@@ -75,32 +76,32 @@ def _text_box_owner(doc: Any, frame_name: str) -> tuple[int | str, Any] | None:
 
 
 # Types are checked by prepare_tool_call (plugin/framework/tool.py); only ranges are checked here.
-def _validate_frame_mm(tool: Any, param_name: str, val: Any) -> dict[str, Any] | None:
+def _validate_frame_mm(param_name: str, val: Any) -> dict[str, Any] | None:
     if math.isfinite(val) and val > 0:
         return None
-    return tool._tool_error(
+    return make_tool_error(
         f"{param_name} must be a positive finite number.",
         code="INVALID_PARAM",
         parameter=param_name,
     )
 
 
-def _validate_frame_anchor_type(tool: Any, val: Any) -> dict[str, Any] | None:
+def _validate_frame_anchor_type(val: Any) -> dict[str, Any] | None:
     if 0 <= val <= 4:
         return None
-    return tool._tool_error(
+    return make_tool_error(
         "anchor_type must be an integer between 0 and 4.",
         code="INVALID_PARAM",
         parameter="anchor_type",
     )
 
 
-def _validate_frame_measurement(tool: Any, param_name: str, val: Any) -> dict[str, Any] | None:
+def _validate_frame_measurement(param_name: str, val: Any) -> dict[str, Any] | None:
     if val is None:
         return None
     if param_name in ("width_mm", "height_mm"):
-        return _validate_frame_mm(tool, param_name, val)
-    return _validate_frame_anchor_type(tool, val)
+        return _validate_frame_mm(param_name, val)
+    return _validate_frame_anchor_type(val)
 
 
 def text_content_anchor(index: int) -> Any:
@@ -250,7 +251,7 @@ class FrameSetProperties(ToolWriterTextFramesBase):
             ("height_mm", height_mm),
             ("anchor_type", anchor_type),
         ):
-            err = _validate_frame_measurement(self, param_name, val)
+            err = _validate_frame_measurement(param_name, val)
             if err is not None:
                 return err
 
@@ -277,7 +278,6 @@ class FrameSetProperties(ToolWriterTextFramesBase):
                 frame.setPropertyValue(prop, val)
 
         err = commit_or_rollback_mutation(
-            self,
             ctx.doc,
             "WriterAgent: Set text frame properties",
             _apply,
@@ -322,7 +322,7 @@ class FrameInsert(ToolWriterTextFramesBase):
         anchor_type = kwargs["anchor_type"]
 
         for param_name, val in (("width_mm", width_mm), ("height_mm", height_mm), ("anchor_type", anchor_type)):
-            err = _validate_frame_measurement(self, param_name, val)
+            err = _validate_frame_measurement(param_name, val)
             if err is not None:
                 return err
 
@@ -374,7 +374,6 @@ class FrameInsert(ToolWriterTextFramesBase):
             return None
 
         err = insert_at_target(
-            self,
             ctx,
             kwargs,
             mutate,
@@ -434,7 +433,7 @@ class FrameDelete(ToolWriterTextFramesBase):
         doc = ctx.doc
         owner = _text_box_owner(doc, frame_name)
         if owner is not None and isinstance(owner[0], str):
-            return grouped_text_box_error(self, owner[0])
+            return grouped_text_box_error(owner[0])
 
         def mutate() -> dict[str, Any] | None:
             if owner is not None:
@@ -448,7 +447,6 @@ class FrameDelete(ToolWriterTextFramesBase):
             return None
 
         err = commit_or_rollback_mutation(
-            self,
             doc,
             "WriterAgent: Delete text frame",
             mutate,

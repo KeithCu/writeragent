@@ -50,6 +50,7 @@ from plugin.doc.visual_helpers import color_param, parse_color_to_uno_int
 from plugin.framework.errors import (
     ToolExecutionError,
     is_disposal,
+    make_tool_error,
     name_miss_details,
     reraise_if_disposed,
     similar_names,
@@ -174,7 +175,6 @@ def set_cursor_properties(cursor: Any, updates: dict[str, Any]) -> None:
 
 
 def _unsupported_property_error(
-    tool: ToolBase,
     info: Any,
     names: Iterable[str],
 ) -> dict[str, Any] | None:
@@ -200,12 +200,12 @@ def _unsupported_property_error(
             if close and close[0] != bad:
                 hints.append("'%s' -> '%s'?" % (bad, close[0]))
         hint_text = (" Did you mean: %s" % ", ".join(hints)) if hints else ""
-        return tool._tool_error(
+        return make_tool_error(
             "Unknown property: %s.%s" % (", ".join(unknown), hint_text),
             code="UNKNOWN_PROPERTY",
         )
     if readonly:
-        return tool._tool_error(
+        return make_tool_error(
             "Read-only property cannot be modified: %s." % ", ".join(readonly),
             code="READ_ONLY_PROPERTY",
         )
@@ -889,7 +889,7 @@ def _missing_style_error(
     msg = (
         "parent_style '%s' is not a %s style." if label == "parent_style" else "Style '%s' not found in %s."
     ) % (style_name, family)
-    return tool._tool_error(
+    return make_tool_error(
         "%s%s%s" % (msg, hint, sample),
         code="STYLE_NOT_FOUND",
         suggested_call=suggested,
@@ -1262,11 +1262,11 @@ def _validate_conditional_rules(rules: Any, style_family: Any) -> str | None:
 _ROOT_CHAR_STYLE = "Standard"
 
 
-def _no_character_style_token_error(tool: Any, family: str, style_name: str) -> dict[str, Any] | None:
+def _no_character_style_token_error(family: str, style_name: str) -> dict[str, Any] | None:
     # 'No Character Style' is the apply_style token that clears the character style by writing
     # the root style ('Standard'). Resolving or updating it as a style object would modify that root style.
     if family == "CharacterStyles" and style_name.strip() == "No Character Style":
-        return tool._tool_error(
+        return make_tool_error(
             "No Character Style is the apply_style token that clears the character style. "
             "It is not a style you can inspect, update, or clone. "
             "The character style object is named 'Standard'.",
@@ -1376,16 +1376,16 @@ def _normalize_property_updates(property_updates: Any) -> dict[str, Any]:
 
 
 def _validate_style_updates(
-    tool: Any, kwargs: dict[str, Any]
+    kwargs: dict[str, Any]
 ) -> tuple[str, Any, Any, dict[str, Any]] | dict[str, Any]:
     style_name = kwargs["style"].strip()
     if not style_name:
-        return tool._tool_error("style is required.", code="INVALID_PARAM")
+        return make_tool_error("style is required.", code="INVALID_PARAM")
 
     family = kwargs["family"]
     parent_style = kwargs.get("parent_style")
 
-    token_err = _no_character_style_token_error(tool, family, style_name)
+    token_err = _no_character_style_token_error(family, style_name)
     if token_err:
         return token_err
 
@@ -1394,7 +1394,7 @@ def _validate_style_updates(
     try:
         updates = _normalize_property_updates(property_updates)
     except ValueError as exc:
-        return tool._tool_error(str(exc), code="INVALID_PARAM")
+        return make_tool_error(str(exc), code="INVALID_PARAM")
 
     return style_name, family, parent_style, updates
 
@@ -1589,7 +1589,7 @@ class StyleGetInfo(ToolWriterStyleBase):
                 result = {**result, "family": "PageStyles"}
             return result
 
-        token_err = _no_character_style_token_error(self, family, style_name)
+        token_err = _no_character_style_token_error(family, style_name)
         if token_err:
             return token_err
 
@@ -1613,7 +1613,6 @@ class StyleGetInfo(ToolWriterStyleBase):
 
 
 def target_cursors(
-    tool: ToolBase,
     ctx: ToolContext,
     kwargs: dict[str, Any],
     *,
@@ -1631,14 +1630,14 @@ def target_cursors(
             )
             return [cursor], None, None
         except ValueError as ve:
-            return [], tool._tool_error(str(ve), code="INVALID_PARAM"), None
+            return [], make_tool_error(str(ve), code="INVALID_PARAM"), None
 
     # target='search' resolves its own ranges here so a miss returns the structured
     # build_search_not_found_response payload; resolve_target_cursor serves other targets
     # and raises ValueError. Each match gets a cursor in its own text object (cell/frame safe).
     s = search_mod.prepare_old_content(kwargs.get("old_content"))
     if not s:
-        return [], tool._tool_error(
+        return [], make_tool_error(
             "target='search' requires old_content.",
             code="INVALID_PARAM",
             top_level={"applied": False, "matched": False},
@@ -1663,7 +1662,7 @@ def target_cursors(
     if occ is not None:
         # Schema type integer (bool fails). validate has no min/max.
         if occ < 0 or occ >= len(ranges):
-            err = tool._tool_error(
+            err = make_tool_error(
                 "occurrence %s out of range (found %d match(es), use 0..%d)."
                 % (occ, len(ranges), len(ranges) - 1),
                 code="OCCURRENCE_OUT_OF_RANGE",
@@ -1676,7 +1675,7 @@ def target_cursors(
         deletions = TrackedDeletions(ctx.doc)
         ranges = [r for r in ranges if not deletions.overlaps(r)]
         if not ranges:
-            err = tool._tool_error(
+            err = make_tool_error(
                 search_mod.CROSSES_DELETION_MESSAGE,
                 code="MATCH_CROSSES_DELETION",
                 top_level={"applied": False, "matched": True},
@@ -1705,7 +1704,6 @@ def _covering_cursors(text: Any) -> Iterator[Any]:
 
 
 def apply_to_cursors(
-    tool: ToolBase,
     ctx: ToolContext,
     cursors: list[Any],
     apply_one: Callable[[Any], Any],
@@ -1726,7 +1724,7 @@ def apply_to_cursors(
         # previous edit and leave the style in place
         # (SfxUndoManager::ImplAddUndoAction_NoNotify, svl/source/undo/undo.cxx).
         except UndoUnavailable:
-            return [], tool._tool_error(
+            return [], make_tool_error(
                 (
                     "Cannot apply %s: LibreOffice is not recording undo for this document, "
                     "so the change could not be undone. Nothing was changed. Do not repeat the call. "
@@ -1739,19 +1737,19 @@ def apply_to_cursors(
         if outcome.mutate_error is not None:
             error = outcome.mutate_error
             if not outcome.group_closed:
-                return [], tool._tool_error(
+                return [], make_tool_error(
                     "Applied to %d of %d; failed on one match: %s. The undo step could not be closed, so part of the change may be in the document."
                     % (len(reports), len(cursors), error),
                     code="TOOL_EXECUTION_ERROR",
                 )
             # True when the group was undone or left no undo entry (the first write was refused).
             if outcome.nothing_landed:
-                return [], tool._tool_error(
+                return [], make_tool_error(
                     "Nothing was changed: %s" % (error,),
                     # set_cursor_properties raises ValueError for a value Writer rejects.
                     code="INVALID_PARAM" if isinstance(error, ValueError) else "TOOL_EXECUTION_ERROR",
                 )
-            return [], tool._tool_error(
+            return [], make_tool_error(
                 "Applied to %d of %d; failed on one match: %s. The change could not be rolled back, so part of it may still be in the document."
                 % (len(reports), len(cursors), error),
                 code="TOOL_EXECUTION_ERROR",
@@ -1760,14 +1758,14 @@ def apply_to_cursors(
         err = outcome.error
         if err is not None:
             if err.get("code") == "UNDO_CONTEXT_LEAK":
-                return [], tool._tool_error(
+                return [], make_tool_error(
                     "Applied %s to %d match(es), but the undo step could not be closed (%s). "
                     "The changes are in the document and the undo context is still open."
                     % (label, len(reports), err.get("message")),
                     code="UNDO_CONTEXT_LEAK",
                 )
             if outcome.rollback_failure is not None:
-                return [], tool._tool_error(
+                return [], make_tool_error(
                     "Applied to %d of %d; failed on one match: %s. Earlier matches stay applied."
                     % (len(reports), len(cursors), err.get("message")),
                     code="ROLLBACK_FAILED",
@@ -1966,7 +1964,7 @@ class ApplyStyle(ToolBase):
         # Paragraph/page styles turn recording off during the write and record only a ParagraphFormat redline,
         # so they cannot turn a Delete redline into a Format redline.
         cursors, err, search_mode = target_cursors(
-            self, ctx, kwargs, check_crossing=(family == "CharacterStyles")
+            ctx, kwargs, check_crossing=(family == "CharacterStyles")
         )
         if err is not None:
             return err
@@ -1985,7 +1983,6 @@ class ApplyStyle(ToolBase):
         with recording_cm:
             char_tracked = family == "CharacterStyles" and _records_char_format(ctx.doc, cursors)
             reports, err = apply_to_cursors(
-                self,
                 ctx,
                 cursors,
                 lambda c: self._apply_one(ctx, family, uno_value, c, clear_direct, author=author),
@@ -2069,7 +2066,7 @@ class StyleFormatText(ToolWriterStyleBase):
             return self._tool_error(str(exc), code="INVALID_PARAM")
 
         target = kwargs["target"]
-        cursors, err, search_mode = target_cursors(self, ctx, kwargs)
+        cursors, err, search_mode = target_cursors(ctx, kwargs)
         if err is not None:
             return err
         if target == "full_document":
@@ -2082,7 +2079,7 @@ class StyleFormatText(ToolWriterStyleBase):
             )
 
         all_names = list(updates) + reset_names
-        prop_err = _unsupported_property_error(self, cursors[0].getPropertySetInfo(), all_names)
+        prop_err = _unsupported_property_error(cursors[0].getPropertySetInfo(), all_names)
         if prop_err is not None:
             return prop_err
 
@@ -2141,7 +2138,7 @@ class StyleFormatText(ToolWriterStyleBase):
             )
             if recording and any(n in _RECORDABLE_PARA_PROPERTIES for n in all_names):
                 para_author = paragraph_redline_author(ctx.ctx)
-            reports, err = apply_to_cursors(self, ctx, cursors, apply_one, "direct formatting")
+            reports, err = apply_to_cursors(ctx, cursors, apply_one, "direct formatting")
         if err is not None:
             return err
 
@@ -2271,7 +2268,7 @@ class StyleUpdate(ToolWriterStyleBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        validated = _validate_style_updates(self, kwargs)
+        validated = _validate_style_updates(kwargs)
         if isinstance(validated, dict):
             return validated
         style_name, family, parent_style, updates = validated
@@ -2392,7 +2389,7 @@ class StyleCreate(ToolWriterStyleBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        validated = _validate_style_updates(self, kwargs)
+        validated = _validate_style_updates(kwargs)
         if isinstance(validated, dict):
             return validated
         style_name, family, parent_style, updates = validated
@@ -2509,7 +2506,7 @@ class StyleClone(ToolWriterStyleBase):
 
         family = kwargs["family"]
 
-        token_err = _no_character_style_token_error(self, family, style_name)
+        token_err = _no_character_style_token_error(family, style_name)
         if token_err:
             return token_err
 

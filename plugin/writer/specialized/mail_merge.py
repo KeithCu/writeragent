@@ -354,7 +354,6 @@ class InsertField(ToolWriterMailMergeBase):
             recorded = insert_recorded_content(doc, cursor.getText(), cursor, field)
 
         err = insert_at_target(
-            self,
             ctx,
             kwargs,
             insert,

@@ -1246,7 +1246,6 @@ def test_indexes_create_search_rollback_failure_keeps_the_cause():
 
 
 def test_commit_toc_mutation_mutate_exception_propagates_even_if_restore_protect_fails():
-    tool = IndexesDeleteTocEntry()
     doc = MagicMock()
     mgr = MagicMock()
     mgr.isLocked.return_value = False
@@ -1265,7 +1264,6 @@ def test_commit_toc_mutation_mutate_exception_propagates_even_if_restore_protect
     idx.setPropertyValue.side_effect = set_pv
 
     res = _commit_toc_mutation(
-        tool,
         doc,
         idx,
         bad_mutate,
@@ -1281,7 +1279,6 @@ def test_commit_toc_mutation_mutate_exception_propagates_even_if_restore_protect
 
 
 def test_commit_toc_mutation_restore_protect_failure_returns_error():
-    tool = IndexesDeleteTocEntry()
     doc = MagicMock()
     mgr = MagicMock()
     mgr.isLocked.return_value = False
@@ -1300,7 +1297,6 @@ def test_commit_toc_mutation_restore_protect_failure_returns_error():
     idx.setPropertyValue.side_effect = set_pv
 
     res = _commit_toc_mutation(
-        tool,
         doc,
         idx,
         good_mutate,
@@ -1314,7 +1310,6 @@ def test_commit_toc_mutation_restore_protect_failure_returns_error():
 
 
 def test_commit_toc_mutation_success():
-    tool = IndexesDeleteTocEntry()
     doc = MagicMock()
     mgr = MagicMock()
     mgr.isLocked.return_value = False
@@ -1327,7 +1322,6 @@ def test_commit_toc_mutation_success():
         return None
 
     res = _commit_toc_mutation(
-        tool,
         doc,
         idx,
         good_mutate,

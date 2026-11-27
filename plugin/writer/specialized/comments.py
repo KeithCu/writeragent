@@ -320,7 +320,6 @@ class CommentDelete(ToolWriterCommentBase):
             return None
 
         err = commit_or_rollback_mutation(
-            self,
             doc,
             undo_title,
             mutate,
@@ -375,7 +374,6 @@ class CommentResolve(ToolWriterCommentBase):
             return None
 
         err = commit_or_rollback_mutation(
-            self,
             doc,
             undo_title,
             mutate,
@@ -424,7 +422,6 @@ class CommentEdit(ToolWriterCommentBase):
             return None
 
         err = commit_or_rollback_mutation(
-            self,
             doc,
             undo_title,
             mutate,

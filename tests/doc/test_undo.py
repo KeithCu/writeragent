@@ -7,8 +7,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.framework.errors import make_tool_error
-
 
 def test_undo_counts_steps_and_reports_stack_state():
     from plugin.doc.undo import Undo
@@ -64,83 +62,43 @@ def _failing_undo_doc():
 
 
 @pytest.mark.parametrize(
-    ("use_real_tool", "extra_kwargs", "expected_code", "expected_extras"),
+    ("extra_kwargs", "expected_code", "expected_extras"),
     [
-        pytest.param(
-            False,
-            {"extra_key": "extra_val"},
-            "TOOL_EXECUTION_ERROR",
-            {"extra_key": "extra_val"},
-            id="mock_tool_extra_key",
-        ),
-        pytest.param(
-            False,
-            {"code": "INSERT_FRAME_FAILED", "frame": "F"},
-            "INSERT_FRAME_FAILED",
-            {"frame": "F"},
-            id="mock_tool_extra_code",
-        ),
-        pytest.param(
-            True,
-            {"code": "INSERT_FRAME_FAILED"},
-            "INSERT_FRAME_FAILED",
-            {},
-            id="real_tool_custom_code",
-        ),
-        pytest.param(
-            True,
-            {"deleted": 0},
-            "TOOL_EXECUTION_ERROR",
-            {"deleted": 0},
-            id="real_tool_extra_int",
-        ),
-        pytest.param(
-            True,
-            {},
-            "TOOL_EXECUTION_ERROR",
-            {},
-            id="real_tool_default_code",
-        ),
+        pytest.param({"extra_key": "extra_val"}, "TOOL_EXECUTION_ERROR", {"extra_key": "extra_val"}, id="extra_key"),
+        pytest.param({"code": "INSERT_FRAME_FAILED", "frame": "F"}, "INSERT_FRAME_FAILED", {"frame": "F"}, id="extra_code"),
+        pytest.param({"code": "INSERT_FRAME_FAILED"}, "INSERT_FRAME_FAILED", {}, id="custom_code"),
+        pytest.param({"deleted": 0}, "TOOL_EXECUTION_ERROR", {"deleted": 0}, id="extra_int"),
+        pytest.param({}, "TOOL_EXECUTION_ERROR", {}, id="default_code"),
     ],
 )
-def test_commit_or_rollback_mutation_error_shape_and_extras(
-    use_real_tool, extra_kwargs, expected_code, expected_extras
-):
-    from plugin.doc.undo import Undo, commit_or_rollback_mutation
-
-    if use_real_tool:
-        tool = Undo()
-    else:
-        tool = MagicMock()
-        tool._tool_error.side_effect = make_tool_error
+def test_commit_or_rollback_mutation_error_shape_and_extras(extra_kwargs, expected_code, expected_extras):
+    from plugin.doc.undo import commit_or_rollback_mutation
 
     def mutate():
         raise RuntimeError("boom")
 
     res = commit_or_rollback_mutation(
-        tool, _failing_undo_doc(), "Title", mutate, "Undo unavail", "Rollback failed", **extra_kwargs
+        _failing_undo_doc(), "Title", mutate, "Undo unavail", "Rollback failed", **extra_kwargs
     )
     assert res is not None
     assert res["status"] == "error"
     assert res["code"] == expected_code
+    assert res["message"] == "Rollback failed (boom)."
     assert "details" not in res
     for k, v in expected_extras.items():
         assert res[k] == v
-    if not use_real_tool:
-        tool._tool_error.assert_called_once()
 
 
 def test_commit_or_rollback_mutation_success():
     from plugin.doc.undo import commit_or_rollback_mutation
 
-    tool = MagicMock()
     doc = MagicMock()
     mgr = MagicMock()
     mgr.isLocked.return_value = False
     doc.getUndoManager.return_value = mgr
 
     res = commit_or_rollback_mutation(
-        tool, doc, "Title", lambda: None, "Undo unavail", "Rollback failed"
+        doc, "Title", lambda: None, "Undo unavail", "Rollback failed"
     )
     assert res is None
 
@@ -148,15 +106,13 @@ def test_commit_or_rollback_mutation_success():
 def test_commit_or_rollback_mutation_undo_unavailable():
     from plugin.doc.undo import commit_or_rollback_mutation
 
-    tool = MagicMock()
-    tool._tool_error.side_effect = make_tool_error
     doc = MagicMock()
     mgr = MagicMock()
     mgr.isLocked.return_value = True
     doc.getUndoManager.return_value = mgr
 
     res = commit_or_rollback_mutation(
-        tool, doc, "Title", lambda: None, "Undo unavail", "Rollback failed"
+        doc, "Title", lambda: None, "Undo unavail", "Rollback failed"
     )
     assert res is not None
     assert res["status"] == "error"
@@ -166,14 +122,11 @@ def test_commit_or_rollback_mutation_undo_unavailable():
 def test_commit_or_rollback_mutation_exception_reports_error():
     from plugin.doc.undo import commit_or_rollback_mutation
 
-    tool = MagicMock()
-    tool._tool_error.side_effect = make_tool_error
-
     def mutate():
         raise RuntimeError("boom")
 
     res = commit_or_rollback_mutation(
-        tool, _failing_undo_doc(), "Title", mutate, "Undo unavail", "Rollback failed"
+        _failing_undo_doc(), "Title", mutate, "Undo unavail", "Rollback failed"
     )
     assert res is not None
     assert res["status"] == "error"
@@ -183,12 +136,9 @@ def test_commit_or_rollback_mutation_exception_reports_error():
 def test_commit_or_rollback_mutation_surfaces_wrapper_errors():
     from plugin.doc.undo import commit_or_rollback_mutation
 
-    tool = MagicMock()
-    tool._tool_error.side_effect = make_tool_error
     doc = MagicMock()
     with patch("plugin.doc.undo.commit_or_rollback", side_effect=RuntimeError("wrapper")):
         res = commit_or_rollback_mutation(
-            tool,
             doc,
             "Title",
             lambda: None,
@@ -205,13 +155,10 @@ def test_commit_or_rollback_mutation_open_group_omits_rollback_msg_and_extras():
     from plugin.doc.compound_undo import UndoOutcome
     from plugin.doc.undo import commit_or_rollback_mutation
 
-    tool = MagicMock()
-    tool._tool_error.side_effect = make_tool_error
     doc = MagicMock()
     open_outcome = UndoOutcome(mutate_error=RuntimeError("boom"), group_closed=False)
     with patch("plugin.doc.undo.commit_or_rollback", return_value=open_outcome):
         res = commit_or_rollback_mutation(
-            tool,
             doc,
             "Title",
             lambda: None,
@@ -232,13 +179,10 @@ def test_commit_or_rollback_mutation_not_rolled_back_omits_rollback_msg_and_extr
     from plugin.doc.compound_undo import UndoOutcome
     from plugin.doc.undo import commit_or_rollback_mutation
 
-    tool = MagicMock()
-    tool._tool_error.side_effect = make_tool_error
     doc = MagicMock()
     not_rolled_back = UndoOutcome(mutate_error=RuntimeError("boom"), nothing_landed=False)
     with patch("plugin.doc.undo.commit_or_rollback", return_value=not_rolled_back):
         res = commit_or_rollback_mutation(
-            tool,
             doc,
             "Title",
             lambda: None,

@@ -2833,10 +2833,9 @@ def test_apply_to_cursors_open_group_does_not_claim_nothing_changed():
     from plugin.writer.styles import apply_to_cursors
 
     ctx = _style_ctx()
-    tool = ApplyStyle()
     open_outcome = UndoOutcome(mutate_error=ValueError("x"), group_closed=False)
     with patch("plugin.writer.styles.commit_or_rollback", return_value=open_outcome):
-        reports, err = apply_to_cursors(tool, ctx, [MagicMock()], lambda _c: None, "style 'Heading 1'")
+        reports, err = apply_to_cursors(ctx, [MagicMock()], lambda _c: None, "style 'Heading 1'")
 
     assert reports == []
     assert err is not None
@@ -2849,10 +2848,9 @@ def test_apply_to_cursors_not_rolled_back_does_not_claim_nothing_changed():
     from plugin.writer.styles import apply_to_cursors
 
     ctx = _style_ctx()
-    tool = ApplyStyle()
     not_rolled_back = UndoOutcome(mutate_error=ValueError("x"))
     with patch("plugin.writer.styles.commit_or_rollback", return_value=not_rolled_back):
-        reports, err = apply_to_cursors(tool, ctx, [MagicMock()], lambda _c: None, "style 'Heading 1'")
+        reports, err = apply_to_cursors(ctx, [MagicMock()], lambda _c: None, "style 'Heading 1'")
 
     assert reports == []
     assert err is not None

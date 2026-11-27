@@ -648,21 +648,21 @@ _STYLE_PROPERTY = {
 }
 
 
-def _resolve_page_style_target(tool: ToolWriterPageBase, doc: Any, style_name: str) -> Any | dict[str, Any]:
+def _resolve_page_style_target(doc: Any, style_name: str) -> Any | dict[str, Any]:
     try:
         return resolve_page_style(doc, style_name)
     except ValueError as e:
-        return tool._tool_error(str(e))
+        return make_tool_error(str(e))
 
 
-def _resolve_text_columns(tool: ToolWriterPageBase, doc: Any, style_name: str) -> tuple[Any, Any] | dict[str, Any]:
-    resolved = _resolve_page_style_target(tool, doc, style_name)
+def _resolve_text_columns(doc: Any, style_name: str) -> tuple[Any, Any] | dict[str, Any]:
+    resolved = _resolve_page_style_target(doc, style_name)
     if isinstance(resolved, dict):
         return resolved
     style = resolved
     text_columns = style.getPropertyValue("TextColumns")
     if not text_columns:
-        return tool._tool_error(f"TextColumns property not found on style '{style_name}'.")
+        return make_tool_error(f"TextColumns property not found on style '{style_name}'.")
     return style, text_columns
 
 
@@ -786,7 +786,7 @@ class PageSetStyleProperties(ToolWriterPageBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         style_name = kwargs["style"]
-        resolved = _resolve_page_style_target(self, doc, style_name)
+        resolved = _resolve_page_style_target(doc, style_name)
         if isinstance(resolved, dict):
             return resolved
         style = resolved
@@ -899,7 +899,7 @@ class PageGetHeaderFooterText(ToolWriterPageBase):
         region = kwargs["region"]
         include_images = kwargs["include_images"]
 
-        resolved = _resolve_page_style_target(self, ctx.doc, style_name)
+        resolved = _resolve_page_style_target(ctx.doc, style_name)
         if isinstance(resolved, dict):
             return resolved
         style = resolved
@@ -993,7 +993,7 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
         region = kwargs["region"]
         content = kwargs["content"]
 
-        resolved = _resolve_page_style_target(self, ctx.doc, style_name)
+        resolved = _resolve_page_style_target(ctx.doc, style_name)
         if isinstance(resolved, dict):
             return resolved
         style = resolved
@@ -1325,7 +1325,7 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
             return self._tool_error(err)
         occurrence = 0 if parsed is None else parsed
 
-        resolved = _resolve_page_style_target(self, ctx.doc, style_name)
+        resolved = _resolve_page_style_target(ctx.doc, style_name)
         if isinstance(resolved, dict):
             return resolved
         style = resolved
@@ -1445,7 +1445,7 @@ class PageGetColumns(ToolWriterPageBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         style_name = kwargs["style"]
-        target = _resolve_text_columns(self, ctx.doc, style_name)
+        target = _resolve_text_columns(ctx.doc, style_name)
         if isinstance(target, dict):
             return target
         _style, text_columns = target
@@ -1492,7 +1492,7 @@ class PageSetColumns(ToolWriterPageBase):
 
         spacing_hmm = _mm_to_hmm(spacing_raw)
 
-        target = _resolve_text_columns(self, ctx.doc, style_name)
+        target = _resolve_text_columns(ctx.doc, style_name)
         if isinstance(target, dict):
             return target
         style, text_columns = target

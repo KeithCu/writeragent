@@ -37,7 +37,7 @@ from plugin.doc.visual_helpers import (
     parse_color_to_uno_int,
 )
 from plugin.framework.doc_type import is_writer
-from plugin.framework.errors import ToolExecutionError, WriterAgentException, available_miss_details, is_disposal, uno_read, uno_write
+from plugin.framework.errors import ToolExecutionError, WriterAgentException, available_miss_details, is_disposal, make_tool_error, uno_read, uno_write
 from plugin.framework.i18n import N_, _
 from plugin.framework.uno_context import get_service_manager, uno_any, uno_same
 from plugin.writer.edit_review import flag_tracked, flag_untracked, record_write
@@ -59,7 +59,7 @@ from .tree import (
 )
 
 if TYPE_CHECKING:
-    from plugin.framework.tool import ToolBase, ToolContext
+    from plugin.framework.tool import ToolContext
 
 log = logging.getLogger(__name__)
 
@@ -77,8 +77,8 @@ class _AnyDocumentShapeTool(ToolDrawShapeBase):
     )
 
 
-def _name_taken_error(tool: ToolBase, name: str) -> dict[str, Any]:
-    return tool._tool_error(
+def _name_taken_error(name: str) -> dict[str, Any]:
+    return make_tool_error(
         "A shape named %r already exists on this page; choose another name or edit that shape." % name,
         code="INVALID_PARAM",
     )
@@ -89,7 +89,6 @@ def _wanted_name(kwargs: dict[str, Any]) -> str:
 
 
 def _lookup_ref(
-    tool: ToolBase,
     page: Any,
     ref: Any,
     *,
@@ -104,23 +103,23 @@ def _lookup_ref(
         if err.startswith("No shape named"):
             names = page_shape_names(page)
             capped = names[:40]
-            return None, None, None, tool._tool_error(
+            return None, None, None, make_tool_error(
                 err,
                 available=capped,
                 **available_miss_details(wanted, capped),
             )
-        return None, None, None, tool._tool_error(err)
+        return None, None, None, make_tool_error(err)
     return addr, shape, parent, None
 
 
-def _reject_duplicate_shapes(tool: ToolBase, addresses: list[int | str]) -> dict[str, Any] | None:
+def _reject_duplicate_shapes(addresses: list[int | str]) -> dict[str, Any] | None:
     """Reject duplicate shape references using canonical addresses from ``_lookup_ref``.
 
     An integer index, a digit string, and a shape Name resolve to the same canonical
     address, whereas PyUNO hands out a new proxy object on each lookup.
     """
     if len(set(addresses)) < len(addresses):
-        return tool._tool_error("Duplicate shape in indices; pass each shape once.")
+        return make_tool_error("Duplicate shape in indices; pass each shape once.")
     return None
 
 
@@ -139,9 +138,9 @@ class DrawError(WriterAgentException):
     code: str = "DRAW_ERROR"
 
 
-def _draw_error_result(tool: ToolBase, exc: DrawError) -> dict[str, Any]:
+def _draw_error_result(exc: DrawError) -> dict[str, Any]:
     # Pass the DrawError code through (the _tool_error default is TOOL_EXECUTION_ERROR). e.details is left out because position and size are UNO structs.
-    return tool._tool_error(exc.message, code=exc.code)
+    return make_tool_error(exc.message, code=exc.code)
 
 
 def _try_writer_anchor_shape_before_add(shape: Any) -> None:
@@ -794,10 +793,10 @@ class UpsertShape(_AnyDocumentShapeTool):
         return True, None
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        return _execute_upsert_shape(self, ctx, **kwargs)
+        return _execute_upsert_shape(ctx, **kwargs)
 
 
-def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+def _execute_upsert_shape(ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
     from com.sun.star.awt import Point, Size
 
     action = kwargs["action"]
@@ -809,7 +808,7 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
         # page-unique Name guarantee that auto-naming relies on.
         wanted_name = _wanted_name(kwargs)
         if wanted_name and wanted_name in page_shape_names(page):
-            return _name_taken_error(tool, wanted_name)
+            return _name_taken_error(wanted_name)
 
         type_map = {"text": "TextShape", "line": "LineShape", "connector": "ConnectorShape"}
         shape_type_raw = kwargs["shape_type"]
@@ -843,7 +842,7 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
             # that Type instead of swapping a live SdrRectObj (avoids SfxItemPool::unregisterNameOrIndex abort).
             shape, geometry_applied, geometry_error = draw_shapes.safe_create_shape(ctx.doc, page, uno_type, position, size, custom_shape_type=custom_shape_type, writer=writer)
         except DrawError as e:
-            return _draw_error_result(tool, e)
+            return _draw_error_result(e)
 
         try:
             if writer:
@@ -912,13 +911,13 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
         if "index" in kwargs:
             shape_idx, shape, _parent, find_err = find_shape_on_page(page, index=kwargs["index"])
             if find_err:
-                return tool._tool_error(find_err)
+                return make_tool_error(find_err)
             assert shape is not None
         else:
             # _lookup_ref is the shared not-found path (also used by shape_delete): an unknown
             # Name returns details.available (the page's shape Names, capped) plus similar, so
             # the model can retry with a real Name instead of guessing.
-            shape_idx, shape, _parent, err_res = _lookup_ref(tool, page, kwargs.get("name") or "", by_name=True)
+            shape_idx, shape, _parent, err_res = _lookup_ref(page, kwargs.get("name") or "", by_name=True)
             if err_res is not None:
                 return err_res
             assert shape is not None
@@ -927,7 +926,7 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
         # create a duplicate on the page.
         new_name = _wanted_name(kwargs)
         if "index" in kwargs and new_name and new_name != str(shape.Name or "").strip() and new_name in page_shape_names(page):
-            return _name_taken_error(tool, new_name)
+            return _name_taken_error(new_name)
 
         has_pos = "x" in kwargs or "y" in kwargs
         has_size = "width" in kwargs or "height" in kwargs
@@ -938,7 +937,7 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
         # A negative width shifts a box's x left (normalize_negative_span); a line only changes direction.
         negative_width = not is_line and kwargs.get("width", 0) < 0
         if (new_x or negative_width) and _x_follows_text(shape_idx, shape):
-            return tool._tool_error(
+            return make_tool_error(
                 "Shape %s is anchored as a character, so its x follows the text and cannot be set. "
                 "%s; y is the offset of its top from the text baseline."
                 % (shape_idx, "Omit x" if new_x else "Pass a positive width"),
@@ -979,7 +978,7 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
 
     # validate() rejects other actions; keep execute total so the ToolBase
     # override is dict[str, Any] (Calc/Writer inherit this class).
-    return tool._tool_error("Unknown action: '%s'. Must be 'create' or 'edit'" % action)
+    return make_tool_error("Unknown action: '%s'. Must be 'create' or 'edit'" % action)
 
 
 class ConnectShapes(_AnyDocumentShapeTool):
@@ -1005,18 +1004,18 @@ class ConnectShapes(_AnyDocumentShapeTool):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        return _execute_connect_shapes(self, ctx, **kwargs)
+        return _execute_connect_shapes(ctx, **kwargs)
 
 
-def _execute_connect_shapes(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+def _execute_connect_shapes(ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
     from com.sun.star.awt import Point, Size
 
     page, actual_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
 
-    start_addr, start_shape, _sp, start_err = _lookup_ref(tool, page, kwargs["start"])
+    start_addr, start_shape, _sp, start_err = _lookup_ref(page, kwargs["start"])
     if start_err is not None:
         return start_err
-    end_addr, end_shape, _ep, end_err = _lookup_ref(tool, page, kwargs["end"])
+    end_addr, end_shape, _ep, end_err = _lookup_ref(page, kwargs["end"])
     if end_err is not None:
         return end_err
     assert start_shape is not None and end_shape is not None
@@ -1026,7 +1025,7 @@ def _execute_connect_shapes(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> 
         # position and size are technically ignored since it's a connector, but safe_create_shape expects them
         shape, _unused, _unused2 = draw_shapes.safe_create_shape(ctx.doc, page, "com.sun.star.drawing.ConnectorShape", Point(0, 0), Size(100, 100), writer=is_writer(ctx.doc))
     except DrawError as e:
-        return _draw_error_result(tool, e)
+        return _draw_error_result(e)
 
     try:
         shape.setPropertyValue("StartShape", start_shape)
@@ -1109,7 +1108,7 @@ class GroupShapes(_AnyDocumentShapeTool):
         resolved_shapes: list[Any] = []
         addresses: list[int | str] = []
         for ref in indices:
-            addr, shape, parent, err_res = _lookup_ref(self, page, ref)
+            addr, shape, parent, err_res = _lookup_ref(page, ref)
             if err_res is not None:
                 return err_res
             assert shape is not None and parent is not None and addr is not None
@@ -1119,7 +1118,7 @@ class GroupShapes(_AnyDocumentShapeTool):
                 )
             resolved_shapes.append(shape)
             addresses.append(addr)
-        dup_err = _reject_duplicate_shapes(self, addresses)
+        dup_err = _reject_duplicate_shapes(addresses)
         if dup_err is not None:
             return dup_err
         # SwXFrame::getShapeType (sw/source/core/unocore/unoframe.cxx) reports Writer text frames,
@@ -1189,27 +1188,27 @@ def _apply_box(shape: Any, box: tuple[int, int, int, int]) -> None:
         shape.setPosition(Point(x, y))
 
 
-def _layout_on_page(tool: ToolBase, ctx: ToolContext, indices: list[Any], layout_arg: str, *, min_count: int, too_few: str, moves_x: bool, layout_fn: Any, ok_message: str, page_kwargs: dict[str, Any]) -> dict[str, Any]:
+def _layout_on_page(ctx: ToolContext, indices: list[Any], layout_arg: str, *, min_count: int, too_few: str, moves_x: bool, layout_fn: Any, ok_message: str, page_kwargs: dict[str, Any]) -> dict[str, Any]:
     """Shared align/distribute tail. Do not catch: disposal and a bad index must reach execute_safe."""
     if len(indices) < min_count:
-        return tool._tool_error(too_few)
+        return make_tool_error(too_few)
     page, actual_idx = DrawBridge(ctx.doc).resolve_page(page_kwargs.get("page"), active_page_index=ctx.active_page_index)
     shapes: list[Any] = []
     resolved_indices: list[int | str] = []
     for ref in indices:
-        addr, shape, _parent, err_res = _lookup_ref(tool, page, ref)
+        addr, shape, _parent, err_res = _lookup_ref(page, ref)
         if err_res is not None:
             return err_res
         assert shape is not None and addr is not None
         shapes.append(shape)
         resolved_indices.append(addr)
-    dup_err = _reject_duplicate_shapes(tool, resolved_indices)
+    dup_err = _reject_duplicate_shapes(resolved_indices)
     if dup_err is not None:
         return dup_err
     # An inline shape's X reads 0, not its place on the page, so it would also give the other shapes a wrong edge: refuse before moving any.
     inline = [addr for addr, shape in zip(resolved_indices, shapes) if _x_follows_text(addr, shape)] if moves_x else []
     if inline:
-        return tool._tool_error(
+        return make_tool_error(
             "Shapes anchored as a character follow the text in x and cannot be aligned or distributed "
             "horizontally: %s. Leave them out." % ", ".join(map(str, inline)),
             code="INVALID_PARAM",
@@ -1246,7 +1245,7 @@ class AlignShapes(_AnyDocumentShapeTool):
         indices = kwargs["indices"]
         # Schema requires alignment and rejects values outside the enum, including "".
         alignment = kwargs["alignment"]
-        return _layout_on_page(self, ctx, indices, alignment, min_count=2, too_few="At least two shape indices are required to align.", moves_x=alignment in layout.HORIZONTAL_ALIGNMENTS, layout_fn=layout.align_boxes, ok_message="Shapes aligned", page_kwargs=kwargs)
+        return _layout_on_page(ctx, indices, alignment, min_count=2, too_few="At least two shape indices are required to align.", moves_x=alignment in layout.HORIZONTAL_ALIGNMENTS, layout_fn=layout.align_boxes, ok_message="Shapes aligned", page_kwargs=kwargs)
 
 
 class DistributeShapes(_AnyDocumentShapeTool):
@@ -1267,7 +1266,7 @@ class DistributeShapes(_AnyDocumentShapeTool):
         indices = kwargs["indices"]
         # Schema requires axis and rejects values outside the enum, including "".
         axis = kwargs["axis"]
-        return _layout_on_page(self, ctx, indices, axis, min_count=3, too_few="At least three shape indices are required to distribute.", moves_x=axis == "horizontal", layout_fn=layout.distribute_boxes, ok_message="Shapes distributed", page_kwargs=kwargs)
+        return _layout_on_page(ctx, indices, axis, min_count=3, too_few="At least three shape indices are required to distribute.", moves_x=axis == "horizontal", layout_fn=layout.distribute_boxes, ok_message="Shapes distributed", page_kwargs=kwargs)
 
 
 class CreateDiagram(_AnyDocumentShapeTool):
@@ -1366,7 +1365,7 @@ class CreateDiagram(_AnyDocumentShapeTool):
             create_kwargs = {"action": "create", "page": actual_idx, "shape_type": node.get("shape_type") or "rectangle", "x": x, "y": y, "width": w, "height": h, "text": node.get("text") or ""}
             if node.get("fill_color") not in (None, ""):
                 create_kwargs["fill_color"] = node["fill_color"]
-            result = _execute_upsert_shape(self, ctx, **create_kwargs)
+            result = _execute_upsert_shape(ctx, **create_kwargs)
             if result.get("status") != "ok":
                 cleanup_shapes()
                 return result
@@ -1384,7 +1383,7 @@ class CreateDiagram(_AnyDocumentShapeTool):
             for key in ("line_color", *_ARROWHEAD_PROPERTIES):
                 if conn.get(key) is not None:
                     conn_kwargs[key] = conn[key]
-            result = _execute_connect_shapes(self, ctx, **conn_kwargs)
+            result = _execute_connect_shapes(ctx, **conn_kwargs)
             if result.get("status") != "ok":
                 cleanup_shapes()
                 return result
@@ -1428,9 +1427,9 @@ class DeleteShape(_AnyDocumentShapeTool):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         page, actual_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
         if "index" in kwargs:
-            addr, shape, parent, err_res = _lookup_ref(self, page, kwargs["index"])
+            addr, shape, parent, err_res = _lookup_ref(page, kwargs["index"])
         else:
-            addr, shape, parent, err_res = _lookup_ref(self, page, kwargs["name"], by_name=True)
+            addr, shape, parent, err_res = _lookup_ref(page, kwargs["name"], by_name=True)
         if err_res is not None:
             return err_res
         assert addr is not None and parent is not None and shape is not None
@@ -1441,7 +1440,7 @@ class DeleteShape(_AnyDocumentShapeTool):
             page_index = int(str(addr).split(".")[0])
             boxes = [frame for _a, _s, frame in shape_text_boxes(page_index, shape)]
             if boxes and isinstance(addr, str):
-                return grouped_text_box_error(self, addr)
+                return grouped_text_box_error(addr)
             # SwFmDrawPage::remove (sw/source/core/unocore/unodraw.cxx) already disposes a single top-level box's frame.
             if not is_group(shape):
                 boxes = []
