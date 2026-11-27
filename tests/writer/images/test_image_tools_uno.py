@@ -357,3 +357,36 @@ def test_calc_insert_image_rtl_right_edge_on_cell_uno(ctx, doc):
         while draw_page.getCount() > before:
             draw_page.remove(draw_page.getByIndex(draw_page.getCount() - 1))
         shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_linked_insert_while_recording_puts_the_caret_back_uno(ctx, doc):
+    # .uno:InsertGraphic leaves the new picture selected; with the caret gone the user's next
+    # single-change review of the picture could not place the view cursor.
+    from plugin.framework.config import get_config, save
+    from plugin.writer.images.images import ImageInsert
+    from plugin.writer.inline_review import agent_tokens, resolve_change_at_cursor, scan_redline_view
+    from tests.writer.doc_builders import find_first, reset_body
+
+    logo = logo_32_path()
+    assert _should_link_image_path(logo), "the repo logo must take the linked .uno:InsertGraphic path"
+    reset_body(doc, ctx, "Alpha one.", "Beta two.", "Gamma three.")
+    controller = doc.getCurrentController()
+    controller.getViewCursor().gotoRange(find_first(doc, "Beta").getEnd(), False)
+    prev = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "record"})
+    try:
+        res = ImageInsert().execute(
+            TestingFactory.create_context(doc=doc, ctx=ctx, env="native"),
+            path=logo, target="body", style="Standard", width_mm=10, height_mm=10,
+        )
+    finally:
+        save({"doc.agent_edit_review_mode": prev})
+    assert res.get("status") == "ok" and res.get("tracked") is True, res
+    assert not controller.getSelection().supportsService("com.sun.star.text.TextGraphicObject")
+
+    (token,) = agent_tokens(scan_redline_view(doc))
+    ok, msg = resolve_change_at_cursor(doc, ctx, False, token=token)
+    assert ok, msg
+    assert _graphic_count(doc) == 0

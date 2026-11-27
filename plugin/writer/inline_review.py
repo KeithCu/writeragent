@@ -19,6 +19,13 @@ Selecting a RANGE rather than a single redline's anchor is deliberate: a pure De
 an empty anchor, so the per-redline ``select(anchor)`` path in ``tracking.py`` cannot target it;
 a range selection covers both marks of the pair. The user's own tracked changes are never touched.
 
+The range is selected with ``XSelectionSupplier.select`` of a text cursor, which leaves a picture
+or frame selection first (``SwXTextView::select`` calls ``EnterStdMode``,
+``sw/source/uibase/uno/unotxvw.cxx``). The view cursor's expanding ``gotoRange`` throws instead
+while the view's shell mode is not a text mode, which it stays in after a picture was selected
+(an OCR insert that deletes its image) until the main loop runs. The resolve entry points put the
+user's own selection back afterwards.
+
 This is the model layer; the right-click context menu in ``change_context_menu.py`` calls it.
 """
 
@@ -31,6 +38,8 @@ from typing import Any, NamedTuple
 
 from plugin.chatbot.dialogs import msgbox
 from plugin.doc.compound_undo import WriterCompoundUndo
+from plugin.doc.text_helpers import KeepViewSelection
+from plugin.doc.undo import RESOLVE_AGENT_CHANGES_UNDO_TITLE
 from plugin.framework.errors import is_disposal
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import execute_dispatch, uno_same
@@ -193,11 +202,16 @@ def resolve_change_at_cursor(
             return False, _("No agent changes to review in this document.")
         return False, _("Put the cursor on a highlighted agent change first.")
 
-    res, after_view = resolve_agent_change(model, ctx, token, accept, before=view)
+    # The resolve selects the change to dispatch on it; the user's caret comes back afterwards,
+    # otherwise their next keystroke would replace the resolved text.
+    with KeepViewSelection(model.getCurrentController()):
+        res, after_view = resolve_agent_change(model, ctx, token, accept, before=view)
+        group_res = None
+        if res.status == ResolveStatus.REFUSED_SIBLING:
+            group_res = _resolve_overlapping_agent_changes(model, ctx, token, accept, before=after_view)
     if res.status == ResolveStatus.RESOLVED:
         return True, _review_message(ResolveStatus.RESOLVED, accept=accept)
-    if res.status == ResolveStatus.REFUSED_SIBLING:
-        group_res = _resolve_overlapping_agent_changes(model, ctx, token, accept, before=after_view)
+    if group_res is not None:
         if group_res.status == ResolveStatus.RESOLVED and group_res.resolved_count > 0:
             return True, _review_message(ResolveStatus.RESOLVED, accept=accept, group_count=group_res.resolved_count)
         status = group_res.status if group_res.status in (ResolveStatus.UNRELIABLE, ResolveStatus.PARTIAL) else ResolveStatus.REFUSED_SIBLING
@@ -207,7 +221,8 @@ def resolve_change_at_cursor(
 
 def resolve_all_with_feedback(model: Any, ctx: Any, accept: bool) -> tuple[int, str]:
     """Accept/reject all agent changes; return ``(count_resolved, message)``."""
-    result = _resolve_all_agent_changes(model, ctx, accept)
+    with KeepViewSelection(model.getCurrentController()):
+        result = _resolve_all_agent_changes(model, ctx, accept)
     msg = _resolve_all_message(result.status, result.resolved, result.total)
     return result.resolved, msg
 
@@ -510,14 +525,20 @@ def _classify_span_conflicts(
     target_token: str | None,
     strict_sibling_edges: bool = False,
     sibling_tokens: set[str] | None = None,
+    want_siblings: bool = False,
 ) -> tuple[bool, bool]:
-    """Classify redline rows against span. Returns (has_foreign_conflict, has_sibling_conflict)."""
+    """Classify redline rows against span. Returns (has_foreign_conflict, has_sibling_conflict).
+
+    Other agent changes are compared only when *want_siblings* is set; otherwise
+    ``has_sibling_conflict`` is always False. Resolve-all asks once per agent change, so
+    comparing every other agent change on each pass would make it quadratic.
+    """
     if not view.reliable:
         return True, False
     has_sibling = False
 
     for r in view.rows:
-        if r.token is not None and r.token == target_token:
+        if r.token is not None and (r.token == target_token or not want_siblings):
             continue
         is_sibling = r.token is not None
         if r.start is None or r.end is None:
@@ -581,6 +602,7 @@ def _refusal_for_span(
         target_token,
         strict_sibling_edges=strict_sibling_edges,
         sibling_tokens=sibling_tokens,
+        want_siblings=refuse_sibling or sibling_tokens is not None,
     )
     if has_foreign:
         log.debug("inline_review: refusing %s resolve of %s -- user redline conflict", where, target_token)
@@ -655,7 +677,6 @@ def resolve_agent_change(
     try:
         command = _tracked_change_command(accept)
         controller = model.getCurrentController()
-        view_cursor = controller.getViewCursor()
 
         # 1) Precise path: select EXACTLY this change's marks and dispatch -- resolves only it.
         if policy is not ResolvePolicy.PARAGRAPH_ONLY:
@@ -675,8 +696,7 @@ def resolve_agent_change(
             if refusal is not None:
                 return ResolveResult(refusal), before
 
-            view_cursor.gotoRange(left, False)
-            view_cursor.gotoRange(right, True)
+            controller.select(exact)
             dispatched = True
             after, failed = _dispatch_and_scan(
                 ctx, controller, model, command, token
@@ -719,8 +739,7 @@ def resolve_agent_change(
         if refusal is not None:
             return ResolveResult(refusal), before
 
-        view_cursor.gotoRange(start.getStart(), False)
-        view_cursor.gotoRange(end.getEnd(), True)
+        controller.select(para_span)
         dispatched = True
         after, failed = _dispatch_and_scan(
             ctx, controller, model, command, token
@@ -746,7 +765,7 @@ def resolve_agent_change(
 
 def _grouped_resolve_undo(model: Any) -> WriterCompoundUndo:
     """Group dispatches into one undo step; keeps landed edits on failure."""
-    return WriterCompoundUndo(model, _("Resolve agent changes"))
+    return WriterCompoundUndo(model, _(RESOLVE_AGENT_CHANGES_UNDO_TITLE))
 
 
 def _resolve_multi_text_change(
@@ -780,16 +799,16 @@ def _resolve_multi_text_change(
 
         command = _tracked_change_command(accept)
         controller = model.getCurrentController()
-        view_cursor = controller.getViewCursor()
         cur_view = before
         cur_spans = spans
         failed = False
 
         with _grouped_resolve_undo(model):
             while cur_spans:
-                _text, left, right = cur_spans[0]
-                view_cursor.gotoRange(left, False)
-                view_cursor.gotoRange(right, True)
+                span_text, left, right = cur_spans[0]
+                span = span_text.createTextCursorByRange(left)
+                span.gotoRange(right, True)
+                controller.select(span)
                 dispatched = True
                 cur_view, failed = _dispatch_and_scan(ctx, controller, model, command, token)
                 if failed or not cur_view.reliable:
@@ -881,7 +900,6 @@ def _resolve_overlapping_agent_changes(
             return ResolveResult(ResolveStatus.REFUSED_FOREIGN, 0)
 
         controller = model.getCurrentController()
-        view_cursor = controller.getViewCursor()
         command = _tracked_change_command(accept)
         pending = group
         cur_view = before
@@ -899,8 +917,7 @@ def _resolve_overlapping_agent_changes(
                 has_foreign, _unused_pass_sibling = _classify_span_conflicts(cur_view, text, pass_span, None)
                 if has_foreign:
                     break
-                view_cursor.gotoRange(left, False)
-                view_cursor.gotoRange(right, True)
+                controller.select(pass_span)
                 try:
                     dispatched = True
                     execute_dispatch(ctx, controller, command)

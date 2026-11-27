@@ -124,6 +124,16 @@ def review_recording_enabled() -> bool:
     return get_agent_edit_review_mode() in ("record", "wait")
 
 
+def changes_protected(doc: Any) -> bool:
+    """True when *doc*'s tracked changes are password-protected (Edit > Track Changes > Protect).
+
+    LibreOffice then disables every Accept and Reject command (``SwView::GetState`` in
+    ``sw/source/uibase/uiview/viewstat.cxx`` via ``SwDocShell::HasChangeRecordProtection``),
+    so nobody can resolve a pending agent change until the protection is removed.
+    """
+    return len(doc.getPropertyValue("RedlineProtectionKey")) > 0
+
+
 def edit_is_recorded(doc: Any) -> bool:
     """True when an agent edit of *doc* made now is recorded as a tracked change.
 
@@ -440,6 +450,22 @@ def _force_show_changes(doc: Any, who: str) -> None:
         log.debug("%s: could not force ShowChanges", who, exc_info=True)
 
 
+_AGENT_AUTHORS = frozenset({review_authors.INSERT_AUTHOR, review_authors.DELETE_AUTHOR})
+
+
+def _touches(anchor: Any, start: Any, end: Any) -> bool:
+    """True when the range *start*..*end* overlaps or touches *anchor* in the same text.
+
+    ``compareRegionStarts(a, b)`` is 1 when a starts before b and 0 when they start together;
+    it raises for ranges in another text, or for an anchor whose cell or frame was deleted.
+    """
+    return uno_read(
+        lambda: anchor.getText().compareRegionStarts(start, anchor.getEnd()) >= 0
+        and anchor.getText().compareRegionStarts(anchor.getStart(), end) >= 0,
+        False,
+    )
+
+
 @dataclass(frozen=True)
 class ChangeRecord:
     """One reviewable change: its token, anchor, and the two expected end states."""
@@ -748,9 +774,38 @@ class EditReviewSession:
             return True
 
         reliable = _review_scan.scan_redlines(self.doc, on_item)[0]
+        pending = seen & registered
+        untokened = [record for record in self.changes if record.token not in pending]
+        if reliable and untokened:
+            pending_untagged, reliable = self._pending_without_token(untokened)
+            pending |= pending_untagged
         if not reliable:
             log.debug("EditReviewSession: pending check enumeration incomplete")
-        return seen & registered, reliable
+        return pending, reliable
+
+    def _pending_without_token(self, records: list[ChangeRecord]) -> tuple[set[str], bool]:
+        """``(tokens of *records* still pending without their token, reliable)``.
+
+        Undo then Redo brings an agent change back without its token, and editing the change
+        comment (Edit > Track Changes > Manage) replaces the token; the change is still pending
+        either way. Such a change is an agent-authored redline with no ``wa-review`` token that
+        touches the record's anchor. Touching is enough because Redo puts the text back next to
+        the anchor cursor rather than inside it. Another author's redline, or another agent
+        change with its own token, never counts.
+        """
+        spans: list[tuple[Any, Any]] = []
+
+        def on_item(rl: Any) -> bool:
+            if str(rl.getPropertyValue("RedlineAuthor")) not in _AGENT_AUTHORS:
+                return True
+            comment = _review_scan.normalize_redline_comment(rl.getPropertyValue("RedlineComment"))
+            if not _review_scan.is_agent_token(comment):
+                spans.append((rl.getPropertyValue("RedlineStart"), rl.getPropertyValue("RedlineEnd")))
+            return True
+
+        reliable = _review_scan.scan_redlines(self.doc, on_item)[0]
+        return {record.token for record in records
+                if any(_touches(record.anchor, start, end) for start, end in spans)}, reliable
 
     def _change_text_at_anchor(self, record: ChangeRecord) -> str | None:
         """Current text of the CHANGE's own region (its anchor cursor span), or None when the
@@ -845,6 +900,8 @@ class EditReviewSession:
         the still-open entries report ``"pending"`` and ``complete`` is False -- the agent must
         not assume the text's state. *cancel* and *still_reviewing* let the caller abort early
         (e.g. Stop or the review feature toggled off mid-wait); that also returns ``complete=False``.
+        A document whose tracked changes are protected returns at once the same way, with
+        ``changes_protected: True``.
 
         Thread placement: poll from a background/HTTP thread so the main thread stays free for
         the user's accept/reject clicks. UNO is not thread-safe, so callers off the main thread
@@ -862,6 +919,13 @@ class EditReviewSession:
                 # A closed document, not a timeout. An unreliable scan (..., False) is a live
                 # document whose enumeration is incomplete; keep waiting on it, and never merge it with None.
                 return run(lambda: self._review_payload(complete=False, timed_out=False))
+            if run(lambda: not document_is_disposed(self.doc) and changes_protected(self.doc)):
+                # Nobody can accept or reject while the changes are protected, so waiting would
+                # only run out the timeout. A document closed since the scan is left to the next
+                # poll, because reading a property of a closed model throws DisposedException.
+                payload = run(lambda: self._review_payload(complete=False, timed_out=False))
+                payload["changes_protected"] = True
+                return payload
             pending, reliable = scan
             # Done ONLY on a reliable empty intersection of scanned tags with registered
             # change tokens. An orphan tag (not on a ChangeRecord) does not count. An

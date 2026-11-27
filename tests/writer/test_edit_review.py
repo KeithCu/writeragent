@@ -76,8 +76,9 @@ _RAISE = object()  # marker: a redline whose RedlineIdentifier read should raise
 
 class _FakeRl:
     def __init__(self, rid, raise_set=False, comment="", raise_comment=False, raise_revert=False,
-                 start=None, end=None):
+                 start=None, end=None, author=""):
         self._rid = rid
+        self._author = author
         self._raise_set = raise_set
         self._raise_revert = raise_revert  # tagging (set token) succeeds, but reverting (set "") fails
         self._raise_comment = raise_comment
@@ -94,6 +95,8 @@ class _FakeRl:
             return None
         if name == "RedlineSuccessorData":
             return ()
+        if name == "RedlineAuthor":
+            return self._author
         if name == "RedlineStart" and self._start is not None:
             return self._start
         if name == "RedlineEnd" and self._end is not None:
@@ -502,6 +505,29 @@ def test_wait_for_review_completes_on_reliable_empty():
     with _patch.object(session, "_pending_tokens", return_value=(set(), True)):
         result = session.wait_for_review(timeout=1.0, poll=0.01)
     assert result["complete"] is True and result["timed_out"] is False
+
+
+@pytest.mark.parametrize(("author", "comment", "pending"), [
+    ("WriterAgent", "", True),                      # Undo then Redo brought the change back untagged
+    ("WriterAgent (deletions)", "ask Bob", True),   # the user rewrote the change comment
+    ("Alice", "", False),                           # another author's redline next to the change
+])
+def test_untagged_agent_redline_at_the_anchor_keeps_the_change_pending(author, comment, pending):
+    from plugin.writer.edit_review import ChangeRecord, EditReviewSession
+
+    session = EditReviewSession(MagicMock(), MagicMock(), enabled=True)
+    session._active = True
+    token = make_agent_token(session.session_id, 0)
+    anchor = MagicMock()
+    anchor.getText.return_value.compareRegionStarts.return_value = 0  # touching
+    session.changes = [ChangeRecord(token, anchor, "NEW", "OLD", "", "")]
+    session.doc = _redlines_doc([_FakeRl("r", comment=comment, author=author, start=MagicMock(), end=MagicMock())])
+    session.doc.getPropertyValue.return_value = b""  # RedlineProtectionKey: not protected
+
+    result = session.wait_for_review(timeout=0.1, poll=0.05)
+
+    assert result["complete"] is (not pending), result
+    assert (result["changes"][0]["outcome"] == "pending") is pending, result
 
 
 def test_wait_for_review_orphan_token_does_not_block_after_registered_change_resolves():
