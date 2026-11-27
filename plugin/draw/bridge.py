@@ -91,18 +91,7 @@ class DrawBridge:
     def get_active_page(self) -> Any | None:
         if supports_service(self.doc, "com.sun.star.sheet.SpreadsheetDocument"):
             try:
-                controller = self.doc.getCurrentController()
-                sheet = None
-                if controller is not None:
-                    if hasattr(controller, "ActiveSheet"):
-                        sheet = controller.ActiveSheet
-                    if sheet is None and hasattr(controller, "getActiveSheet"):
-                        sheet = controller.getActiveSheet()
-                if sheet is not None:
-                    if hasattr(sheet, "getDrawPage"):
-                        return sheet.getDrawPage()
-                    if hasattr(sheet, "DrawPage"):
-                        return sheet.DrawPage
+                return self.doc.getCurrentController().getActiveSheet().getDrawPage()
             except Exception as exc:
                 # A closed Calc doc raises disposal from the active sheet draw page. Re-raise
                 # disposal; swallow other errors and continue the missing-page path.
@@ -635,18 +624,10 @@ class DrawBridge:
 
     def _read_page_prop(self, page: Any, prop: str) -> tuple[bool, Any]:
         def read() -> tuple[bool, Any]:
-            # MasterPage is XMasterPageTarget, not an XPropertySet entry;
-            # SdGenericDrawPage::getPropertyValue throws UnknownPropertyException
-            # (sd/source/ui/unoidl/unopage.cxx), so the getattr fallback below
-            # never runs on a live page. PyUNO .MasterPage calls getMasterPage /
-            # setMasterPage.
-            if prop == "MasterPage":
-                return True, getattr(page, prop)
-            if hasattr(page, "getPropertyValue"):
-                return True, page.getPropertyValue(prop)
-            if hasattr(page, prop):
-                return True, getattr(page, prop)
-            return False, None
+            # MasterPage is XMasterPageTarget, not an XPropertySet entry
+            # (SdGenericDrawPage::getPropertyValue in sd/source/ui/unoidl/unopage.cxx
+            # throws UnknownPropertyException), so it is read through the attribute.
+            return True, (page.MasterPage if prop == "MasterPage" else page.getPropertyValue(prop))
 
         return uno_read(read, (False, None))
 
@@ -656,11 +637,9 @@ class DrawBridge:
         # only the ones this write just inserted.
         before = self._snapshot_shapes(page) if prop == "Layout" else None
         if prop == "MasterPage":
-            setattr(page, prop, value)
-        elif hasattr(page, "setPropertyValue"):
-            page.setPropertyValue(prop, value)
+            page.MasterPage = value
         else:
-            setattr(page, prop, value)
+            page.setPropertyValue(prop, value)
         if before is not None:
             self._drop_shapes_added_by_prop(page, before)
 
@@ -799,8 +778,7 @@ class DrawBridge:
     def get_active_page_index(self) -> int:
         try:
             page = self.get_active_page()
-            # An empty XDrawPage is falsy. `if page` then fell through to 0,
-            # so a blank Impress slide was reported as slide 0.
+            # An empty XDrawPage is falsy, so test `is not None`: `if page` would report a blank slide as slide 0.
             if page is not None:
                 pages = self.get_pages()
                 count = pages.getCount()
@@ -859,13 +837,11 @@ def find_notes_shape(notes_page: Any) -> Any | None:
     for i in range(uno_read(lambda: notes_page.getCount(), 0)):
         try:
             shape = notes_page.getByIndex(i)
-            shape_type = shape.getShapeType() if hasattr(shape, "getShapeType") else getattr(shape, "ShapeType", "")
-            if shape_type == _NOTES_SHAPE_TYPE:
+            if shape.getShapeType() == _NOTES_SHAPE_TYPE:
                 return shape
         except Exception as exc:
             if is_disposal(exc):
                 raise
-            continue
     return None
 
 
@@ -911,17 +887,13 @@ def get_draw_context_for_chat(model: Any, max_context: int = 8000, ctx: Any | No
         is_impress_doc = is_impress(model)
         doc_type = "Impress Presentation" if is_impress_doc else "Draw Document"
 
-        ctx_str = "%s: %s\n" % (doc_type, uno_call(lambda: model.getURL(), "Get document URL") or "Untitled")
-        ctx_str += "Total %s: %d\n" % ("Slides" if is_impress_doc else "Pages", uno_call(lambda: pages.getCount(), "Get page count"))
-
-        # Active Slide Index is -1 when getCurrentPage() and getByIndex()
-        # return different Python wrappers for one page and the loop uses
-        # ``==``. PyUNO wrappers often fail ``==`` / ``is`` for one UNO
-        # object. get_active_page_index already walks with uno_same (is,
-        # then ==, then uno.isSame). Use that same identity ladder so the
-        # chat index matches the controller's current page.
-        active_page_idx = -1
         page_count = uno_call(lambda: pages.getCount(), "Get page count")
+        ctx_str = "%s: %s\n" % (doc_type, uno_call(lambda: model.getURL(), "Get document URL") or "Untitled")
+        ctx_str += "Total %s: %d\n" % ("Slides" if is_impress_doc else "Pages", page_count)
+
+        # Compare with uno_same: PyUNO can hand out two wrappers for one page, so ``==`` can miss.
+        # -1 means the controller's page is not in the deck.
+        active_page_idx = -1
         for i in range(page_count):
             candidate = uno_call(lambda: pages.getByIndex(i), "Get page by index")
             if uno_same(candidate, active_page):
@@ -937,13 +909,7 @@ def get_draw_context_for_chat(model: Any, max_context: int = 8000, ctx: Any | No
             ctx_str += "%s Size: width=%d, height=%d (1/100 mm)\n" % (
                 "Slide" if is_impress_doc else "Page", page_w, page_h)
 
-        # Summarize shapes on the active page.
-        # A blank slide still has speaker notes. An empty XDrawPage is
-        # falsy when it has zero shapes, so `if active_page` skips the
-        # whole block and drops the notes (and the shapes section) from
-        # chat context. Same trap as get_active_page_index, which already
-        # uses `is not None`. None means there is no page; a blank page
-        # is still a page, so notes on slide_add blank/none are included.
+        # A blank slide is falsy (see get_active_page_index) but still has speaker notes, so test `is not None`.
         if active_page is not None:
             # Impress-specific: Speaker Notes
             if is_impress_doc and hasattr(active_page, "getNotesPage"):

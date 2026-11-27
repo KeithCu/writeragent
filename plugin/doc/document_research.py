@@ -180,7 +180,7 @@ def get_document_directory(model: Any) -> str | None:
 
 def path_settings_from_ctx(ctx: Any) -> Any | None:
     """Return LO PathSettings singleton, or None when UNO is unavailable."""
-    if ctx is None or not hasattr(ctx, "getValueByName"):
+    if ctx is None:
         return None
     return ctx.getValueByName("/singletons/com.sun.star.util.thePathSettings")
 
@@ -188,14 +188,13 @@ def path_settings_from_ctx(ctx: Any) -> Any | None:
 def resolve_lo_directory_path(ctx: Any, raw: str) -> str | None:
     """Normalize a PathSettings directory value to an existing absolute path."""
     text = str(raw).strip()
-    if text and ctx is not None and hasattr(ctx, "getValueByName"):
+    if text:
         subst = ctx.getValueByName("/singletons/com.sun.star.util.thePathSubstitution")
-        if subst is not None and hasattr(subst, "substituteVariables"):
-            text = best_effort(
-                lambda: str(subst.substituteVariables(text, True)).strip(),
-                "_substitute_lo_path_variables failed",
-                text,
-            )
+        text = best_effort(
+            lambda: str(subst.substituteVariables(text, True)).strip(),
+            "PathSubstitution.substituteVariables failed",
+            text,
+        )
     if not text:
         return None
     if text.startswith("file://"):
@@ -265,23 +264,22 @@ def _collect_open_file_urls(
 ) -> dict[str, str]:
     """Map normalized path -> file URL for open LO components matching *extensions*."""
     out: dict[str, str] = {}
-    exclude_norm = _normalize_path(exclude_path) if exclude_path else None
     try:
         for model in iter_open_models(get_desktop(ctx)):
             try:
                 if not hasattr(model, "getURL"):
                     continue
                 url = model.getURL()
-                if not url or not str(url).startswith("file://"):
+                if not url or not url.startswith("file://"):
                     continue
-                path = system_path_from_url(str(url))
+                path = system_path_from_url(url)
                 if not path:
                     continue
-                if exclude_norm and _normalize_path(path) == exclude_norm:
+                if exclude_path and path == exclude_path:
                     continue
                 if os.path.splitext(path)[1].lower() not in extensions:
                     continue
-                out[_normalize_path(path)] = str(url)
+                out[path] = url
             except Exception as exc:
                 # One leftover or broken component can raise through getURL;
                 # skip it so the whole nearby listing does not abort.
@@ -305,7 +303,6 @@ def _scan_directory(
     open_paths: dict[str, str],
     cancel: SendCancellation | None = None,
 ) -> tuple[list[FileEntry], bool]:
-    exclude_norm = _normalize_path(exclude_path) if exclude_path else None
     filter_lower = filter_substring.lower() if filter_substring else None
 
     try:
@@ -328,7 +325,7 @@ def _scan_directory(
         if not os.path.isfile(full):
             continue
         norm = _normalize_path(full)
-        if exclude_norm and norm == exclude_norm:
+        if exclude_path and norm == exclude_path:
             continue
         try:
             st = os.stat(full)
@@ -450,17 +447,29 @@ def resolve_listing_state(
     return main.run(_read_listing_state)
 
 
+def _listing_result(files: list[FileEntry], truncated: bool, listing_root: str | None) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "status": "ok",
+        "files": files,
+        "truncated": truncated,
+        "listing_root": listing_root,
+    }
+    if truncated:
+        result["hint"] = f"Listing stopped at {_DEFAULT_MAX_ENTRIES}. Pass filter to narrow the name."
+    return result
+
+
 def list_nearby_files(
     ctx: Any,
     active_model: Any,
     *,
-    filter: str | None = None,
+    name_filter: str | None = None,
     file_kind: FileKind = "documents",
     cancel: SendCancellation | None = None,
 ) -> dict[str, Any]:
     """List nearby files for a tool result: scan_nearby_files, with Stop as the USER_STOPPED payload."""
     try:
-        return scan_nearby_files(ctx, active_model, filter=filter, file_kind=file_kind, cancel=cancel)
+        return scan_nearby_files(ctx, active_model, name_filter=name_filter, file_kind=file_kind, cancel=cancel)
     except SendCancelled:
         return user_stopped_payload()
 
@@ -469,7 +478,7 @@ def scan_nearby_files(
     ctx: Any,
     active_model: Any,
     *,
-    filter: str | None = None,
+    name_filter: str | None = None,
     file_kind: FileKind = "documents",
     state: ListingState | None = None,
     cancel: SendCancellation | None = None,
@@ -494,26 +503,22 @@ def scan_nearby_files(
             files, truncated = _scan_directory(
                 listing_root,
                 extensions=extensions,
-                filter_substring=filter,
+                filter_substring=name_filter,
                 exclude_path=state.exclude_path,
                 open_paths=state.open_paths,
                 cancel=cancel,
             )
         except OSError as e:
             return make_tool_error(str(e), path=listing_root)
-        return {"status": "ok", "files": files, "truncated": truncated, "listing_root": listing_root, **(
-            {"hint": "Listing stopped at 100. Pass filter to narrow the name."} if truncated else {}
-        )}
+        return _listing_result(files, truncated, listing_root)
 
     # No directory: list other open documents only
-    files, truncated = _entries_from_open_only(state.open_paths, filter_substring=filter)
+    files, truncated = _entries_from_open_only(state.open_paths, filter_substring=name_filter)
     if not files:
         return make_tool_error(
             "No nearby files found. Save the document or open sibling files in LibreOffice."
         )
-    return {"status": "ok", "files": files, "truncated": truncated, "listing_root": None, **(
-        {"hint": "Listing stopped at 100. Pass filter to narrow the name."} if truncated else {}
-    )}
+    return _listing_result(files, truncated, None)
 
 
 def resolve_path_or_name(
@@ -539,7 +544,7 @@ def resolve_path_or_name(
     if raw.startswith("file:"):
         return None, f"No file matching {raw!r}"
 
-    listing = scan_nearby_files(ctx, active_model, filter=raw)
+    listing = scan_nearby_files(ctx, active_model, name_filter=raw)
     if listing.get("status") != "ok":
         return None, listing.get("message", "Could not resolve file")
 
@@ -596,13 +601,9 @@ def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str 
             )
         return existing, existing_type, None, False
 
-    # A successful load that is not returned must not leave a hidden
-    # component open. An unknown doc_type that returns the error
-    # without close, and an except path after loadComponentFromURL
-    # that only logs, accumulate hidden LibreOffice components on
-    # repeated reads of unsupported files. Every load that is not
-    # handed back is closed here; callers still close only the model
-    # this function returns.
+    # Every load that is not handed back is closed here, so repeated reads
+    # of unsupported files do not pile up hidden LibreOffice components.
+    # Callers close only the model this function returns.
     model: Any = None
     try:
         desktop = get_desktop(ctx)

@@ -4,6 +4,7 @@
 """Tests for shapes specialized sub-agent canvas context."""
 
 import sys
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -160,6 +161,12 @@ class _DistinctSheet:
 
     def getDrawPage(self) -> object | None:
         return self._draw_page
+
+    def getName(self) -> str:
+        return self.Name
+
+    def getRangeAddress(self) -> object:
+        return SimpleNamespace(Sheet=self._ident - 1)
 
     def __eq__(self, other: object) -> bool:
         return False

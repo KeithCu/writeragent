@@ -29,6 +29,7 @@ log = logging.getLogger(__name__)
 class _AgentUndoRecord:
     before: tuple[str, ...]
     after: tuple[str, ...]
+    steps: int
 
 
 _records: dict[str, _AgentUndoRecord] = {}
@@ -72,9 +73,10 @@ def record_agent_turn_after(doc: Any) -> None:
     after = undo_titles(doc)
     if after is None or after == before:
         return
-    if compute_undo_steps(before, after) <= 0:
+    steps = compute_undo_steps(before, after)
+    if steps <= 0:
         return
-    _records[key] = _AgentUndoRecord(before=before, after=after)
+    _records[key] = _AgentUndoRecord(before=before, after=after, steps=steps)
 
 
 def clear_agent_undo_record(doc: Any) -> None:
@@ -93,13 +95,9 @@ def undo_last_agent_edit(doc: Any) -> str:
         return _("There is no agent edit to undo.")
     if current != record.after:
         return _("The document was edited since the last agent edit.")
-    steps = compute_undo_steps(record.before, record.after)
-    if steps <= 0:
-        return _("There is no agent edit to undo.")
+    steps = record.steps
     try:
         um = doc.getUndoManager()
-        if um is None:
-            return _("There is no agent edit to undo.")
         for _unused in range(steps):
             um.undo()
     except Exception as exc:

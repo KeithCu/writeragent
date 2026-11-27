@@ -222,8 +222,6 @@ def get_document_context_for_chat(
         # in getString(); we only hint to call get_content.
         if doc_type == _doc_type.DocumentType.WRITER:
             try:
-                if model is None:
-                    raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
                 positions: tuple[Any, ...] = ()
                 if include_selection:
                     sel_positions = _text_helpers.get_writer_selection_positions(model, selection=selection)
@@ -258,7 +256,7 @@ def get_document_context_for_chat(
                 start_excerpt = _inject_markers(
                     text[:start_chars], 0, sel_start, None if spans_gap else sel_end, "[DOCUMENT START]\n", "\n[DOCUMENT END]", struck
                 )
-                # Note: snapshot_text is now the only [END DOCUMENT] closer; do not add a trailing closer here.
+                # snapshot_text adds the one [END DOCUMENT] closer, so this excerpt has no trailing closer.
                 end_excerpt = _inject_markers(
                     text[tail_start:], tail_start, None if spans_gap else sel_start, sel_end, "[DOCUMENT CONTINUE]\n", "", struck
                 )
@@ -269,7 +267,7 @@ def get_document_context_for_chat(
                 )
 
             note = "\n\n[... document truncated ...]" if total > max_context else ""
-            # Note: snapshot_text is now the only [END DOCUMENT] closer; do not add a trailing closer here.
+            # snapshot_text adds the one [END DOCUMENT] closer, so this excerpt has no trailing closer.
             excerpt = _inject_markers(text[:max_context], 0, sel_start, sel_end, "[DOCUMENT START]\n", note, struck)
             return _writer_snapshot(
                 model,
@@ -367,11 +365,9 @@ def _writer_tree_service() -> Any:
 
     services = app.services_or_none()
     if services is not None:
-        getter = getattr(services, "get", None)
-        if callable(getter):
-            tree = getter("writer_tree")
-            if tree is not None and hasattr(tree, "resolve_writer_locator"):
-                return tree
+        tree = services.get("writer_tree")
+        if tree is not None:
+            return tree
 
     if _FALLBACK_WRITER_TREE is not None:
         return _FALLBACK_WRITER_TREE
@@ -503,7 +499,7 @@ class _CacheModifyListener:
         try:
             if _IGNORE_DEPTH > 0:
                 return
-            model = getattr(aEvent, "Source", None)
+            model = aEvent.Source
             _emit_cache_invalidated(doc=model)
         except Exception:
             log.debug("cache invalidate modify handler failed", exc_info=True)
@@ -520,7 +516,7 @@ class _CacheUnloadListener:
 
     def documentEventOccured(self, Event: Any) -> None:  # noqa: N802, N803 -- UNO spelling
         try:
-            name = getattr(Event, "EventName", "") or ""
+            name = Event.EventName or ""
             if name == "OnUnload":
                 _teardown_cache_listener(self._doc_key_val, owner_unload=self)
         except Exception:
@@ -540,21 +536,19 @@ def _teardown_cache_listener(key: str, owner_modify: Any | None = None, owner_un
         return
     if owner_unload is not None and pair.unload is not owner_unload:
         return
-    popped = _CACHE_LISTENERS.pop(key, None)
-    if popped is None:
-        return
+    del _CACHE_LISTENERS[key]
     _emit_cache_invalidated(key=key)
-    model = popped.model()
+    model = pair.model()
     if model is None:
         return
     try:
         if hasattr(model, "removeModifyListener"):
-            model.removeModifyListener(popped.modify)
+            model.removeModifyListener(pair.modify)
     except Exception:
         log.debug("cache modify listener removal failed", exc_info=True)
     try:
         if hasattr(model, "removeDocumentEventListener"):
-            model.removeDocumentEventListener(popped.unload)
+            model.removeDocumentEventListener(pair.unload)
     except Exception:
         log.debug("cache unload listener removal failed", exc_info=True)
 
@@ -631,7 +625,6 @@ class DocumentService(ServiceBase):
                         docs.append(doc)
                 except Exception as exc:
                     log.debug("open_documents: skip component (%s)", type(exc).__name__)
-                    continue
         except Exception:
             log.debug("open_documents failed", exc_info=True)
         return docs
@@ -652,7 +645,6 @@ class DocumentService(ServiceBase):
                 found.setdefault(self.detect_doc_type(doc), doc)
             except Exception as exc:
                 log.debug("open_documents_by_type: skip document (%s)", type(exc).__name__)
-                continue
         return found
 
     def open_doc_types(self) -> frozenset[str]:
@@ -707,8 +699,7 @@ class DocumentService(ServiceBase):
         if element is None:
             raise ToolExecutionError("Paragraph index %d not found in document" % para_index)
 
-        get_anchor = getattr(element, "getAnchor", None)
-        anchor = get_anchor() if callable(get_anchor) else element
+        anchor = element.getAnchor()
 
         controller = uno_call(model.getCurrentController, "Get current controller")
         # Print Preview controllers lack getViewCursor; read it inside uno_call so missing attributes become UnoObjectError.
@@ -719,8 +710,7 @@ class DocumentService(ServiceBase):
             page = uno_call(vc.getPage, "Get page")
             if page == 0:
                 # Layout stall for tables/frames under lockControllers.
-                has_locked = getattr(model, "hasControllersLocked", None)
-                was_locked = has_locked() if callable(has_locked) else True
+                was_locked = model.hasControllersLocked()
                 if was_locked:
                     uno_call(model.unlockControllers, "Unlock controllers")
                 try:
@@ -796,7 +786,7 @@ class DocumentService(ServiceBase):
     def ignore_cache_invalidation(self) -> Generator[None, None, None]:
         """Suppress modify-driven cache drops (reentrant).
 
-        Item 4 wraps ``_mcp_`` bookmark insert/strip so those mutations do not
+        The ``_mcp_`` bookmark insert and strip run inside this so those mutations do not
         thrash the heading tree. Nested ``with`` is required (strip then
         restore during save). Queued modifies are dropped, not flushed.
         """

@@ -500,7 +500,7 @@ def test_list_nearby_image_files_calls_backend_with_images_kind():
         with patch("plugin.framework.queue_executor.main.is_current", return_value=False), patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **k: fn()):
             result = tool.execute(ctx, filter="logo")
 
-    mock_list.assert_called_once_with(ctx.ctx, ctx.doc, filter="logo", file_kind="images")
+    mock_list.assert_called_once_with(ctx.ctx, ctx.doc, name_filter="logo", file_kind="images")
     assert result == expected
 
 

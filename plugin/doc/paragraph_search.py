@@ -13,7 +13,7 @@ import logging
 import re as re_mod
 from typing import Any
 
-from plugin.doc.text_helpers import iter_elements
+from plugin.doc.text_helpers import PARAGRAPH_SERVICE, iter_elements
 from plugin.framework.errors import reraise_if_disposed, uno_read
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 from plugin.framework.uno_context import supports_service
@@ -75,10 +75,8 @@ def search_paragraph_texts(
     return matches, False
 
 
-# Same service string as text_helpers.build_heading_tree and document_research_grep.
 # ``XText.createEnumeration`` also yields ``SwXTextTable``, which does not support
 # this service and is not an ``XTextRange`` (no ``getStart`` / ``getEnd``).
-_PARAGRAPH_SERVICE = "com.sun.star.text.Paragraph"
 
 
 def get_paragraph_ranges(model: Any) -> list[Any]:
@@ -139,7 +137,7 @@ def _index_outside_paragraphs(
 
 def paragraph_entries(para_ranges: list[Any]) -> list[tuple[int, Any]]:
     """Filtered enumeration entries for text paragraphs."""
-    return [(idx, para) for idx, para in enumerate(para_ranges) if supports_service(para, _PARAGRAPH_SERVICE)]
+    return [(idx, para) for idx, para in enumerate(para_ranges) if supports_service(para, PARAGRAPH_SERVICE)]
 
 
 def find_paragraph_for_range(
@@ -148,8 +146,8 @@ def find_paragraph_for_range(
     text_obj: Any = None,
     entries: list[tuple[int, Any]] | None = None,
 ) -> int | None:
-    # text_obj is Any (not Any | None): None is a valid default, but typing it
-    # optional made basedpyright treat compareRegionStarts as optional access.
+    # text_obj is typed Any, not Any | None, so the checker does not flag
+    # compareRegionStarts as optional access; None is still the default.
     """Return the enumeration index of the element that contains *match_range*, or None when it cannot be placed.
 
     Binary search calls ``getStart`` / ``getEnd`` only on
@@ -205,49 +203,42 @@ def paragraph_index_for_anchor(
     return _confirm_paragraph_index(text_obj, anchor, para_ranges, raw_idx)
 
 
-def _confirm_paragraph_index(text_obj: Any, anchor: Any, para_ranges: list[Any], para_idx: Any) -> int | None:
+def _confirm_paragraph_index(text_obj: Any, anchor: Any, para_ranges: list[Any], para_idx: int | None) -> int | None:
     """Return *para_idx* when it is a real hit, or None for the unplaced fallback.
 
     ``find_paragraph_for_range`` returns None when it cannot place the anchor, but
-    it can still return 0 for a point in a leading gap, and a custom finder may
-    return a literal 0. Index 0 is accepted only when the anchor start lies in
-    element 0. Without this check, a stale ``_mcp_`` bookmark (after save/reopen or
-    ``bookmark_cleanup``) still has a name, so the missing-name error never runs,
-    and a ``bookmark:`` locator would edit paragraph 0 and report success. Any
-    other non-negative index is a real hit.
+    it can still return 0 for a point in a leading gap. Index 0 is accepted only
+    when the anchor start lies in element 0. Without this check, a stale ``_mcp_``
+    bookmark (after save/reopen or ``bookmark_cleanup``) still has a name, so the
+    missing-name error never runs, and a ``bookmark:`` locator would edit paragraph
+    0 and report success. Any other non-negative index is a real hit.
     """
-    if not isinstance(para_idx, int) or isinstance(para_idx, bool) or para_idx < 0:
+    if para_idx is None:
         return None
     if para_idx != 0:
         return para_idx
-    if _anchor_is_at_index(text_obj, anchor, para_ranges, 0):
+    if _anchor_is_at_index(text_obj, anchor, para_ranges):
         return 0
     return None
 
 
-def _anchor_is_at_index(text_obj: Any, anchor: Any, para_ranges: list[Any], para_idx: int) -> bool:
-    """True when *anchor*'s start lies in ``para_ranges[para_idx]``.
+def _anchor_is_at_index(text_obj: Any, anchor: Any, para_ranges: list[Any]) -> bool:
+    """True when *anchor*'s start lies in ``para_ranges[0]``.
 
     Same region test as :func:`find_paragraph_for_range`: ``compareRegionStarts``
     is 1 when the first position starts before the second, 0 when equal, and -1
     when after. A paragraph contains the point when the point does not start
     before the paragraph and does not start after the paragraph end.
     """
-    if para_idx < 0 or para_idx >= len(para_ranges):
+    if not para_ranges:
         return False
-    element = para_ranges[para_idx]
+    element = para_ranges[0]
 
     def _test() -> bool:
         match_start = anchor.getStart()
-        if match_start is None:
-            return False
-        if supports_service(element, _PARAGRAPH_SERVICE):
+        if supports_service(element, PARAGRAPH_SERVICE):
             cmp_start = text_obj.compareRegionStarts(match_start, element.getStart())
             cmp_end = text_obj.compareRegionStarts(match_start, element.getEnd())
-            if isinstance(cmp_start, bool) or not isinstance(cmp_start, int):
-                return False
-            if isinstance(cmp_end, bool) or not isinstance(cmp_end, int):
-                return False
             if cmp_start > 0:
                 return False
             return cmp_end >= 0

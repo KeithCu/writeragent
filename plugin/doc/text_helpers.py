@@ -23,11 +23,11 @@ import functools
 import logging
 from collections import deque
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, NamedTuple, TypedDict
+from typing import TYPE_CHECKING, Any, NamedTuple, TypedDict, TypeVar
 
 if TYPE_CHECKING:
     import re
-    from collections.abc import Generator, Iterable, Iterator, Mapping, Sequence
+    from collections.abc import Callable, Generator, Iterable, Iterator, Mapping, Sequence
 
 import uno
 
@@ -48,15 +48,17 @@ from plugin.framework import url_utils as _url_utils
 
 log = logging.getLogger(__name__)
 
-_PARAGRAPH_SERVICE = "com.sun.star.text.Paragraph"
+T = TypeVar("T")
+
+PARAGRAPH_SERVICE = "com.sun.star.text.Paragraph"
 _DRAW_SHAPE_SERVICE = "com.sun.star.drawing.Shape"
-_TEXT_TABLE_SERVICE = "com.sun.star.text.TextTable"
+TEXT_TABLE_SERVICE = "com.sun.star.text.TextTable"
 # uno_read default where None is a real UNO result.
 FAILED: Any = object()
 
 
 def is_text_table(obj: Any) -> bool:
-    return uno_read(lambda: obj.supportsService(_TEXT_TABLE_SERVICE) is True, False, object_type="TextRange")
+    return supports_service(obj, TEXT_TABLE_SERVICE)
 
 
 def redline_bounds(redline: Any) -> tuple[Any, Any, Any]:
@@ -166,7 +168,7 @@ def go_right(cursor: Any, n: int, expand: bool) -> bool:
     one paragraph, because a move or chunk that ends in a table lands after it
     (``SwUnoCursor::IsSelOvr``, ``sw/source/core/unocore/unocrsr.cxx``)."""
     while n > 0:
-        step = n if n < _GO_RIGHT_CHUNK else _GO_RIGHT_CHUNK
+        step = min(n, _GO_RIGHT_CHUNK)
         if not cursor.goRight(step, expand):
             return False
         n -= step
@@ -190,8 +192,7 @@ def selected_text_range(controller: Any) -> Any:
     if not sel or not hasattr(sel, "getCount"):
         return None
     try:
-        count_val = sel.getCount()
-        count = int(count_val)
+        count = int(sel.getCount())
     except Exception as exc:
         reraise_if_disposed(exc)
         raise
@@ -218,19 +219,17 @@ def selected_text_range(controller: Any) -> Any:
 
         start = uno_read(rng.getStart, None)
         end = uno_read(rng.getEnd, None)
-        rng_text = uno_read(rng.getText, None) if hasattr(rng, "getText") else None
+        rng_text = uno_read(rng.getText, None)
 
         cmp_val = None
         if rng_text is not None and hasattr(rng_text, "compareRegionStarts") and start is not None and end is not None:
-            target_text = rng_text
-            assert target_text is not None
-            cmp_val = uno_read(lambda: target_text.compareRegionStarts(start, end), None)
+            cmp_val = uno_read(lambda: rng_text.compareRegionStarts(start, end), None)
 
         if type(cmp_val) is int:
             if cmp_val != 0:
                 return rng
         else:
-            s = uno_read(rng.getString, "") if hasattr(rng, "getString") else ""
+            s = uno_read(rng.getString, "")
             if s:
                 return rng
 
@@ -375,20 +374,14 @@ def starts_at_or_after(text: Any, left: Any, right: Any) -> bool:
     """
     if text is None:
         return False
-    cmp_val = uno_read(
-        lambda: text.compareRegionStarts(left, right),
-        FAILED,
-    )
-    if cmp_val is FAILED or cmp_val is None:
-        return False
-    return cmp_val != 1
+    return uno_read(lambda: text.compareRegionStarts(left, right) != 1, False)
 
 
 def get_writer_selection_positions(model: Any, selection: Any | None = None) -> tuple[Any, Any, Any] | None:
     """Return (text, sel_start_pos, sel_end_pos) or None when selection unavailable."""
+    if model is None:
+        return None
     try:
-        if model is None:
-            raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
         if selection is not None:
             rng = selection
         else:
@@ -439,7 +432,7 @@ def chapter_number_from_para(para: Any) -> str | None:
     return raw or None
 
 
-def apply_chapter_number(node: Any, para: Any) -> None:
+def apply_chapter_number(node: HeadingTreeNode, para: Any) -> None:
     """Set optional ``chapter_number`` on a heading node; omit the key when off."""
     label = chapter_number_from_para(para)
     if label:
@@ -468,7 +461,7 @@ def reset_properties_to_default(cursor: Any, names: Iterable[str]) -> list[str]:
         return list(names)
     except Exception as exc:
         reraise_if_disposed(exc)
-        pass  # no XMultiPropertyStates on this range — fall back to one at a time
+        # no XMultiPropertyStates on this range — fall back to one at a time
     cleared = []
     for name in names:
         try:
@@ -476,7 +469,6 @@ def reset_properties_to_default(cursor: Any, names: Iterable[str]) -> list[str]:
             cleared.append(name)
         except Exception as exc:
             reraise_if_disposed(exc)
-            continue
     return cleared
 
 
@@ -584,14 +576,12 @@ def find_heading_by_chapter_number(tree: Mapping[str, Any], label: str) -> Mappi
 
 
 def _portion_type(portion: Any) -> str | None:
-    # PyUNO attribute access is the same property call; a second read cannot succeed.
     return uno_read(lambda: portion.getPropertyValue("TextPortionType"), None, object_type="TextPortion")
 
 
 def _is_draw_shape_text(text_range: Any) -> bool:
     """True when text_range is a draw shape (or its XText) in Writer, Calc, Draw or Impress."""
-    svc_val = uno_read(lambda: text_range.supportsService(_DRAW_SHAPE_SERVICE), FAILED, object_type="TextRange")
-    return svc_val is True or (type(svc_val) is int and svc_val == 1)
+    return supports_service(text_range, _DRAW_SHAPE_SERVICE)
 
 
 def _range_is_paragraph(text_range: Any) -> bool:
@@ -601,7 +591,7 @@ def _range_is_paragraph(text_range: Any) -> bool:
     On a paragraph ``XTextRange`` it yields text portions (bold runs, redlines).
     Redlines must not be split as paragraph boundaries—extra newlines would appear between runs.
     """
-    if uno_read(lambda: text_range.supportsService(_PARAGRAPH_SERVICE) is True, False, object_type="TextRange"):
+    if supports_service(text_range, PARAGRAPH_SERVICE):
         return True
 
     def first_is_portion() -> bool:
@@ -689,9 +679,7 @@ def _nested_portions(portion: Any, kind: str | None) -> Any | None:
         return portion.getPropertyValue(kind).createEnumeration()
     if kind == "TextField":
         field = uno_read(lambda: portion.getPropertyValue("TextField"), None, object_type="TextPortion")
-        if field is not None and uno_read(
-            lambda: field.supportsService(_METADATA_FIELD_SERVICE) is True, False, object_type="TextPortion"
-        ):
+        if field is not None and supports_service(field, _METADATA_FIELD_SERVICE):
             return field.createEnumeration()
     return None
 
@@ -855,7 +843,7 @@ class TrackedDeletions:
     def __init__(self, doc: Any) -> None:
         self._runs: list[list[tuple[Any, Any, Any]]] = []
         redlines = uno_read(lambda: doc.getRedlines(), None)
-        if redlines is None or uno_read(lambda: redlines.hasElements() is True, False) is not True:
+        if redlines is None or not uno_read(lambda: redlines.hasElements(), False):
             return
         enum = uno_read(lambda: redlines.createEnumeration(), None)
         for rl in iter_elements(enum):
@@ -944,8 +932,6 @@ class TrackedDeletions:
         def _span_cursor() -> Any | None:
             start_cur = text.createTextCursorByRange(text_range.getStart())
             end_cur = text.createTextCursorByRange(text_range.getEnd())
-            if start_cur is None or end_cur is None:
-                return None
             start_cur.gotoRange(end_cur, True)
             return start_cur
 
@@ -1086,11 +1072,7 @@ def _deletion_removes_anchor(bounds: tuple[Any, Any, Any], kind: str, anchor: An
     # as the whole text when the first enumerated element is not a table.
     first = next(iter_elements(text.createEnumeration()), None)
     if (
-        not uno_read(
-            lambda: first is not None and first.supportsService(_TEXT_TABLE_SERVICE) is True,
-            False,
-            object_type="TextRange",
-        )
+        not (first is not None and supports_service(first, TEXT_TABLE_SERVICE))
         and text.compareRegionStarts(start, text.getStart()) == 0
         and text.compareRegionEnds(text.getEnd(), end) == 0
     ):
@@ -1237,7 +1219,7 @@ def paragraph_deletion_flags(model: Any, elements: list[Any]) -> list[bool]:
     flags: list[bool] = []
     for element in elements:
         flags.append(state.in_delete)
-        if uno_read(lambda: element.supportsService(_PARAGRAPH_SERVICE) is True, False):
+        if supports_service(element, PARAGRAPH_SERVICE):
             for _unused in visible_portions(element, state=state):
                 pass
     return flags
@@ -1263,7 +1245,7 @@ def get_document_path(model: Any) -> str | None:
         url = model.getURL()
         if not url:
             return None
-        # Legacy urljoin produced file:/path; require file:// after that repair.
+        # normalize_file_url turns file:/path into file:///path; anything that is still not file:// is not a local file.
         url = _url_utils.normalize_file_url(str(url))
         if not url.startswith("file://"):
             return None
@@ -1282,32 +1264,28 @@ def build_heading_tree(model: Any, elements: list[Any] | None = None) -> Heading
         root: HeadingTreeNode = {"level": 0, "text": "root", "para_index": -1, "children": [], "body_paragraphs": 0}
         stack: list[HeadingTreeNode] = [root]
 
-        def _iter_elements():
-            if elements is not None:
-                yield from elements
-            else:
-                text = uno_call(model.getText, "Get document text")
-                enum = uno_call(text.createEnumeration, "Create enumeration")
-                while uno_call(lambda: enum_has_more(enum), "Check more elements"):
-                    yield uno_call(enum.nextElement, "Get next element")
-
-        walked = list(_iter_elements())
+        if elements is not None:
+            walked = elements
+        else:
+            text = uno_call(model.getText, "Get document text")
+            enum = uno_call(text.createEnumeration, "Create enumeration")
+            walked = list(iter_elements(enum))
         flags = paragraph_deletion_flags(model, walked)
 
         for para_index, element in enumerate(walked):
-            if uno_call(lambda: element.supportsService("com.sun.star.text.Paragraph"), "Check supportsService Paragraph"):
+            if uno_call(lambda: element.supportsService(PARAGRAPH_SERVICE), "Check supportsService Paragraph"):
                 outline_level = 0
                 try:
                     outline_level = uno_call(lambda: element.getPropertyValue("OutlineLevel"), "Get OutlineLevel")
                 except UnoObjectError as e:
                     log.debug("build_heading_tree could not get OutlineLevel: %s", e)
 
-                if isinstance(outline_level, int) and outline_level > 0:
+                if outline_level > 0:
                     text = live_paragraph_text(element, flags[para_index])
                     if text is None:
                         stack[-1]["body_paragraphs"] += 1
                         continue
-                    while len(stack) > 1 and int(stack[-1]["level"]) >= outline_level:
+                    while len(stack) > 1 and stack[-1]["level"] >= outline_level:
                         stack.pop()
                     node: HeadingTreeNode = {
                         "level": outline_level,
@@ -1338,9 +1316,9 @@ def get_selection_text(model: Any) -> str | None:
 
     Handles Writer (tracked deletions hidden; None when the selection is not text), Calc, and Draw.
     """
+    if model is None:
+        return None
     try:
-        if model is None:
-            raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
         controller = uno_call(model.getCurrentController, "Get current controller")
         if not controller:
             return None
@@ -1518,9 +1496,9 @@ def get_document_length(model: Any) -> int:
     footnote numbers are measured as shown (matching ``get_content`` ``document_length``
     and ``read_visible_body``).
     """
+    if model is None:
+        return 0
     try:
-        if model is None:
-            raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
         if _doc_type.get_document_type(model) == _doc_type.DocumentType.WRITER:
             return len(read_visible_body(model)[0])
         return 0
@@ -1568,13 +1546,11 @@ def visible_point_in_paragraph(para: Any, offset: int, *, opened: bool, at_end: 
     return para.getEnd(), offset
 
 
-def with_view_cursor_left_body_locked(doc: Any, vc: Any, action_fn: Any) -> Any:
-    """Leave nested XText, lock for the action, unlock before restore.
+def with_view_cursor_left_body_locked(doc: Any, vc: Any, action_fn: Callable[[], T]) -> T:
+    """Move the view cursor to the body start, lock controllers, run *action_fn*, unlock, then put the view cursor back.
 
-    Leave nested XText, lock controllers, run the scan, unlock, then restore the view cursor.
-    Body getText() cannot clone a cursor inside a table cell or frame.
+    The body's getText() cannot clone a cursor that sits in a table cell or frame, so the cursor is cloned through its own text first.
     """
-    saved = None
     try:
         # Nested XText (table cell / frame): body getText() cannot clone this range.
         saved = clone_text_range(vc)
@@ -1599,11 +1575,10 @@ def with_view_cursor_left_body_locked(doc: Any, vc: Any, action_fn: Any) -> Any:
     finally:
         if in_body:
             doc.unlockControllers()
-        if saved is not None:
-            try:
-                vc.gotoRange(saved, False)
-            except Exception as exc:
-                log.debug("with_view_cursor_left_body_locked: restore view cursor failed (%s)", type(exc).__name__)
+        try:
+            vc.gotoRange(saved, False)
+        except Exception as exc:
+            log.debug("with_view_cursor_left_body_locked: restore view cursor failed (%s)", type(exc).__name__)
 
 
 def jump_view_cursor_to_page(vc: Any, page: int) -> int | None:

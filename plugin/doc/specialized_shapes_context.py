@@ -15,7 +15,6 @@ from typing import Any, TYPE_CHECKING
 
 from plugin.framework.errors import uno_read
 from plugin.framework.thread_guard import assert_main_thread
-from plugin.framework.uno_context import uno_same
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -28,17 +27,11 @@ def _writer_page_style_name_at_cursor(doc: Any) -> str | None:
     """Best-effort page style name from the paragraph at the view cursor."""
     def _body() -> str | None:
         ctrl = doc.getCurrentController()
-        if ctrl is None:
-            return None
         vc = ctrl.getViewCursor()
-        if vc is None:
-            return None
         # vc.getText() is the cursor's XText (header, frame, cell)—doc.getText() is body-only.
         cur = vc.getText().createTextCursorByRange(vc.getStart())
         cur.gotoStartOfParagraph(False)
         psi = cur.getPropertySetInfo()
-        if psi is None:
-            return None
         for prop in ("PageDescName", "PageStyleName"):
             if not psi.hasPropertyByName(prop):
                 continue
@@ -77,15 +70,12 @@ def _writer_canvas_for_style(doc: Any, style_name: str) -> str | None:
 
 
 def _format_writer_canvas(doc: Any) -> str:
-    def _body() -> str:
-        resolved = _writer_page_style_name_at_cursor(doc)
-        for name in dict.fromkeys(n for n in (resolved, "Standard", "Default Page Style") if n):
-            text = _writer_canvas_for_style(doc, name)
-            if text:
-                return text
-        return ""
-
-    return uno_read(_body, "")
+    resolved = _writer_page_style_name_at_cursor(doc)
+    for name in dict.fromkeys(n for n in (resolved, "Standard", "Default Page Style") if n):
+        text = _writer_canvas_for_style(doc, name)
+        if text:
+            return text
+    return ""
 
 
 def _format_draw_canvas(doc: Any, *, product_label: str) -> str:
@@ -95,11 +85,11 @@ def _format_draw_canvas(doc: Any, *, product_label: str) -> str:
 
         bridge = DrawBridge(doc)
         pages = bridge.get_pages()
-        n_pages = int(pages.getCount())
+        n_pages = pages.getCount()
         page = bridge.get_active_page()
         if page is None:
             return ""
-        idx = int(bridge.get_active_page_index())
+        idx = bridge.get_active_page_index()
         size = page_size(page)
         if size is None:
             return ""
@@ -122,15 +112,9 @@ def _format_calc_canvas(doc: Any) -> str:
         size = page_size(dp)
         size_part = f"draw-page size {size[0]} x {size[1]} (1/100 mm)" if size else "no fixed page size"
 
-        sheets = doc.getSheets()
-        n_sheets = int(sheets.getCount())
-        sheet_idx = 0
-        for i in range(n_sheets):
-            if uno_same(sheets.getByIndex(i), sheet):
-                sheet_idx = i
-                break
-
-        sheet_name = str(getattr(sheet, "Name", "") or "").strip()
+        n_sheets = doc.getSheets().getCount()
+        sheet_idx = sheet.getRangeAddress().Sheet
+        sheet_name = sheet.getName().strip()
         name_part = f", name '{sheet_name}'" if sheet_name else ""
 
         return f" Document canvas (Calc): active sheet index {sheet_idx} (0-based){name_part}, {size_part}; {n_sheets} sheet(s)."
@@ -153,7 +137,7 @@ def format_shapes_canvas_context(doc: Any) -> str:
         return ""
     for service, handler in _SHAPES_CANVAS_DISPATCH:
         if doc.supportsService(service):
-            return handler(doc) or ""
+            return handler(doc)
     return ""
 
 

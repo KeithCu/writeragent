@@ -329,7 +329,7 @@ def test_grep_text_in_draw_match_count_uses_remaining_page_budget():
     model = MagicMock()
     model.getDrawPages.return_value = pages
 
-    matches, partial = _grep_text_in_draw(model, "alpha", max_results=3)
+    matches, partial = _grep_text_in_draw(model, "alpha", regex=False, case_sensitive=False, max_results=3)
 
     assert [row["text"] for row in matches] == ["alpha one", "alpha two", "alpha three"]
     assert len(matches) == 3
@@ -353,7 +353,7 @@ def test_grep_text_in_draw_count_matches_sliced_return_when_page_overshoots():
     model = MagicMock()
     model.getDrawPages.return_value = pages
     with patch("plugin.doc.document_research_grep._grep_shapes_on_page", side_effect=overshoot):
-        matches, partial = _grep_text_in_draw(model, "x", max_results=2)
+        matches, partial = _grep_text_in_draw(model, "x", regex=False, case_sensitive=False, max_results=2)
     assert len(matches) == 2
     assert partial is True
 
@@ -366,7 +366,7 @@ def test_grep_text_in_draw_extra_shape_read_no_match_partial_false():
     model = MagicMock()
     model.getDrawPages.return_value = pages
 
-    matches, partial = _grep_text_in_draw(model, "alpha", max_results=1)
+    matches, partial = _grep_text_in_draw(model, "alpha", regex=False, case_sensitive=False, max_results=1)
 
     assert [row["text"] for row in matches] == ["alpha"]
     assert len(matches) == 1
@@ -409,6 +409,8 @@ def test_grep_text_in_writer_includes_table_text():
         model,
         services,
         pattern="keyword",
+        regex=False,
+        case_sensitive=False,
         max_results=5,
     )
 
@@ -438,6 +440,8 @@ def test_grep_text_in_writer_caps_match_count_and_sets_partial():
         model,
         services,
         pattern="keyword",
+        regex=False,
+        case_sensitive=False,
         max_results=1,
     )
 
@@ -475,6 +479,8 @@ def test_grep_text_in_writer_stop_checker_skips_later_paragraphs():
         model,
         services,
         pattern="first",
+        regex=False,
+        case_sensitive=False,
         max_results=5,
         cancel=scope,
     )
@@ -502,6 +508,8 @@ def test_grep_text_in_writer_uses_visible_text():
             model,
             services,
             pattern="visible",
+            regex=False,
+            case_sensitive=False,
             max_results=5,
         )
         assert len(matches) == 1
@@ -512,6 +520,8 @@ def test_grep_text_in_writer_uses_visible_text():
             model,
             services,
             pattern="deleted",
+            regex=False,
+            case_sensitive=False,
             max_results=5,
         )
         assert len(matches_del) == 0
@@ -532,6 +542,8 @@ def test_grep_text_in_writer_uses_visible_text():
             model,
             services,
             pattern="visible",
+            regex=False,
+            case_sensitive=False,
             max_results=5,
         )
         assert len(matches) == 1
@@ -542,6 +554,8 @@ def test_grep_text_in_writer_uses_visible_text():
             model,
             services,
             pattern="deleted",
+            regex=False,
+            case_sensitive=False,
             max_results=5,
         )
         assert len(matches_del) == 0
@@ -554,7 +568,7 @@ def test_grep_text_in_calc_partial_when_more_hits_exist():
     ]
     with patch("plugin.doc.document_research_grep.search_spreadsheet_cells") as mock_search:
         mock_search.return_value = hits
-        matches, partial = _grep_text_in_calc(MagicMock(), "val", max_results=1)
+        matches, partial = _grep_text_in_calc(MagicMock(), "val", regex=False, case_sensitive=False, max_results=1)
 
         assert mock_search.call_args.kwargs.get("max_results") == 2
         assert len(matches) == 1
@@ -565,7 +579,7 @@ def test_grep_text_in_calc_not_partial_when_results_fit():
     hits = [{"sheet": "Sheet1", "cell": "A1", "value": "val1"}]
     with patch("plugin.doc.document_research_grep.search_spreadsheet_cells") as mock_search:
         mock_search.return_value = hits
-        matches, partial = _grep_text_in_calc(MagicMock(), "val", max_results=1)
+        matches, partial = _grep_text_in_calc(MagicMock(), "val", regex=False, case_sensitive=False, max_results=1)
 
         assert mock_search.call_args.kwargs.get("max_results") == 2
         assert len(matches) == 1
@@ -765,7 +779,7 @@ def test_grep_text_in_draw_skips_shape_whose_get_string_raises():
     model = MagicMock()
     model.getDrawPages.return_value = pages
 
-    matches, partial = _grep_text_in_draw(model, "alpha", max_results=5)
+    matches, partial = _grep_text_in_draw(model, "alpha", regex=False, case_sensitive=False, max_results=5)
     assert [row["text"] for row in matches] == ["alpha"]
 
 
@@ -784,7 +798,7 @@ def test_grep_text_in_draw_group_shape_recurses():
     model = MagicMock()
     model.getDrawPages.return_value = pages
 
-    matches, partial = _grep_text_in_draw(model, "alpha", max_results=5)
+    matches, partial = _grep_text_in_draw(model, "alpha", regex=False, case_sensitive=False, max_results=5)
     assert len(matches) == 1
     assert matches[0]["shape_index"] == "0.0"
     assert matches[0]["text"] == "alpha"
@@ -802,7 +816,7 @@ def test_grep_text_in_draw_partial_stays_true_across_pages():
         ([{"page_index": 1, "shape_index": "0", "text": "alpha"}], 2, False),
     ]
     with patch("plugin.doc.document_research_grep._grep_shapes_on_page", side_effect=side_effect):
-        matches, partial = _grep_text_in_draw(model, "alpha", max_results=2)
+        matches, partial = _grep_text_in_draw(model, "alpha", regex=False, case_sensitive=False, max_results=2)
     assert partial is True
 
 
@@ -825,7 +839,7 @@ def test_grep_text_in_writer_skips_cell_that_raises():
     table.getCellByName.side_effect = get_cell
     services.document.get_paragraph_ranges.return_value = [table]
 
-    matches, partial = _grep_text_in_writer(model, services, "keyword", max_results=5)
+    matches, partial = _grep_text_in_writer(model, services, "keyword", regex=False, case_sensitive=False, max_results=5)
     assert len(matches) == 1
     assert matches[0]["text"] == "keyword"
     assert partial is False
@@ -850,13 +864,13 @@ def test_grep_text_in_writer_table_cells_do_not_join_across_cells():
     services.document.get_paragraph_ranges.return_value = [table]
 
     matches_across, _ = _grep_text_in_writer(
-        model, services, "foo bar", max_results=5
+        model, services, "foo bar", regex=False, case_sensitive=False, max_results=5
     )
     assert matches_across == []
     assert len(matches_across) == 0
 
     matches_single, _ = _grep_text_in_writer(
-        model, services, "foo", max_results=5
+        model, services, "foo", regex=False, case_sensitive=False, max_results=5
     )
     assert len(matches_single) == 1
 
@@ -874,7 +888,7 @@ def test_grep_text_in_writer_caps_context_snippet():
 
     services.document.get_paragraph_ranges.return_value = [para]
 
-    matches, partial = _grep_text_in_writer(model, services, "keyword", max_results=1)
+    matches, partial = _grep_text_in_writer(model, services, "keyword", regex=False, case_sensitive=False, max_results=1)
     assert matches[0]["text"] == "keyword"
     for context_entry in matches[0]["context"]:
         assert len(context_entry["text"]) == 201
@@ -890,7 +904,7 @@ def test_grep_text_in_draw_caps_shape_snippet():
     model = MagicMock()
     model.getDrawPages.return_value = pages
 
-    matches, partial = _grep_text_in_draw(model, "a", max_results=1)
+    matches, partial = _grep_text_in_draw(model, "a", regex=False, case_sensitive=False, max_results=1)
     assert matches[0]["text"] == "a" * 200 + "…"
 
 

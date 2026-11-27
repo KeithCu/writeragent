@@ -36,4 +36,4 @@ def _model(service: str) -> MagicMock:
 )
 def test_outer_delegate_hint_names_the_registered_gateway(model: Any, gateway: Any) -> None:
     """Pin that format_peer_outer_delegate_hint matches the registered gateway name."""
-    assert gateway.name in format_peer_outer_delegate_hint(model)
+    assert gateway.name in format_peer_outer_delegate_hint()

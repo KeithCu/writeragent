@@ -50,12 +50,7 @@ class GrepNearbyFiles(ToolBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         pattern = kwargs["pattern"]
-        if not pattern:
-            return self._tool_error("pattern is required")
-
         file_subset = kwargs.get("file_subset")
-
-        scope = ctx.send_cancellation
         case_sensitive = resolve_case_sensitive(kwargs.get("case_sensitive"))
         return grep_nearby_files(
             ctx.ctx,
@@ -65,6 +60,6 @@ class GrepNearbyFiles(ToolBase):
             file_subset=str(file_subset) if file_subset else None,
             regex=bool(kwargs.get("regex", False)),
             case_sensitive=case_sensitive,
-            cancel=scope,
+            cancel=ctx.send_cancellation,
             status_callback=ctx.status_callback,
         )

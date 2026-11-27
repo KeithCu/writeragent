@@ -68,13 +68,12 @@ class ListNearbyFiles(ToolBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         # Execute off main thread because listing directory scans can take time.
         # list_nearby_files handles marshaling UNO requests to the main thread internally.
-        scope = ctx.send_cancellation
         return list_nearby_files(
             ctx.ctx,
             ctx.doc,
-            filter=kwargs.get("filter"),
+            name_filter=kwargs.get("filter"),
             file_kind=kwargs.get("file_kind", "documents"),
-            cancel=scope,
+            cancel=ctx.send_cancellation,
         )
 
 
