@@ -163,7 +163,7 @@ class AddComment(ToolBase):
             return self._tool_error("Provide content.")
 
         parent_name = (kwargs.get("parent_name") or "").strip()
-        author = kwargs["author"].strip() or "WriterAgent"
+        author = kwargs.get("author", "WriterAgent").strip() or "WriterAgent"
 
         # Reply path: look up the immediate parent by Name and insert at its anchor
         # (same shape as CommentResolve) without setting Resolved. Do not walk to the

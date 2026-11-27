@@ -1713,7 +1713,7 @@ class SearchInDocument(ToolBase):
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        max_results = kwargs["max_results"]
+        max_results = kwargs.get("max_results", DEFAULT_SEARCH_RESULTS)
         if max_results < 1:
             return self._tool_error("max_results must be a positive integer.", code="INVALID_PARAM")
 
@@ -1721,9 +1721,9 @@ class SearchInDocument(ToolBase):
         if not pattern:
             return self._tool_error("pattern is required.", code="INVALID_PARAM")
 
-        use_regex = kwargs["regex"]
+        use_regex = kwargs.get("regex", False)
         case_sensitive = resolve_case_sensitive(kwargs.get("case_sensitive"))
-        return_offsets = kwargs["return_offsets"]
+        return_offsets = kwargs.get("return_offsets", False)
 
         if return_offsets and use_regex:
             return self._tool_error(
