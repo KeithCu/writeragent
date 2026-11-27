@@ -708,6 +708,8 @@ def _snapshot_init_bindings(init_session_id: str) -> dict[str, Any]:
     executor = SESSIONS.executor(init_session_id)
     if executor is None:
         return {}
+    # The '_' prefix test also keeps executor bookkeeping (__name__, _print_outputs,
+    # _operations_count) out of the next cell.
     return {
         key: value
         for key, value in executor.state.items()

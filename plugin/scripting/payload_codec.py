@@ -118,7 +118,7 @@ def _to_py(v: Any) -> Any:
 def _optional_numpy() -> Any:
     """Return the NumPy module, or None when this interpreter has no NumPy.
 
-    ``child_pack_result``, ``_needs_elementwise_pack``, and
+    ``_child_pack_result``, ``_needs_elementwise_pack``, and
     ``_container_has_packable_nested`` import NumPy only after the value
     needs ndarray checks. A plain dict or list must not raise ``ImportError`` in
     a venv without NumPy (LibreOffice's Python ships without it, and some user
@@ -2050,7 +2050,6 @@ def child_pack_result(
     *,
     min_cells: int = BINARY_MIN_CELLS,
     force: ForceBinary = "auto",
-    _depth: int = 0,
 ) -> Any:
     """Pack a worker result. Not pickle-safe for every small-list cell.
 
@@ -2062,9 +2061,7 @@ def child_pack_result(
     """
     # crosshair: off
     try:
-        return _child_pack_result(
-            result, min_cells=min_cells, force=force, _depth=_depth
-        )
+        return _child_pack_result(result, min_cells=min_cells, force=force)
     except Exception:
         log.exception(
             "payload_codec child_pack_result failed for value %s",
