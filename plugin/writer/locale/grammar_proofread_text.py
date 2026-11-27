@@ -481,7 +481,7 @@ def _build_normalized_error(pos: int, length: int, it: dict[str, Any], correct: 
     )
 
 
-def normalize_errors_for_text(full_text: str, items: Iterable[dict[str, Any]], ctx: Any = None, loc_key: str | None = None) -> list[NormalizedProofError]:
+def normalize_errors_for_text(full_text: str, items: Iterable[dict[str, Any]], ctx: Any, loc_key: str) -> list[NormalizedProofError]:
     """Map ``wrong`` substrings to absolute positions in ``full_text`` (Writer buffer)."""
     results: list[NormalizedProofError] = []
     used_spans: list[tuple[int, int]] = []

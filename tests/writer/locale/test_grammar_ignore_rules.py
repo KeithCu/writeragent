@@ -191,7 +191,7 @@ class TestGrammarIgnoreRules:
 
         ignored = {"avoid passive voice"}
         with patch("plugin.writer.locale.grammar_proofread_text.get_break_iterator_and_locale", return_value=(FakeBI(), "en-US")):
-            norm_errors = normalize_errors_for_text(full_text, items)
+            norm_errors = normalize_errors_for_text(full_text, items, ctx=None, loc_key="en-US")
 
         filtered_errors = [e for e in norm_errors if not is_rule_ignored(e.rule_identifier, ignored, set())]
         assert len(filtered_errors) == 1

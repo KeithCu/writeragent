@@ -263,8 +263,8 @@ def apply_language_change(
     doc_id: str,
     sentence_text: str,
     detected_bcp47: str,
-    start_pos: int = 0,
-    paragraph_text: str = "",
+    start_pos: int,
+    paragraph_text: str,
 ) -> bool:
     """Update CharLocale on the sentence text span inside the document when language mismatch occurs."""
 
@@ -412,7 +412,7 @@ def run_grammar_check(
 def persisted_grammar_skip_lang_detect(
     doc_id: str,
     text: str,
-    locale: str = "",
+    locale: str,
 ) -> bool:
     """True if persistence already stores grammar for this sentence in ``locale``.
 
@@ -800,6 +800,9 @@ def _worker_process_chunk(
     original_bcp47: str,
 ) -> None:
     """Run the grammar LLM for one chunk of ready items."""
+    # Chunks run one after another and each earlier chunk's HTTP call can take
+    # seconds, so check again here: since the batch was filtered, an item may
+    # have been superseded by a newer edit or its sentence may now be cached.
     current_chunk = _worker_ready_items(chunk, ec.gq, grammar_bcp47)
     if not current_chunk:
         grammar_obs("worker_chunk_skip", reason="empty_result_chunk", chunk_len=len(chunk))
@@ -912,6 +915,8 @@ def run_llm_and_cache_batch(
                         items_by_target_locale[target_bcp47].append((item, text))
 
             for loc, loc_items in items_by_target_locale.items():
+                # Filter under the detected locale before chunking, so cache hits
+                # do not take chunk slots and the misses pack into fewer requests.
                 ready_items = _worker_ready_items(loc_items, ec.gq, loc)
                 if not ready_items:
                     continue

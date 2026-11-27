@@ -317,7 +317,7 @@ def test_wait_for_exit_delivers_callback_when_reader_never_ends():
 
     def run() -> None:
         try:
-            ap._wait_for_exit(proc, reader, None, ap._child_generation)
+            ap._wait_for_exit(proc, reader, None, ap._child_generation, MagicMock())
         finally:
             done.set()
 
@@ -1020,11 +1020,11 @@ def test_superseded_child_does_not_notify_and_latest_does() -> None:
     ap._child_generation = 1
     proc = MagicMock()
     proc.wait.return_value = 3
-    ap._wait_for_exit(proc, None, None, 0)
+    ap._wait_for_exit(proc, None, None, 0, MagicMock())
     assert exits == []
 
     proc.wait.return_value = 5
-    ap._wait_for_exit(proc, None, None, 1)
+    ap._wait_for_exit(proc, None, None, 1, MagicMock())
     assert exits == [5]
 
 
@@ -1306,6 +1306,7 @@ def test_terminate_closes_captured_child_pipes_not_the_replacement(has_readers: 
 
     old.terminate = swap_proc
     ap.process = old
+    ap._managed = MagicMock()
     if has_readers:
         ap._stdout_thread = make_finished_handle()
         ap._stderr_thread = make_finished_handle()

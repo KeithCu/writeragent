@@ -99,7 +99,7 @@ def _mock_harper_lsp_stream(responses: list[bytes]) -> MagicMock:
 
 
 def _lint_with_locked_client(text: str, *, bcp47: str = "en-US") -> dict[str, Any]:
-    client = HarperLSClient("/bin/harper-ls")
+    client = HarperLSClient("/bin/harper-ls", bcp47="en-US")
     with harper_module.runtime.lock:
         return harper_module.runtime._lint_with_client(client, text, bcp47=bcp47)
 
@@ -293,11 +293,11 @@ def test_harper_ls_timeout(mock_popen: MagicMock) -> None:
         [_make_lsp_chunk(json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"capabilities": {}}}).encode("utf-8"))]
     )
 
-    client = HarperLSClient("/bin/harper-ls")
+    client = HarperLSClient("/bin/harper-ls", bcp47="en-US")
 
     with patch.object(client.stdout_queue, "get", side_effect=queue.Empty):
         with pytest.raises(TimeoutError):
-            client.lint("test text")
+            client.lint("test text", bcp47="en-US")
 
 
 def _bare_harper_client() -> HarperLSClient:
@@ -308,7 +308,7 @@ def _bare_harper_client() -> HarperLSClient:
     client._bcp47 = "en-US"
     client.user_config_dir = ""
     client._lsp_settings = {}
-    client._heartbeat_fn = None
+    client.heartbeat_fn = None
     client._doc_opened = True
     client._doc_version = 0
     client._lint_cancel = None
@@ -327,20 +327,20 @@ def _ready_runtime(client: HarperLSClient | MagicMock, binary: str = "/bin/harpe
         patch.object(harper_module, "HarperLSClient", return_value=client),
         patch.object(harper_module, "_schedule_proofread_again"),
     ):
-        harper_module.runtime.ensure_body("/tmp")
+        harper_module.runtime.ensure_body("/tmp", "en-US")
     assert harper_module.runtime.is_ready()
 
 
 def _failed_runtime(monkeypatch: pytest.MonkeyPatch, *, cooled_down: bool) -> None:
     with patch.object(harper_module, "get_harper_binary", side_effect=OSError("harper-ls missing")):
-        harper_module.runtime.ensure_body("/tmp")
+        harper_module.runtime.ensure_body("/tmp", "en-US")
     if cooled_down:
         monkeypatch.setattr(harper_module, "_HARPER_FAIL_COOLDOWN_SEC", 0.0)
 
 
 def _resolving_runtime() -> None:
     with patch("plugin.framework.worker_pool.run_in_background"):
-        assert harper_module.runtime.ensure_async("/tmp")
+        assert harper_module.runtime.ensure_async("/tmp", "en-US")
 
 
 @pytest.fixture
@@ -399,7 +399,7 @@ def test_lint_stdout_eof_raises_instead_of_empty() -> None:
     client = _bare_harper_client()
     client.stdout_queue.put(None)
     with patch.object(client, "_write", lambda _payload: None), pytest.raises(RuntimeError, match="closed"):
-        client.lint("Hello.")
+        client.lint("Hello.", bcp47="en-US")
 
 
 @patch("subprocess.Popen")
@@ -503,7 +503,7 @@ def test_harper_workspace_configuration_dialect(mock_popen: MagicMock) -> None:
     mock_popen.return_value = mock_proc
 
     with patch("time.time_ns", return_value=123):
-        client = HarperLSClient("/bin/harper-ls")
+        client = HarperLSClient("/bin/harper-ls", bcp47="en-US")
         client.lint("colour is fine.", bcp47="en-GB")
 
     written = b"".join(call.args[0] for call in mock_proc.stdin.write.call_args_list if call.args)
@@ -772,7 +772,7 @@ def test_fetch_latest_release_asset_raises_on_github_api_failure(tmp_path: Path)
 def test_harper_lsp_initialize_raises_on_popen_failure() -> None:
     with patch("subprocess.Popen", side_effect=OSError("exec failed")):
         with pytest.raises(RuntimeError, match=r"^Failed to start/initialize harper-ls: exec failed$"):
-            HarperLSClient("/bin/harper-ls")
+            HarperLSClient("/bin/harper-ls", bcp47="en-US")
 
 
 def test_normalize_spaces_1to1() -> None:
@@ -789,10 +789,10 @@ def test_normalize_spaces_1to1() -> None:
 
 
 def test_harper_try_lint_idle_kicks_one_ensure(ensure_jobs: list[str]) -> None:
-    assert harper_try_lint("Hello.", "/tmp", ctx=object()) is None
+    assert harper_try_lint("Hello.", "/tmp", bcp47="en-US", ctx=object()) is None
     assert ensure_jobs == ["harper-ensure-ready"]
     assert harper_module.runtime.state is HarperRuntimeState.RESOLVING
-    assert harper_try_lint("Hello again.", "/tmp", ctx=object()) is None
+    assert harper_try_lint("Hello again.", "/tmp", bcp47="en-US", ctx=object()) is None
     assert ensure_jobs == ["harper-ensure-ready"]
 
 
@@ -811,7 +811,7 @@ def test_harper_try_lint_ready_returns_errors(ensure_jobs: list[str]) -> None:
     ]
     _ready_runtime(mock_client)
 
-    res = harper_try_lint("this is text", "/tmp", ctx=object())
+    res = harper_try_lint("this is text", "/tmp", bcp47="en-US", ctx=object())
     assert res is not None
     assert res["errors"][0]["wrong"] == "this"
     assert res["errors"][0]["correct"] == "This"
@@ -824,20 +824,20 @@ def test_harper_try_lint_dead_process_kicks_ensure(ensure_jobs: list[str]) -> No
     _ready_runtime(mock_client)
     mock_client.is_alive.return_value = False
 
-    assert harper_try_lint("Hello.", "/tmp", ctx=object()) is None
+    assert harper_try_lint("Hello.", "/tmp", bcp47="en-US", ctx=object()) is None
     assert ensure_jobs == ["harper-ensure-ready"]
     assert harper_module.runtime.state is HarperRuntimeState.RESOLVING
 
 
 def test_harper_try_lint_failed_cooldown_skips_retry(ensure_jobs: list[str], monkeypatch: pytest.MonkeyPatch) -> None:
     _failed_runtime(monkeypatch, cooled_down=False)
-    assert harper_try_lint("Hello.", "/tmp", ctx=object()) is None
+    assert harper_try_lint("Hello.", "/tmp", bcp47="en-US", ctx=object()) is None
     assert ensure_jobs == []
 
 
 def test_harper_try_lint_failed_after_cooldown_retries(ensure_jobs: list[str], monkeypatch: pytest.MonkeyPatch) -> None:
     _failed_runtime(monkeypatch, cooled_down=True)
-    assert harper_try_lint("Hello.", "/tmp", ctx=object()) is None
+    assert harper_try_lint("Hello.", "/tmp", bcp47="en-US", ctx=object()) is None
     assert ensure_jobs == ["harper-ensure-ready"]
     assert harper_module.runtime.state is HarperRuntimeState.RESOLVING
 
@@ -848,7 +848,7 @@ def test_harper_try_lint_eof_returns_none(ensure_jobs: list[str]) -> None:
     client.stdout_queue.put(None)
     _ready_runtime(client)
     with patch.object(client, "_write", lambda _payload: None):
-        assert harper_try_lint("Hello.", "/tmp", ctx=object()) is None
+        assert harper_try_lint("Hello.", "/tmp", bcp47="en-US", ctx=object()) is None
     assert ensure_jobs == ["harper-ensure-ready"]
     assert harper_module.runtime.state is HarperRuntimeState.RESOLVING
 
@@ -896,7 +896,7 @@ def test_ensure_missing_binary_still_fails_and_cools_down(ensure_jobs: list[str]
     assert harper_module.runtime.clients == {}
     mock_status.failed.assert_called_once()
     assert mock_status.failed.call_args[0][0] == "Harper"
-    assert harper_try_lint("Hello.", "/tmp/cfg", ctx=object()) is None
+    assert harper_try_lint("Hello.", "/tmp/cfg", bcp47="en-US", ctx=object()) is None
     assert ensure_jobs == []
 
 
@@ -987,7 +987,7 @@ def test_maybe_start_harper_async_skips_empty_config_dir(mock_bg: MagicMock) -> 
 @patch("plugin.framework.worker_pool.run_in_background")
 def test_harper_ensure_ready_async_submit_failure_resets_idle(mock_bg: MagicMock) -> None:
     mock_bg.side_effect = RuntimeError("pool not ready")
-    submitted = harper_module.harper_ensure_ready_async("/tmp")
+    submitted = harper_module.harper_ensure_ready_async("/tmp", "en-US")
     assert submitted is False
     assert harper_module.runtime.state is HarperRuntimeState.IDLE
 
@@ -1051,7 +1051,7 @@ def test_harper_try_lint_waits_for_lint_lock_and_pumps() -> None:
             return done.wait(timeout)
 
         with patch("plugin.framework.uno_context.wait_while_pumping", fake_wait):
-            res = harper_try_lint("Hello.", "/tmp", ctx=object())
+            res = harper_try_lint("Hello.", "/tmp", bcp47="en-US", ctx=object())
         handle.join(timeout=1.0)
         assert res == {"errors": []}
     finally:
@@ -1069,7 +1069,7 @@ def test_harper_lock_wait_times_out_without_holding_lock(ensure_jobs: list[str])
         # Pytest counts as the main thread, so _DIALOG_LINT_BUDGET_SEC applies.
         with patch("plugin.writer.locale.harper._LINT_BUDGET_SEC", 0.05), \
              patch("plugin.writer.locale.harper._DIALOG_LINT_BUDGET_SEC", 0.05):
-            assert harper_try_lint("Hello.", "/tmp", ctx=object()) is None
+            assert harper_try_lint("Hello.", "/tmp", bcp47="en-US", ctx=object()) is None
             assert ensure_jobs == []
     finally:
         harper_module.runtime.lock.release()
@@ -1112,7 +1112,7 @@ def test_main_thread_state_lock_does_not_wait_out_a_held_runtime_lock() -> None:
             patch.object(harper_module.runtime, "lint_now", side_effect=RuntimeError("simulated lint error")),
             patch("plugin.framework.worker_pool.run_in_background", side_effect=fake_run_in_background),
         ):
-            res = harper_try_lint("Hi.", "/tmp", ctx=object())
+            res = harper_try_lint("Hi.", "/tmp", bcp47="en-US", ctx=object())
             assert res is None
             mock_bg.assert_not_called()
             assert harper_module.runtime.state is HarperRuntimeState.READY
@@ -1164,7 +1164,7 @@ def test_ensure_ready_empty_listeners_recovers_on_first_attach() -> None:
         grammar_registry.live_proofreaders.discard(pr)
 
 def test_harper_try_lint_empty_config_dir_does_not_ensure(ensure_jobs: list[str]) -> None:
-    assert harper_try_lint("Hello.", "", ctx=object()) is None
+    assert harper_try_lint("Hello.", "", bcp47="en-US", ctx=object()) is None
     assert ensure_jobs == []
     assert harper_module.runtime.state is HarperRuntimeState.IDLE
 
@@ -1175,7 +1175,7 @@ def test_harper_try_lint_returns_none_and_kicks_ensure_on_lint_exception(ensure_
     mock_client.lint.side_effect = RuntimeError("broken pipe")
     _ready_runtime(mock_client)
 
-    assert harper_try_lint("He go to the store.", "/tmp", ctx=object()) is None
+    assert harper_try_lint("He go to the store.", "/tmp", bcp47="en-US", ctx=object()) is None
     assert ensure_jobs == ["harper-ensure-ready"]
 
 
@@ -1208,7 +1208,7 @@ def test_harper_try_lint_pumps_events_while_lint_outstanding() -> None:
 
     ctx = MagicMock()
     with patch("plugin.framework.vcl_pumping.process_events_to_idle", side_effect=_pe2i):
-        res = harper_try_lint("Hello.", "/tmp", ctx=ctx)
+        res = harper_try_lint("Hello.", "/tmp", bcp47="en-US", ctx=ctx)
 
     assert res == {"errors": []}
     assert pumps
@@ -1262,7 +1262,7 @@ def test_harper_try_lint_linguistic_thread_posts_pe2i() -> None:
                 patch("plugin.framework.vcl_pumping.process_events_to_idle", side_effect=_pe2i),
                 patch("plugin.framework.queue_executor.main.post", side_effect=_post),
             ):
-                box["res"] = harper_try_lint("Hello.", "/tmp", ctx=MagicMock())
+                box["res"] = harper_try_lint("Hello.", "/tmp", bcp47="en-US", ctx=MagicMock())
 
         worker = threading.Thread(target=_run, name="Dummy-21")
         worker.start()
@@ -1299,7 +1299,7 @@ def test_harper_try_lint_concurrent_threads_all_return_results() -> None:
     def _run() -> None:
         for _ in range(5):
             try:
-                res = harper_try_lint("The the cat.", "/tmp", ctx=MagicMock())
+                res = harper_try_lint("The the cat.", "/tmp", bcp47="en-US", ctx=MagicMock())
             except BaseException as exc:  # noqa: BLE001 - surfaced via errors list
                 with results_lock:
                     errors.append(exc)
@@ -1386,7 +1386,7 @@ def test_initialize_joins_old_reader_before_new_queue() -> None:
     """Queue swap happens after the previous reader is fenced."""
     client = HarperLSClient.__new__(HarperLSClient)
     client.binary_path = "/bin/harper-ls"
-    client._heartbeat_fn = None
+    client.heartbeat_fn = None
     client._doc_version = 3
     client._doc_opened = True
     client._lint_cancel = None
@@ -1520,7 +1520,7 @@ def test_off_caller_timeout_cancels_worker_and_releases_lock() -> None:
 
     t0 = time.monotonic()
     with patch("plugin.framework.uno_context.wait_while_pumping", fake_wait):
-        assert harper_try_lint("Hi.", "/tmp", ctx=object()) is None
+        assert harper_try_lint("Hi.", "/tmp", bcp47="en-US", ctx=object()) is None
     assert time.monotonic() - t0 < 3.0
     assert harper_module.runtime.lock.acquire(timeout=0.5)
     harper_module.runtime.lock.release()
@@ -1554,7 +1554,7 @@ def test_harper_try_lint_main_thread_budget_cancels() -> None:
          patch("plugin.writer.locale.harper._DIALOG_LINT_BUDGET_SEC", 0.2), \
          patch.object(harper_module.runtime, "lint_now", side_effect=fake_lint_now), \
          patch("plugin.writer.locale.harper.harper_ensure_ready_async"):
-        res = harper_try_lint("Hi.", "/tmp", ctx=object())
+        res = harper_try_lint("Hi.", "/tmp", bcp47="en-US", ctx=object())
     elapsed = time.monotonic() - t0
 
     assert elapsed < 2.5
@@ -1575,7 +1575,7 @@ def test_harper_try_lint_off_main_keeps_lint_budget() -> None:
     with patch("plugin.framework.queue_executor.main.is_current", return_value=False), \
          patch("plugin.framework.uno_context.wait_while_pumping", side_effect=fake_wait), \
          patch("plugin.writer.locale.harper.harper_ensure_ready_async"):
-        res = harper_try_lint("Hi.", "/tmp", ctx=object())
+        res = harper_try_lint("Hi.", "/tmp", bcp47="en-US", ctx=object())
 
     assert len(recorded_timeout) == 1
     assert recorded_timeout[0] > 14
@@ -1603,7 +1603,7 @@ def test_abort_lint_closes_client_without_taking_lock() -> None:
     client.lint.side_effect = blocking_lint
     _ready_runtime(client)
 
-    worker = threading.Thread(target=runtime.lint_now, args=("Hi.",), name="test-abort-lint-worker")
+    worker = threading.Thread(target=runtime.lint_now, args=("Hi.", "en-US"), name="test-abort-lint-worker")
     worker.start()
     try:
         assert started.wait(timeout=2.0)
@@ -1642,7 +1642,7 @@ def test_run_lint_off_caller_thread_closes_client_on_cancel_timeout() -> None:
         patch("plugin.framework.uno_context.wait_while_pumping", fake_wait),
         patch("plugin.writer.locale.harper._HARPER_CANCEL_JOIN_SEC", 0.05),
     ):
-        assert harper_try_lint("Hi.", "/tmp", ctx=object()) is None
+        assert harper_try_lint("Hi.", "/tmp", bcp47="en-US", ctx=object()) is None
 
     unblock.set()
     client.close.assert_called_once()
@@ -1695,13 +1695,13 @@ def test_ensure_failure_while_resolving_sets_failed_and_cooldown_allows_restart(
 
     # During cooldown, ensure cannot start
     with patch("plugin.framework.worker_pool.run_in_background") as mock_bg:
-        assert harper_module.harper_ensure_ready_async("/tmp") is False
+        assert harper_module.harper_ensure_ready_async("/tmp", "en-US") is False
         mock_bg.assert_not_called()
 
     # After cooldown expires, ensure can start
     monkeypatch.setattr(harper_module, "_HARPER_FAIL_COOLDOWN_SEC", 0.0)
     with patch("plugin.framework.worker_pool.run_in_background") as mock_bg:
-        assert harper_module.harper_ensure_ready_async("/tmp") is True
+        assert harper_module.harper_ensure_ready_async("/tmp", "en-US") is True
         mock_bg.assert_called_once()
 
 
@@ -1711,7 +1711,7 @@ def test_harper_initialize_spawns_through_managed_subprocess() -> None:
     )
     mock_proc = _mock_harper_lsp_stream([init_response])
     with patch("plugin.framework.managed_subprocess.subprocess.Popen", return_value=mock_proc):
-        client = HarperLSClient("/bin/harper-ls")
+        client = HarperLSClient("/bin/harper-ls", bcp47="en-US")
         try:
             assert client.proc is mock_proc
         finally:
@@ -1726,7 +1726,7 @@ def test_harper_reinitialize_uses_a_new_managed_subprocess() -> None:
     client.binary_path = "/bin/harper-ls"
     client.user_config_dir = ""
     client._bcp47 = "en-US"
-    client._heartbeat_fn = None
+    client.heartbeat_fn = None
     client._doc_version = 0
     client._doc_opened = False
     client._lint_cancel = None
@@ -1888,7 +1888,7 @@ def test_lint_keeps_constructor_heartbeat() -> None:
     client = _bare_harper_client()
     calls: list[dict[str, str]] = []
     recorder = calls.append
-    client._heartbeat_fn = recorder
+    client.heartbeat_fn = recorder
     with (
         patch.object(client, "_sync_document"),
         patch.object(client, "_collect_diagnostics", return_value=[]),
@@ -1896,13 +1896,13 @@ def test_lint_keeps_constructor_heartbeat() -> None:
     ):
         client.lint("Hi.", bcp47="en-US")
     assert calls == []
-    assert client._heartbeat_fn is recorder
+    assert client.heartbeat_fn is recorder
 
 
 def test_lint_restart_keeps_constructor_heartbeat() -> None:
     client = _bare_harper_client()
     heartbeat = MagicMock()
-    client._heartbeat_fn = heartbeat
+    client.heartbeat_fn = heartbeat
     mock_init = MagicMock()
     with (
         patch.object(client, "is_alive", return_value=False),
@@ -1913,7 +1913,7 @@ def test_lint_restart_keeps_constructor_heartbeat() -> None:
     ):
         client.lint("Hi.", bcp47="en-US")
     mock_init.assert_called_once()
-    assert client._heartbeat_fn is heartbeat
+    assert client.heartbeat_fn is heartbeat
 
 
 def test_shutdown_harper_runtime_is_a_quit_hook() -> None:
@@ -1936,7 +1936,7 @@ def test_shutdown_with_held_lock_aborts_in_flight_lint(monkeypatch: pytest.Monke
     client.lint.side_effect = blocked_lint
     _ready_runtime(client)
 
-    worker = threading.Thread(target=harper_module.runtime.lint_now, args=("Hi.",), name="test-shutdown-lint-worker")
+    worker = threading.Thread(target=harper_module.runtime.lint_now, args=("Hi.", "en-US"), name="test-shutdown-lint-worker")
     worker.start()
     try:
         assert started.wait(timeout=2.0)
