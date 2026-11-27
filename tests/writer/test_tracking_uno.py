@@ -184,7 +184,10 @@ def test_model_cannot_resolve_agent_changes_after_docx_reload_uno(ctx, doc):
             assert ManageTrackedChanges().execute(r_tctx, action="accept", index=0)["status"] == "error"
 
             reject_all_changes(reloaded, ctx)
-            assert "quick" in reloaded.getText().getString()
+            reloaded_text = reloaded.getText().getString()
+            assert "quick" in reloaded_text
+            assert "fast" not in reloaded_text
+            assert reloaded.getRedlines().getCount() == 0
     finally:
         if reloaded is not None:
             reloaded.close(True)

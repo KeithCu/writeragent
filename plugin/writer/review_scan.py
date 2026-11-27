@@ -19,7 +19,7 @@ from plugin.writer.review_authors import AGENT_AUTHORS
 
 TOKEN_PREFIX = "wa-review:"
 _TOKEN_RE = re.compile(r"\A" + re.escape(TOKEN_PREFIX) + r"[^\s:]+:\d+\Z")
-_SAME_TURN = datetime.timedelta(seconds=10)
+_SAME_TURN = datetime.timedelta(seconds=10)  # covers one tool call's edits plus slack; untagged agent inserts with text are excluded by _stacked_on_someone_else
 
 
 class RedlineScanAbort(Exception):
@@ -168,9 +168,9 @@ def agent_change_presence(
         if not include_untagged and not has_token:
             return True
         author = rl.getPropertyValue("RedlineAuthor")
-        if has_token and author in AGENT_AUTHORS:
-            assert comment is not None
-            tokens.add(comment)
+        token = agent_review_token(author, comment)
+        if token is not None:
+            tokens.add(token)
         elif include_untagged and author in AGENT_AUTHORS:
             untagged += 1
         else:
@@ -206,7 +206,7 @@ def redline_identity_key(
     (no split-piece check without it).
     *comment* is the raw ``RedlineComment`` a caller has already read (``inline_review.scan_redline_view``
     reads it once to classify the row, and re-reading it would double the per-redline UNO reads
-    on every scan). When omitted, it is read here and is None if the read fails.
+    on every scan); likewise *author*. When omitted, each is read here and is None if the read fails.
     tracking_manage uses this whole key, not ``RedlineIdentifier`` alone, because a
     stacked Delete reuses the identifier.
     """
@@ -250,20 +250,27 @@ def _stacked_on_someone_else(rl: Any) -> bool:
     return agent_review_token(fields.get("RedlineAuthor"), fields.get("RedlineComment")) is None
 
 
-def _split_piece(key: tuple[Any, ...], before_sigs: set[tuple[Any, ...]], cutoff: tuple[int, ...]) -> bool:
+def _split_piece(
+    key: tuple[Any, ...],
+    before_sigs: set[tuple[Any, ...]],
+    lo: tuple[int, ...],
+    hi: tuple[int, ...],
+) -> bool:
     """True when *key* is a tail piece split off an existing redline rather than a new edit.
 
+    Without a date the split-piece test cannot tell a piece from a new redline.
     Redline dates have whole-second resolution (``SwRedlineData::SwRedlineData``,
-    ``sw/source/core/doc/docredln.cxx``). An untagged agent redline made in the last few seconds
-    (a table-only insert, a deletion stacked on another author's insertion) has the same signature
-    as a new redline of this edit, so it is the edit's own. Another author's redline, a tagged
-    piece, or an older untagged agent redline (for example from a reloaded DOCX) keeps the
-    split-piece rule, so its text is never tagged as this change.
+    ``sw/source/core/doc/docredln.cxx``). An untagged agent redline dated within ``[lo, hi]``
+    (a 10 s window up to ``now + 1 s``, bounding both past edits and future DOCX/clock skew)
+    has the same signature as a new redline of this edit, so it is the edit's own. A year-0
+    (undated) old redline compares below ``lo``, so it stays a piece. Another author's redline,
+    a tagged piece, or an older/future untagged agent redline (for example from a reloaded DOCX)
+    keeps the split-piece rule, so its text is never tagged as this change.
     """
     if key[3] is None or key[1:] not in before_sigs:
         return False
     if key[2] in AGENT_AUTHORS and not is_agent_token(key[4]):
-        return tuple(key[3][:6]) < cutoff
+        return not (lo <= tuple(key[3][:6]) <= hi)
     return True
 
 
@@ -310,7 +317,9 @@ def new_redlines_since(doc: Any, before: set[Any]) -> tuple[list[Any], bool]:
     reads as the user's and is never resolved in bulk.
     """
     before_sigs = {key[1:] for key in before}
-    cutoff = (datetime.datetime.now() - _SAME_TURN).timetuple()[:6]
+    now = datetime.datetime.now()
+    lo = (now - _SAME_TURN).timetuple()[:6]
+    hi = (now + datetime.timedelta(seconds=1)).timetuple()[:6]
     out: list[Any] = []
 
     def on_item(rl: Any) -> bool:
@@ -318,7 +327,7 @@ def new_redlines_since(doc: Any, before: set[Any]) -> tuple[list[Any], bool]:
             key = redline_identity_key(rl, strict_date=True)
         except Exception:
             return False
-        if key not in before and not _split_piece(key, before_sigs, cutoff) and not _stacked_on_someone_else(rl):
+        if key not in before and not _split_piece(key, before_sigs, lo, hi) and not _stacked_on_someone_else(rl):
             out.append(rl)
         return True
 

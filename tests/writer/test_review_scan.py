@@ -378,6 +378,18 @@ def test_new_redlines_since_skips_old_untagged_agent_split_piece():
     assert ok and new == []
 
 
+def test_new_redlines_since_skips_future_untagged_agent_split_piece():
+    from plugin.writer.review_scan import new_redlines_since
+
+    future_stamp = _now_stamp(+3600)
+    future_untagged = _KeyedRl("1", rtype="Insert", author="WriterAgent", stamp=future_stamp, comment="")
+    before, ok = snapshot_redline_ids(_KeyedDoc([future_untagged]))
+    assert ok
+    tail_piece = _KeyedRl("2", rtype="Insert", author="WriterAgent", stamp=future_stamp, comment="")
+    new, ok = new_redlines_since(_KeyedDoc([future_untagged, tail_piece]), before)
+    assert ok and new == []
+
+
 def test_new_redlines_since_skips_same_second_other_author_split_piece():
     from plugin.writer.review_scan import new_redlines_since
 

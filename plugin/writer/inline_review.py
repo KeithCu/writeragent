@@ -238,9 +238,9 @@ def _is_all_redlines_agent(view: RedlineView) -> bool:
 # --- Agent-self-resolution guard (used by the agent-facing tracking_* tools) -------------
 # The model guard refuses any agent-authored redline, because DOCX/DOC/RTF drop the comment
 # and some agent redlines are never tagged. tracking.py's accept/reject tools drive the native
-# .uno:Accept/Reject(All)TrackedChanges, which cannot distinguish authors or tokens, so without
-# this fail-closed gate a tool call could resolve the agent's own edits instead of leaving them
-# for the user while still letting the user's own redlines be resolved on request.
+# .uno:Accept/Reject(All)TrackedChanges, which cannot distinguish authors or tokens. Without
+# this fail-closed gate a tool call could resolve the agent's own edits. The user's own
+# redlines can still be resolved on request.
 _BULK_UNRELIABLE_MSG = (
     "Couldn't read this document's tracked changes reliably, so accept/reject-all is blocked to "
     "avoid resolving agent edits that are awaiting your review. Resolve changes in LibreOffice "

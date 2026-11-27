@@ -125,15 +125,6 @@ other path releases it, including a successful non-wait edit.
   so a reviewable change is never left invisible.
 * Insertions are authored `WriterAgent` and deletions `WriterAgent (deletions)`, so LibreOffice's
   by-author coloring renders new vs removed text in two distinct colors.
-
-**Agent identity:** `tracking_manage` refuses any redline authored by `WriterAgent` or
-`WriterAgent (deletions)` in every review mode, tagged or not. This covers DOCX/DOC/RTF reloads
-(which drop the comment on a tracked change), style `Format`/`ParagraphFormat` redlines,
-table-only inserts, a deletion stacked on another author's insertion, and an agent change whose
-comment the user edited. Those untagged redlines are not in the review toolbar, popup, or Reject
-all; resolve them in *Edit ▸ Track Changes ▸ Manage*. A user whose office name is exactly
-`WriterAgent` or `WriterAgent (deletions)` is treated as the agent by `tracking_manage`. RTF
-stores header and footnote change authors as `0`, which loses the identity.
 * Crash recovery for the office author:
   * The user's real name is saved to `<profile>/user/config/writeragent_office_author.json` before
     the first swap, and whenever that name changes.
@@ -155,6 +146,15 @@ stores header and footnote change authors as `0`, which loses the identity.
   `WriterAgent` (not `WriterAgent (deletions)`). When the user records changes with review off,
   the link redlines are still authored `WriterAgent` so they do not merge with the user's own
   redlines across a paragraph mark.
+
+**Agent identity:** `tracking_manage` refuses any redline authored by `WriterAgent` or
+`WriterAgent (deletions)` in every review mode, tagged or not. This covers DOCX/DOC/RTF reloads
+(which drop the comment on a tracked change), style `Format`/`ParagraphFormat` redlines,
+table-only inserts, a deletion stacked on another author's insertion, and an agent change whose
+comment the user edited. Those untagged redlines are not in the review toolbar, popup, or Reject
+all; resolve them in *Edit ▸ Track Changes ▸ Manage*. A user whose office name is exactly
+`WriterAgent` or `WriterAgent (deletions)` is treated as the agent by `tracking_manage`. RTF
+stores header and footnote change authors as `0`, which loses the identity.
 
 ### Surgical word-level edits
 

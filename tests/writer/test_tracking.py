@@ -390,7 +390,7 @@ class _LightRedline:
         return self._props.get(name, "")
 
 
-def _fake_redline(comment, raise_comment=False, raise_author=False, text_mock=None, author=None):
+def _fake_redline(comment, raise_author=False, text_mock=None, author=None):
     rl = MagicMock()
     start = MagicMock()
     if text_mock is not None:
@@ -401,8 +401,6 @@ def _fake_redline(comment, raise_comment=False, raise_author=False, text_mock=No
     props = _redline_props(comment, start, end, author=author)
 
     def _get(name):
-        if raise_comment and name == "RedlineComment":
-            raise RuntimeError("comment read boom")
         if raise_author and name == "RedlineAuthor":
             raise RuntimeError("author read boom")
         return props.get(name, "")
@@ -575,6 +573,7 @@ def test_resolve_outcome_flags_untagged_agent_key_drop():
     user_key = ("1", "Insert", "Alice", None, "")
     agent_key = ("2", "Insert", INSERT_AUTHOR, None, "")
     assert _resolve_outcome(0, [user_key, agent_key], [user_key]) == "agent"
+
 
 def test_single_accept_blocked_when_bounds_unreadable():
     # Fail closed: if we cannot read the bounds of another redline, we cannot prove

@@ -31,7 +31,7 @@ def test_edit_in_same_second_as_untagged_table_insert_is_fully_tagged_uno(ctx, d
     from plugin.framework.config import get_config, save
     from plugin.writer.apply_document_content import ApplyDocumentContent
     from plugin.writer.review_scan import is_agent_token
-    from tests.writer.doc_builders import list_redlines
+    from tests.writer.doc_builders import list_redlines, reject_all_changes
 
     prev = get_config("doc.agent_edit_review_mode")
     tctx = TestingFactory.create_context(
@@ -40,6 +40,9 @@ def test_edit_in_same_second_as_untagged_table_insert_is_fully_tagged_uno(ctx, d
     try:
         for _attempt in range(3):
             doc.setPropertyValue("RecordChanges", False)
+            reject_all_changes(doc, ctx)
+            for table in list(doc.getTextTables()):
+                table.dispose()
             doc.getText().setString("First one two three.")
             save({"doc.agent_edit_review_mode": "record"})
             _align_second()
@@ -56,9 +59,17 @@ def test_edit_in_same_second_as_untagged_table_insert_is_fully_tagged_uno(ctx, d
             raise AssertionError(f"redlines did not land in the same clock second: {secs}")
 
         rows = list_redlines(doc)
-        del_row = next(r for r in rows if r["type"] == "Delete" and r["RedlineAuthor"] == "WriterAgent (deletions)")
-        ins_row = next(r for r in rows if r["type"] == "Insert" and is_agent_token(r["RedlineComment"]))
-        assert is_agent_token(del_row["RedlineComment"])
+        del_row = next(
+            (r for r in rows if r["type"] == "Delete" and r["RedlineAuthor"] == "WriterAgent (deletions)"),
+            None,
+        )
+        ins_row = next(
+            (r for r in rows if r["type"] == "Insert" and is_agent_token(r["RedlineComment"])),
+            None,
+        )
+        assert del_row is not None, f"missing tagged WriterAgent (deletions) Delete row in {rows}"
+        assert ins_row is not None, f"missing tagged Insert row in {rows}"
+        assert is_agent_token(del_row["RedlineComment"]), del_row
         assert del_row["RedlineComment"] == ins_row["RedlineComment"]
     finally:
         save({"doc.agent_edit_review_mode": prev})
@@ -73,7 +84,7 @@ def test_all_matches_after_stacked_delete_tags_later_matches_uno(ctx, doc):
     from plugin.writer import review_authors
     from plugin.writer.apply_document_content import ApplyDocumentContent
     from plugin.writer.inline_review import _resolve_all_agent_changes
-    from tests.writer.doc_builders import body_texts
+    from tests.writer.doc_builders import body_texts, reject_all_changes
 
     _para_break = uno.getConstantByName("com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK")
     prev = get_config("doc.agent_edit_review_mode")
@@ -83,6 +94,7 @@ def test_all_matches_after_stacked_delete_tags_later_matches_uno(ctx, doc):
     try:
         for _attempt in range(3):
             doc.setPropertyValue("RecordChanges", False)
+            reject_all_changes(doc, ctx)
             text = doc.getText()
             text.setString("")
             cur = text.createTextCursor()

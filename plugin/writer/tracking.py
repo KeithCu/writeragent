@@ -406,7 +406,8 @@ class ManageTrackedChanges(ToolWriterTrackingBase, ToolCalcSpecialTracking):  # 
 
     def _execute_all(self, ctx: ToolContext, is_accept: bool) -> dict[str, Any]:
         # Guard: an agent change is any redline authored WriterAgent or WriterAgent (deletions),
-        # tagged or not. Never let the agent bulk-resolve its own edits (see agent_self_resolution_block_reason).
+        # tagged or not. Never let the agent bulk-resolve its own edits because they are the
+        # user's to review (see agent_self_resolution_block_reason).
         blocked = agent_self_resolution_block_reason(ctx.doc)
         if blocked:
             return self._tool_error(blocked)
@@ -460,7 +461,8 @@ class ManageTrackedChanges(ToolWriterTrackingBase, ToolCalcSpecialTracking):  # 
         target_redline = objs[index]
 
         # Guard: an agent change is any redline authored WriterAgent or WriterAgent (deletions),
-        # tagged or not. Refuse to resolve the agent's own edit; fail closed when metadata can't be read.
+        # tagged or not. Refuse to resolve the agent's own edit because they are the user's to
+        # review; fail closed when metadata can't be read.
         is_agent, readable = redline_is_agent_change(target_redline)
         if not readable:
             return self._tool_error(
