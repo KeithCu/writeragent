@@ -669,7 +669,7 @@ def extract_block_lo_styles(
     keep_set = set(keep_list)
     dropped = [p for i, p in enumerate(ex.paras) if p and i not in keep_set]
     return (
-        "".join(ex._out),
+        ex.result(),
         [ex.styles[i] for i in keep_list],
         [ex.paras[i] for i in keep_list],
         ex.skipped_para + dropped,

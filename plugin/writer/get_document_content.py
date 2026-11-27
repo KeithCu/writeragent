@@ -19,7 +19,6 @@
 from __future__ import annotations
 
 import logging
-import time
 from typing import TYPE_CHECKING, Any
 
 from plugin.framework.errors import reraise_if_disposed
@@ -124,10 +123,8 @@ class GetDocumentContent(ToolBase):
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        t0 = time.perf_counter()
         scope = kwargs.get("scope") or "full"
         max_chars = kwargs.get("max_chars")
-        log.debug("get_content: start scope=%r max_chars=%r", scope, max_chars)
 
         if max_chars is not None and max_chars < 1:
             return self._tool_error("max_chars must be a positive integer.")
@@ -189,11 +186,10 @@ class GetDocumentContent(ToolBase):
         # and never resolves them itself.
         try:
             # getRedlines() sees the whole document, including header/footer and
-            # format-only changes, and costs only the change count. A non-int count
-            # is the unit-test mock.
+            # format-only changes, and costs only the change count.
             redlines = ctx.doc.getRedlines()
-            count = redlines.getCount() if redlines is not None else 0
-            if isinstance(count, int) and not isinstance(count, bool) and count > 0:
+            count = redlines.getCount()
+            if count > 0:
                 changes, found, total, reliable, truncated = _summarize_redlines(ctx.doc)
                 if total:
                     result["tracked_changes_total"] = total
@@ -218,11 +214,4 @@ class GetDocumentContent(ToolBase):
             reraise_if_disposed(exc, object_type="Document")
             log.exception("get_content: could not collect tracked changes")
             _append_warning(result, _UNLISTED_NOTE)
-        log.debug(
-            "get_content: done scope=%r content_len=%d document_length=%d total_ms=%.1f",
-            scope,
-            len(content) if isinstance(content, str) else -1,
-            doc_len,
-            (time.perf_counter() - t0) * 1000.0,
-        )
         return result
