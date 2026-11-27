@@ -2237,3 +2237,20 @@ def test_host_unpack_data_passthrough():
     payload = {"__wa_payload__": "image", "format": "png", "data": b"\x89PNGtest"}
     result = host_unpack_data(payload)
     assert result is payload
+
+
+def _class_in_module(name: str, module: str) -> type:
+    cls = type(name, (), {})
+    cls.__module__ = module
+    return cls
+
+
+def test_type_module_root_is_the_top_level_package():
+    assert payload_codec.type_module_root(_class_in_module("MaskedArray", "numpy.ma.core")) == "numpy"
+    assert payload_codec.type_module_root(int) == "builtins"
+
+
+def test_is_ndarray_accepts_an_ndarray_defined_in_a_numpy_submodule():
+    assert payload_codec._is_ndarray(_class_in_module("ndarray", "numpy.lib.mixins")())
+    assert not payload_codec._is_ndarray(_class_in_module("MaskedArray", "numpy.ma.core")())
+    assert not payload_codec._is_ndarray(_class_in_module("ndarray", "numpyish")())

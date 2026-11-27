@@ -727,8 +727,17 @@ def _is_any_payload_envelope(obj: object) -> bool:  # pyright: ignore[reportUnus
     )
 
 
+def type_module_root(cls: type) -> str:
+    """Top-level package that defines *cls* (``"numpy"`` for ``numpy.ma.core.MaskedArray``).
+
+    Lets callers recognise NumPy or pandas types without importing either package.
+    """
+    return cls.__module__.partition(".")[0]
+
+
 def _is_ndarray(obj: object) -> bool:
-    return type(obj).__name__ == "ndarray" and type(obj).__module__ == "numpy"
+    # The name check keeps ndarray subclasses such as MaskedArray out.
+    return type(obj).__name__ == "ndarray" and type_module_root(type(obj)) == "numpy"
 
 
 def _uniform_column_kind(kinds: list[str]) -> str | None:
@@ -931,11 +940,7 @@ def _is_numeric_coercible_impl(value: Any) -> bool:
     # A type whose name starts with int/float/bool/uint (a user class
     # ``internal``) is not numeric. Only numpy scalar classes take that
     # shortcut; builtins already returned above.
-    tname = type(value).__name__
-    mod = getattr(type(value), "__module__", "")
-    if (mod == "numpy" or (isinstance(mod, str) and mod.startswith("numpy."))) and tname.startswith(
-        ("int", "float", "bool", "uint")
-    ):
+    if type_module_root(type(value)) == "numpy" and type(value).__name__.startswith(("int", "float", "bool", "uint")):
         return True
     if isinstance(value, str):
         return not value.strip()
