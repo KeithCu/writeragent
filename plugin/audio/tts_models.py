@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 from plugin.audio.model_cache_paths import (
     KOKORO_MODEL_FILENAME,
     KOKORO_VOICES_FILENAME,
+    env_override,
     kokoro_should_download,
     resolve_kokoro_model_paths,
     resolve_piper_voice_paths,
@@ -84,7 +85,7 @@ def notify_tts_status(
     *,
     progress: bool = False,
 ) -> None:
-    """Notify TTS status."""
+    """Log *text* and pass it to *on_status*; with ``progress=True`` use the callback's ``progress`` method when it has one. A failing callback never breaks speech."""
     if not text:
         return
     log.info("%s", text)
@@ -222,7 +223,7 @@ def _download_to_inner(
     deadline: float,
     on_status: Callable[[str], None] | None,
 ) -> DownloadOutcome:
-    if min_bytes > 1 and not _check_disk_space(dest, min_bytes):
+    if not _check_disk_space(dest, min_bytes):
         log.warning("Not enough disk space for %s (need %d bytes)", dest, min_bytes)
         return DownloadOutcome.FAILED
 
@@ -273,8 +274,8 @@ def _download_to_inner(
                 if cl:
                     try:
                         expected_len = int(cl.strip())
-                    except (ValueError, TypeError):
-                        expected_len = None
+                    except ValueError:
+                        pass
 
                 # 1s socket timeout so cancellation can be polled during a stalled read.
                 fp = getattr(resp, "fp", None)
@@ -356,10 +357,9 @@ def _download_to_inner(
                 try:
                     os.replace(tmp_path, dest)
                 except PermissionError:
-                    if os.path.exists(dest) and os.path.getsize(dest) >= min_bytes:
-                        _unlink_temp(tmp_path)
-                        return DownloadOutcome.OK
                     _unlink_temp(tmp_path)
+                    if os.path.exists(dest) and os.path.getsize(dest) >= min_bytes:
+                        return DownloadOutcome.OK
                     raise
 
                 return DownloadOutcome.OK
@@ -399,18 +399,20 @@ def resolve_kokoro_model_files(
     model_s = os.fspath(model_path)
     voices_s = os.fspath(voices_path)
 
-    env_m = os.environ.get("KOKORO_MODEL_PATH")
-    env_v = os.environ.get("KOKORO_VOICES_PATH")
-    is_env_m = bool(env_m and os.fspath(env_m) == model_s and os.path.exists(model_s))
-    is_env_v = bool(env_v and os.fspath(env_v) == voices_s and os.path.exists(voices_s))
+    env_m = env_override("KOKORO_MODEL_PATH")
+    env_v = env_override("KOKORO_VOICES_PATH")
+    is_env_m = env_m is not None and os.fspath(env_m) == model_s
+    is_env_v = env_v is not None and os.fspath(env_v) == voices_s
 
-    if is_env_m and os.path.getsize(model_s) < KOKORO_ONNX_MIN_BYTES:
+    model_exists = os.path.exists(model_s)
+    voices_exists = os.path.exists(voices_s)
+    if is_env_m and model_exists and os.path.getsize(model_s) < KOKORO_ONNX_MIN_BYTES:
         log.warning("KOKORO_MODEL_PATH %s is smaller than minimum size", model_s)
-    if is_env_v and os.path.getsize(voices_s) < KOKORO_VOICES_MIN_BYTES:
+    if is_env_v and voices_exists and os.path.getsize(voices_s) < KOKORO_VOICES_MIN_BYTES:
         log.warning("KOKORO_VOICES_PATH %s is smaller than minimum size", voices_s)
 
-    model_ok = is_env_m or (os.path.exists(model_s) and os.path.getsize(model_s) >= KOKORO_ONNX_MIN_BYTES)
-    voices_ok = is_env_v or (os.path.exists(voices_s) and os.path.getsize(voices_s) >= KOKORO_VOICES_MIN_BYTES)
+    model_ok = (is_env_m and model_exists) or (model_exists and os.path.getsize(model_s) >= KOKORO_ONNX_MIN_BYTES)
+    voices_ok = (is_env_v and voices_exists) or (voices_exists and os.path.getsize(voices_s) >= KOKORO_VOICES_MIN_BYTES)
 
     if model_ok and voices_ok:
         return model_s, voices_s
@@ -426,7 +428,7 @@ def resolve_kokoro_model_files(
 
     needed_disk = (KOKORO_VOICES_MIN_BYTES if needs_voices else 0) + (KOKORO_ONNX_MIN_BYTES if needs_model else 0)
     target_dest = voices_s if needs_voices else model_s
-    if needed_disk > 1 and not _check_disk_space(target_dest, needed_disk):
+    if not _check_disk_space(target_dest, needed_disk):
         if utt is not None:
             utt.note_download_failed("kokoro")
         notify_tts_status(_("Not enough disk space to download the voice model."), on_status, progress=True)
@@ -441,7 +443,6 @@ def resolve_kokoro_model_files(
         outcome = _download_to(
             f"{_KOKORO_RELEASE_BASE}/{KOKORO_VOICES_FILENAME}",
             voices_s,
-            timeout=30.0,
             cancel=cancel,
             min_bytes=KOKORO_VOICES_MIN_BYTES,
             max_bytes=KOKORO_VOICES_MAX_BYTES,
@@ -451,7 +452,7 @@ def resolve_kokoro_model_files(
         if outcome is DownloadOutcome.CANCELLED:
             clear_tts_status(on_status)
             return model_s, voices_s
-        elif outcome is not DownloadOutcome.OK:
+        if outcome is not DownloadOutcome.OK:
             failed = True
 
     if needs_model and not failed:
@@ -459,7 +460,6 @@ def resolve_kokoro_model_files(
         outcome = _download_to(
             f"{_KOKORO_RELEASE_BASE}/{KOKORO_MODEL_FILENAME}",
             model_s,
-            timeout=30.0,
             cancel=cancel,
             min_bytes=KOKORO_ONNX_MIN_BYTES,
             max_bytes=KOKORO_ONNX_MAX_BYTES,
@@ -469,16 +469,14 @@ def resolve_kokoro_model_files(
         if outcome is DownloadOutcome.CANCELLED:
             clear_tts_status(on_status)
             return model_s, voices_s
-        elif outcome is not DownloadOutcome.OK:
+        if outcome is not DownloadOutcome.OK:
             failed = True
 
     if failed:
         if utt is not None:
             utt.note_download_failed("kokoro")
         notify_tts_status(_("Couldn't download Kokoro; using OS speech"), on_status, progress=True)
-        clear_tts_status(on_status)
-    else:
-        clear_tts_status(on_status)
+    clear_tts_status(on_status)
 
     return model_s, voices_s
 
@@ -507,7 +505,6 @@ def _download_piper_pair(
     outcome1 = _download_to(
         f"{_PIPER_RELEASE_BASE}/{rel_onnx}",
         onnx_tmp,
-        timeout=30.0,
         cancel=cancel,
         min_bytes=PIPER_ONNX_MIN_BYTES,
         max_bytes=PIPER_ONNX_MAX_BYTES,
@@ -522,7 +519,6 @@ def _download_piper_pair(
     outcome2 = _download_to(
         f"{_PIPER_RELEASE_BASE}/{rel_json}",
         json_tmp,
-        timeout=30.0,
         cancel=cancel,
         min_bytes=PIPER_JSON_MIN_BYTES,
         max_bytes=PIPER_JSON_MAX_BYTES,
@@ -557,6 +553,15 @@ def _download_piper_pair(
     return DownloadOutcome.OK
 
 
+def _piper_pair_ready(onnx: str, json_path: str) -> bool:
+    return (
+        os.path.exists(onnx)
+        and os.path.getsize(onnx) >= PIPER_ONNX_MIN_BYTES
+        and os.path.exists(json_path)
+        and os.path.getsize(json_path) >= PIPER_JSON_MIN_BYTES
+    )
+
+
 def resolve_piper_model_file(
     voice: str,
     on_status: Callable[[str], None] | None = None,
@@ -577,12 +582,7 @@ def resolve_piper_model_file(
     voice_s = os.fspath(voice_file)
     json_s = os.fspath(json_file)
 
-    if (
-        os.path.exists(voice_s)
-        and os.path.getsize(voice_s) >= PIPER_ONNX_MIN_BYTES
-        and os.path.exists(json_s)
-        and os.path.getsize(json_s) >= PIPER_JSON_MIN_BYTES
-    ):
+    if _piper_pair_ready(voice_s, json_s):
         return voice_s
 
     if is_cancelled(cancel):
@@ -605,7 +605,7 @@ def resolve_piper_model_file(
         if outcome is DownloadOutcome.OK:
             clear_tts_status(on_status)
             return voice_s
-        elif outcome is DownloadOutcome.CANCELLED:
+        if outcome is DownloadOutcome.CANCELLED:
             clear_tts_status(on_status)
             return None
 
@@ -617,12 +617,7 @@ def resolve_piper_model_file(
     default_voice_file, default_json = resolve_piper_voice_paths(PIPER_FALLBACK_VOICE)
     default_voice_s = os.fspath(default_voice_file)
     default_json_s = os.fspath(default_json)
-    lessac_ready = (
-        os.path.exists(default_voice_s)
-        and os.path.getsize(default_voice_s) >= PIPER_ONNX_MIN_BYTES
-        and os.path.exists(default_json_s)
-        and os.path.getsize(default_json_s) >= PIPER_JSON_MIN_BYTES
-    )
+    lessac_ready = _piper_pair_ready(default_voice_s, default_json_s)
     other_voice = clean_v != PIPER_FALLBACK_VOICE
 
     if lessac_ready:
@@ -652,7 +647,7 @@ def resolve_piper_model_file(
         if outcome_fallback is DownloadOutcome.OK:
             clear_tts_status(on_status)
             return default_voice_s
-        elif outcome_fallback is DownloadOutcome.CANCELLED:
+        if outcome_fallback is DownloadOutcome.CANCELLED:
             clear_tts_status(on_status)
             return None
 

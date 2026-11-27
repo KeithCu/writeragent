@@ -14,11 +14,13 @@ from typing import Any
 import unicodedata
 
 from com.sun.star.awt import Size
+from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK as _UNO_PARAGRAPH_BREAK  # type: ignore
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 
 from plugin.framework.errors import best_effort
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import get_runtime_uid
+from plugin.notebook.cell_registry import cell_id_to_hex
 
 log = logging.getLogger("writeragent.notebook")
 
@@ -26,11 +28,11 @@ _DOC_KEY_UID_PREFIX = "uid:"
 
 STYLE_MD_H1 = "Heading 1"
 STYLE_MD_H2 = "Heading 2"
-STYLE_NOTEBOOK_IN = "WriterAgent Notebook In"
 # Auto-created on import for Jupyter-like In [n]: gutter.
-STYLE_NOTEBOOK_OUT = "WriterAgent Notebook Output"
+STYLE_NOTEBOOK_IN = "WriterAgent Notebook In"
 # Stdout left as Text Body is a cell boundary, so a re-run would keep the old paragraph.
-PARAGRAPH_BREAK = 0  # com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK
+STYLE_NOTEBOOK_OUT = "WriterAgent Notebook Output"
+PARAGRAPH_BREAK: int = _UNO_PARAGRAPH_BREAK
 
 IN_PROMPT_RE = re.compile(r"^In \[[0-9 ]*\]:")
 _MAX_IMPORT_TEXT_CHARS = 50_000
@@ -75,7 +77,7 @@ def prepare_display_text(text: str) -> str:
     return display[:keep] + _TRUNCATION_SUFFIX
 
 
-def format_in_prompt(execution_count: Any | None) -> str:
+def format_in_prompt(execution_count: int | None) -> str:
     """Format Jupyter-style In [n]: gutter label for a code cell."""
     if execution_count is None:
         return "In [ ]:"
@@ -251,16 +253,16 @@ def _style_run_button_model(model: Any) -> None:
     )
 
 
-def log_shape_add(*, step: str, name: str = "", text_chars: int = 0, truncated: bool = False, shape_h: int = 0, shapes_before: int, create_ms: int = 0, text_ms: int = 0, add_ms: int = 0, ok: bool = True) -> None:
+def log_shape_add(*, step: str, name: str = "", text_chars: int = 0, shape_h: int = 0, shapes_before: int, create_ms: int = 0, text_ms: int = 0, add_ms: int = 0, ok: bool = True) -> None:
     total_ms = create_ms + text_ms + add_ms
-    log.debug("notebook controls add step=%s name=%s text_chars=%d truncated=%s shape_h=%d shapes_before=%d create_ms=%d text_ms=%d add_ms=%d ok=%s", step, name, text_chars, truncated, shape_h, shapes_before, create_ms, text_ms, add_ms, ok)
+    log.debug("notebook controls add step=%s name=%s text_chars=%d shape_h=%d shapes_before=%d create_ms=%d text_ms=%d add_ms=%d ok=%s", step, name, text_chars, shape_h, shapes_before, create_ms, text_ms, add_ms, ok)
     if total_ms >= _SLOW_ADD_MS:
         log.warning("notebook controls slow UNO add step=%s total_ms=%d shapes_before=%d", step, total_ms, shapes_before)
 
 
 def insert_run_button_in_flow(doc: Any, *, cell_id: str, controls_before: int) -> None:
     """In-flow ▶ on the ``In [n]:`` gutter paragraph (not the tall gray field)."""
-    hex_id = cell_id.replace("-", "")
+    hex_id = cell_id_to_hex(cell_id)
     t0 = time.monotonic()
     model = doc.createInstance("com.sun.star.form.component.CommandButton")
     if model is None:
@@ -297,15 +299,14 @@ def insert_code_input_in_flow(
     cap: int | None = None,
 ) -> None:
     """Editable code cell: form TextField anchored in document flow at body end."""
-    source_text = coerce_notebook_text(source)
-    raw_chars = len(source_text)
+    raw_chars = len(source)
 
     if field_w is None:
         field_w = text_area_width_units(doc)
     if cap is None:
         cap = cap_from_style(page_style(doc))
 
-    raw_h = _raw_height_for_text(source_text, field_w=field_w, cap=cap)
+    raw_h = _raw_height_for_text(source, field_w=field_w, cap=cap)
     h = max(MIN_FIELD_HEIGHT, min(cap, raw_h))
     vscroll = raw_h > cap
 
@@ -322,7 +323,7 @@ def insert_code_input_in_flow(
     t_text = time.monotonic()
     # Full source is the runnable program; display cap is for body text only.
     # MaxTextLen defaults to 0 (unlimited); do not set it or non-zero caps at 32k.
-    model.Text = source_text
+    model.Text = source
     text_ms = mono_ms(t_text)
 
     t_shape = time.monotonic()
@@ -340,7 +341,7 @@ def insert_code_input_in_flow(
     t_add = time.monotonic()
     text.insertTextContent(cursor, shape, False)
     add_ms = mono_ms(t_add)
-    log_shape_add(step="code_field", name=name, text_chars=raw_chars, truncated=False, shape_h=h, shapes_before=controls_before, create_ms=create_ms, text_ms=text_ms, add_ms=add_ms)
+    log_shape_add(step="code_field", name=name, text_chars=raw_chars, shape_h=h, shapes_before=controls_before, create_ms=create_ms, text_ms=text_ms, add_ms=add_ms)
 
 
 def runtime_uid_from_doc_key(key: str) -> str:
@@ -353,13 +354,11 @@ def runtime_uid_from_doc_key(key: str) -> str:
 def doc_key(doc: Any) -> str:
     """Stable id for listener de-dupe across Python wrappers of the same document.
 
-    Untitled Writer docs have an empty URL, so ``id(doc)`` was used. Import
-    and bootstrap ``install_notebook_run_button_wiring`` can wire on
-    different PyUNO wrappers of the same document — one ▶ click then ran
-    the cell multiple times (``[In [4]]`` jumped to ``[In [7]]``).
-    ``RuntimeUID`` is the same object for every wrapper of that document.
-
-    Read it with ``get_runtime_uid``.
+    ``RuntimeUID`` is the same across every PyUNO wrapper of a document, so
+    import and bootstrap ``install_notebook_run_button_wiring`` share one key
+    and a ▶ click runs the cell once instead of multiple times (e.g. ``In [4]:``
+    jumping to ``In [7]:``). Falls back to ``id(doc)`` when ``RuntimeUID`` is
+    absent.
     """
     uid = get_runtime_uid(doc)
     if uid:

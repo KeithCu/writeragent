@@ -126,13 +126,13 @@ def _parse_catalog(raw: Any) -> dict[str, Any]:
 _parsed = _parse_catalog(_load_catalog())
 PIPER_VOICE_MODELS: dict[str, PiperModel] = _parsed["piper_models"]
 KOKORO_CATALOG_ITEMS: list[dict[str, str]] = _parsed["kokoro_items"]
-LOCALE_TO_KOKORO_DEFAULT = _parsed["kokoro_locale_defaults"]
-LOCALE_TO_PIPER_DEFAULT = _parsed["piper_locale_defaults"]
+LOCALE_TO_KOKORO_DEFAULT: dict[str, str] = _parsed["kokoro_locale_defaults"]
+LOCALE_TO_PIPER_DEFAULT: dict[str, str] = _parsed["piper_locale_defaults"]
 DEFAULT_VOICE_FOR_FAMILY: dict[str, str] = _parsed["fallbacks"]
 PIPER_FALLBACK_VOICE = DEFAULT_VOICE_FOR_FAMILY["piper"]
 KOKORO_FALLBACK_VOICE = DEFAULT_VOICE_FOR_FAMILY["kokoro"]
-KOKORO_OPENAI_ALIASES = _parsed["kokoro_aliases"]
-VOICE_CATALOGS = _parsed["voice_catalogs"]
+KOKORO_OPENAI_ALIASES: dict[str, str] = _parsed["kokoro_aliases"]
+VOICE_CATALOGS: dict[str, list[dict[str, str]]] = _parsed["voice_catalogs"]
 _SHORT_NAMES: dict[str, str] = _parsed["short_names"]
 del _parsed
 

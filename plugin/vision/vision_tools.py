@@ -83,22 +83,19 @@ class ExtractStructureFromImage(ToolCalcVisionBase):
         if image_name:
             params_dict["image_name"] = image_name
 
-        doc = ctx.doc
-        scope = ctx.send_cancellation
-
         try:
             result = run_and_insert_vision_for_selection(
                 ctx.ctx,
-                doc,
+                ctx.doc,
                 helper="extract_structure",
                 params=params_dict or None,
                 insert_into_document=insert_into_document,
-                cancel=scope,
+                cancel=ctx.send_cancellation,
             )
         except DocumentDisposedError:
             raise
         except ToolExecutionError as exc:
-            return self._tool_error(str(exc), code=getattr(exc, "code", "VISION_ERROR"))
+            return self._tool_error(str(exc), code=exc.code)
         except Exception as exc:
             return self._tool_error(f"Vision OCR failed: {exc}", code="VISION_ERROR")
 

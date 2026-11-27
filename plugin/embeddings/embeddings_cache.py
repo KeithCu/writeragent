@@ -43,16 +43,15 @@ _folder_cache_lock = threading.RLock()
 
 def folder_corpus_key(directory_path: str) -> str:
     """Stable cache key for a normalized directory path."""
-    norm = os.path.normpath(os.path.abspath(directory_path))
-    return hashlib.sha256(norm.encode("utf-8")).hexdigest()
+    return hashlib.sha256(_normalized_listing_root(directory_path).encode("utf-8")).hexdigest()
 
 
-def resolve_folder_for_active_doc(ctx: Any, model: Any) -> str | None:
+def resolve_folder_for_active_doc(ctx: Any, doc: Any) -> str | None:
     """Directory whose siblings are indexed — same scope as list_nearby_files."""
     # Lazy import: document_research pulls uno; venv maintain code must not load it at import time.
     from plugin.doc.document_research import resolve_listing_directory
 
-    return resolve_listing_directory(ctx, model)
+    return resolve_listing_directory(ctx, doc)
 
 
 def _normalized_listing_root(listing_root: str) -> str:
@@ -72,43 +71,33 @@ def corpus_db_path(listing_root: str, *, create_parent: bool = True) -> Path:
     return folder_cache_dir(listing_root, create_parent=create_parent) / CORPUS_DB_FILENAME
 
 
+_ZVEC_DIR = "zvec"
+_LANCEDB_DIR = "lancedb"
+
+
 def zvec_collection_path(listing_root: str, *, create_parent: bool = True) -> Path:
     """Filesystem path for a zvec collection store for this folder (side-by-side with corpus.db)."""
-    # Place under the same writeragent_embeddings/ sibling dir as the sqlite corpus.
     base = folder_cache_dir(listing_root, create_parent=create_parent)
-    return base / "zvec"
+    return base / _ZVEC_DIR
 
 
 def _store_dir_populated(path: Path) -> bool:
     """Host-safe (no backend import) heuristic: dir exists and has any entries."""
     try:
-        p = Path(path)
-        if not p.exists() or not p.is_dir():
+        if not path.is_dir():
             return False
-        return any(p.iterdir())
+        return any(path.iterdir())
     except OSError:
         return False
-
-
-def zvec_collection_looks_populated(collection_path: Path) -> bool:
-    """Host-safe (no zvec import) heuristic: dir exists and has any entries.
-    Used for early 'empty index' checks in tools before kicking off background maintain.
-    """
-    return _store_dir_populated(collection_path)
 
 
 def lancedb_collection_path(listing_root: str, *, create_parent: bool = True) -> Path:
     """Filesystem path for a lancedb collection store for this folder (side-by-side with corpus.db)."""
     base = folder_cache_dir(listing_root, create_parent=create_parent)
-    p = base / "lancedb"
+    p = base / _LANCEDB_DIR
     if create_parent:
         p.mkdir(parents=True, exist_ok=True)
     return p
-
-
-def lancedb_collection_looks_populated(collection_path: Path) -> bool:
-    """Host-safe (no lancedb import) heuristic: dir exists and has any entries."""
-    return _store_dir_populated(collection_path)
 
 
 def corpus_meta_path(listing_root: str, *, create_parent: bool = True) -> Path:
@@ -140,7 +129,6 @@ def _load_meta_object(meta_path: Path) -> dict[str, Any] | None:
     None means missing, unreadable, or a JSON value that is not an object
     (a list, string, or number). Callers that delete the corpus must not
     treat None as a schema mismatch: that path cold-wipes a live index.
-    Decode errors were covered by #1153; non-objects still reached ``.get``.
     """
     if not meta_path.is_file():
         return None
@@ -148,9 +136,6 @@ def _load_meta_object(meta_path: Path) -> dict[str, Any] | None:
         raw_text = meta_path.read_text(encoding="utf-8")
     except OSError:
         log.debug("corpus_meta read failed for %s", meta_path, exc_info=True)
-        return None
-    # read_text is str. A non-str means the path handle did not yield a file.
-    if not isinstance(raw_text, str):
         return None
     try:
         data = json.loads(raw_text)
@@ -161,6 +146,16 @@ def _load_meta_object(meta_path: Path) -> dict[str, Any] | None:
         log.debug("corpus_meta %s is %s, not an object", meta_path, type(data).__name__)
         return None
     return data
+
+
+def _non_negative_int(value: Any) -> int:
+    if value is None:
+        return 0
+    try:
+        i = int(value)
+        return i if i >= 0 else 0
+    except (ValueError, TypeError):
+        return 0
 
 
 @dataclass
@@ -198,39 +193,20 @@ class CorpusMeta:
 
     @property
     def dim(self) -> int:
-        val = self.data.get("dim")
-        if val is None:
-            return 0
-        try:
-            i = int(val)
-            return i if i >= 0 else 0
-        except (ValueError, TypeError):
-            return 0
+        return _non_negative_int(self.data.get("dim"))
 
     @property
     def chunk_count(self) -> int:
-        val = self.data.get("chunk_count")
-        if val is None:
-            return 0
-        try:
-            i = int(val)
-            return i if i >= 0 else 0
-        except (ValueError, TypeError):
-            return 0
+        return _non_negative_int(self.data.get("chunk_count"))
 
     def update(self, **fields: Any) -> CorpusMeta:
         for k, v in fields.items():
             if k in ("dim", "chunk_count"):
-                try:
-                    i = int(v) if v is not None else 0
-                    val = i if i >= 0 else 0
-                except (ValueError, TypeError):
-                    val = 0
-                self.data[k] = str(val)
+                self.data[k] = str(_non_negative_int(v))
             elif k in ("schema_version", "embedding_model", "storage_backend", "updated_at"):
                 self.data[k] = str(v or "")
             else:
-                self.data[str(k)] = str(v)
+                self.data[k] = str(v)
         return self
 
     def to_dict(self) -> dict[str, str]:
@@ -248,8 +224,8 @@ class CorpusMeta:
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
                 handle.write(payload)
-            # The in-memory dict is the merge base; os.replace is the publish.
-            # A second read of dest before writing was not atomic either and could overwrite concurrent writes.
+            # The in-memory dict is the merge base and os.replace is the publish.
+            # Re-reading dest before the write would not make the update atomic.
             os.replace(tmp_path, dest)
         except Exception:
             tmp_path.unlink(missing_ok=True)
@@ -339,10 +315,9 @@ def _vector_backend_is_empty(mode: str, listing_root: str | None, meta_path: Pat
         return True
     if mode == "zvec":
         probe = zvec_collection_path(listing_root, create_parent=False)
-        populated = zvec_collection_looks_populated(probe)
     else:
         probe = lancedb_collection_path(listing_root, create_parent=False)
-        populated = lancedb_collection_looks_populated(probe)
+    populated = _store_dir_populated(probe)
     if not populated:
         return True
     if not meta_path.is_file():
@@ -372,11 +347,11 @@ def index_is_empty(
     """
     mode = str(search_mode or "").strip().lower()
     if mode in ("zvec", "lancedb"):
-        # A missing corpus.db means empty for sqlite. zvec and lancedb use
-        # chunk_count plus collection presence, the same signals search_ui
-        # and the research tools use. Treating a missing file as empty there
-        # resolved cold on every tick and clear_folder_cache deleted the
-        # real collection.
+        # A missing corpus.db means empty for sqlite only. zvec and lancedb never
+        # create it; they use chunk_count plus collection presence, the same
+        # signals search_ui and the research tools use. Treating the missing file
+        # as empty would resolve cold on every tick and let clear_folder_cache
+        # delete the live collection.
         return _vector_backend_is_empty(mode, listing_root, meta_path, meta=meta)
     if db_path is None:
         db_path = meta_path.parent / CORPUS_DB_FILENAME
@@ -390,12 +365,9 @@ def index_is_empty(
     # or corrupt meta is not empty.
     if not meta_path.is_file():
         return True
-    # Corrupt or non-object meta with a live DB is not "empty". Treating it as
-    # empty selects a cold rebuild and deletes the corpus. #1153 covered JSON
-    # decode errors; a JSON list or string took the chunk_count-0 path.
     if meta is None:
         meta = CorpusMeta.load(meta_path)
-    if not meta.is_valid and db_path.is_file():
+    if not meta.is_valid:
         return False
     return meta.chunk_count <= 0
 
@@ -480,12 +452,12 @@ def clear_folder_cache(listing_root: str) -> None:
         remove_stale_corpus_stores(listing_root)
         _remove_path(base / LEGACY_FILE_INDEX_STATE_FILENAME)
         # Side-by-side zvec/lancedb store
-        _remove_path(base / "zvec")
-        _remove_path(base / "lancedb")
+        _remove_path(base / _ZVEC_DIR)
+        _remove_path(base / _LANCEDB_DIR)
 
         from plugin.embeddings.venv.embeddings_zvec import zvec_clear_cache
 
-        zvec_clear_cache(str(base / "zvec"))
+        zvec_clear_cache(str(base / _ZVEC_DIR))
 
         # Remove corpus_meta.json last so folder_store keeps hiding the store for the whole delete.
         _remove_path(base / CORPUS_META_FILENAME)
@@ -515,7 +487,7 @@ def maybe_upgrade_legacy_index(listing_root: str) -> None:
 _USE_DEFAULT = object()
 
 
-def resolve_index_context(ctx: Any = None, model: Any = None, *, listing_root: Any = _USE_DEFAULT) -> tuple[str, Path, Path, str] | tuple[None, None, None, str]:
+def resolve_index_context(ctx: Any = None, doc: Any = None, *, listing_root: Any = _USE_DEFAULT) -> tuple[str, Path, Path, str] | tuple[None, None, None, str]:
     """Return (folder_key, corpus_db_path, corpus_meta_path, listing_root) or (None, None, None, error_message).
 
     On success the fourth value is the listing directory. On failure the first
@@ -526,7 +498,7 @@ def resolve_index_context(ctx: Any = None, model: Any = None, *, listing_root: A
     directory; stale-schema deletion runs on the corpus-index worker.
     """
     if listing_root is _USE_DEFAULT:
-        listing_root = resolve_folder_for_active_doc(ctx, model)
+        listing_root = resolve_folder_for_active_doc(ctx, doc)
     if not listing_root:
         return None, None, None, "No nearby files found. Save the document or open sibling files in LibreOffice."
     folder_key = folder_corpus_key(listing_root)

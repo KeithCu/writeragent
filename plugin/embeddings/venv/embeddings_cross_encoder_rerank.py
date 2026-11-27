@@ -82,7 +82,7 @@ def cross_encoder_rerank_candidates(
         merged = dict(cand)
         merged["score"] = float(raw_score)
         reranked.append(merged)
-    reranked.sort(key=lambda row: float(row.get("score") or 0.0), reverse=True)
+    reranked.sort(key=lambda row: row["score"], reverse=True)
     return reranked[:final_n]
 
 

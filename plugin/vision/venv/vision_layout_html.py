@@ -71,7 +71,7 @@ def _group_bands(blocks: list[_LayoutBlock]) -> list[list[_LayoutBlock]]:
     boxed = iter(sorted((b for b in blocks if _has_box(b)), key=lambda b: (b.box[1], b.box[0])))
     ordered = [next(boxed) if _has_box(b) else b for b in blocks]
 
-    heights = [max(b.box[3], 1) for b in ordered if _has_box(b)]
+    heights = [b.box[3] for b in ordered if _has_box(b)]
     median_h = sorted(heights)[len(heights) // 2] if heights else 20
     gap = max(median_h * 0.6, 8.0)
 

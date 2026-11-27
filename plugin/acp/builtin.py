@@ -18,7 +18,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any
 
 from plugin.framework.stream_batch import StreamQueueKind
 from plugin.framework.errors import format_error_payload
@@ -29,9 +29,6 @@ if TYPE_CHECKING:
 
 
 class BuiltinBackend(AgentBackend):
-    backend_id: ClassVar[str] = "builtin"
-    display_name: ClassVar[str] = "Built-in"
-
     def send(
         self,
         queue: Any,

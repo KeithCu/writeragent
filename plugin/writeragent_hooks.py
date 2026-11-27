@@ -60,8 +60,8 @@ def register_writeragent_prompt_hooks() -> None:
     )
     set_system_prompt_block("peer_outer", get_peer_messaging_prompt_block)
     set_system_prompt_block("peer_inner", get_peer_inner_choice_block)
-    set_system_prompt_block("memory", lambda: format_user_memory_prompt_block())
-    set_system_prompt_block("humanizer", lambda: format_humanizer_guidance_prompt_block())
+    set_system_prompt_block("memory", format_user_memory_prompt_block)
+    set_system_prompt_block("humanizer", format_humanizer_guidance_prompt_block)
 
 
 def register_writeragent_chat_tooling(tools: ToolRegistry) -> None:
@@ -86,8 +86,8 @@ def register_writeragent_tool_filters(tools: ToolRegistry) -> None:
 
     def _filter_vision_tools(tool_list: list[Any], ctx: Any = None) -> list[Any]:
         if ctx is None:
-            return list(tool_list)
-        return filter_vision_specialized_tools(list(tool_list), ctx)
+            return tool_list
+        return filter_vision_specialized_tools(tool_list, ctx)
 
     def _narrow_schemas(schemas: list[dict[str, Any]], context: SchemaFilterContext) -> list[dict[str, Any]]:
         return narrow_delegate_domain_enums(schemas, context.tools, context.uno_services)

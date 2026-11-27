@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from plugin.vision.vision_common import IMPLEMENTED_HELPERS
+from plugin.vision.vision_common import HELPER_NAMES
 
 _HELPER_DESCRIPTIONS: dict[str, str] = {"extract_text": "OCR selected image(s) to formatted HTML (Docling default, Paddle fallback).", "extract_structure": "Layout and tables as formatted HTML with cell spans — Docling default, Paddle fallback."}
 
@@ -18,4 +18,4 @@ def _template_body(helper: str) -> str:
 
 def get_vision_script_templates() -> dict[str, str]:
     """Return built-in vision helper scripts keyed by helper name."""
-    return {helper: _template_body(helper) for helper in sorted(IMPLEMENTED_HELPERS)}
+    return {helper: _template_body(helper) for helper in sorted(HELPER_NAMES)}

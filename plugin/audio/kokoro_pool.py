@@ -22,10 +22,9 @@ import os
 import threading
 from typing import TYPE_CHECKING, Any
 
-from plugin.framework.child_runtime import Deadline
+from plugin.framework.child_runtime import Deadline, error_dict
 from plugin.framework.send_cancellation import is_cancelled
 from plugin.framework.subprocess_env import scrub_subprocess_env
-from plugin.framework.child_runtime import error_dict
 from plugin.framework.warm_child import ChildSpec, Supervisor, WarmChild, supervisor as warm_supervisor
 from plugin.scripting.sandbox import resolve_venv_python
 
@@ -34,7 +33,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-_SCRIPT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "kokoro_worker.py")
+SCRIPT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "kokoro_worker.py")
 _DEFAULT_JOB_TIMEOUT_SEC = 120.0
 # Long enough to cover a chat reply; short enough an abandoned CPU model does not sit in RAM.
 _DEFAULT_IDLE_TTL_SEC = 300.0
@@ -62,7 +61,7 @@ class KokoroProcessPool:
         supervisor: Supervisor | None = None,
     ) -> None:
         self.python_executable: str = python_executable
-        self.script_path: str = script_path or _SCRIPT_PATH
+        self.script_path: str = script_path or SCRIPT_PATH
         self.job_timeout_sec: float = _DEFAULT_JOB_TIMEOUT_SEC
         ttl = idle_worker_ttl_sec
         if ttl is not None and ttl <= 0:
@@ -102,7 +101,6 @@ class KokoroProcessPool:
                 cancel.register_on_cancel(self._on_cancel)
 
             deadline = Deadline(eff_timeout)
-            result: dict[str, Any] = {}
             try:
                 result = self._warm.request(payload, deadline, cancel=cancel)
             finally:

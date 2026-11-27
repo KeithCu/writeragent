@@ -27,8 +27,8 @@ def dispatch_trusted(data: dict[str, Any], *, heartbeat_fn: Callable[[dict[str, 
             list(params.get("rows") or []),
             build_fts=bool(params.get("build_fts", False)),
             build_vectors=bool(params.get("build_vectors", True)),
-            # Omitted search_mode fell through to the sqlite default, so a
-            # configured zvec, LanceDB, or LlamaIndex backend never ran.
+            # Pass search_mode through: without it the sqlite default is used and a
+            # configured zvec, LanceDB or LlamaIndex backend is not written.
             search_mode=str(params.get("search_mode") or "hybrid"),
             heartbeat_fn=heartbeat_fn,
         )
@@ -80,12 +80,12 @@ def dispatch_trusted(data: dict[str, Any], *, heartbeat_fn: Callable[[dict[str, 
             model_name=str(params.get("model") or ""),
         )
     if helper == "maintain_folder_index":
-        from typing import cast
+        from typing import cast, get_args
 
         from plugin.embeddings.venv.embeddings_folder_maintain import MaintainMode, maintain_folder_index
 
         mode = str(params.get("mode") or "auto")
-        resolved_mode = cast("MaintainMode", mode if mode in ("auto", "cold", "incremental") else "auto")
+        resolved_mode = cast("MaintainMode", mode if mode in get_args(MaintainMode) else "auto")
         return maintain_folder_index(
             str(params.get("listing_root") or ""),
             embedding_model=str(params.get("model") or ""),

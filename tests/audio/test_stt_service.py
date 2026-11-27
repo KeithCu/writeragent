@@ -364,6 +364,27 @@ def test_json_error_wins_over_exit_code(monkeypatch: pytest.MonkeyPatch) -> None
     assert "exited" not in msg
 
 
+def test_empty_stdout_reports_exit_code_when_message_translated(monkeypatch: pytest.MonkeyPatch) -> None:
+    py_exe = "/opt/venv/bin/python"
+    monkeypatch.setattr(stt_service, "resolve_stt_python", lambda: py_exe)
+    monkeypatch.setattr(
+        stt_service,
+        "_",
+        lambda s: "Whisper ne renvoya pas de transcription." if s == "Local Whisper did not return a transcript." else s,
+    )
+    monkeypatch.setattr(
+        stt_service,
+        "_run_cmd",
+        lambda cmd, timeout, **kwargs: stt_service.SttCommandResult(-9, "", "Killed"),
+    )
+    with pytest.raises(ConfigError) as exc_info:
+        stt_service._transcribe_local("/tmp/a.wav", "base")
+    msg = str(exc_info.value)
+    assert "-9" in msg
+    assert "Killed" in msg
+    assert "smaller" in msg
+
+
 def test_child_script_missing_package_is_json() -> None:
     """The venv entry reports a missing import as JSON and does not touch the network."""
     import importlib.util

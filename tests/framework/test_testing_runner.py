@@ -566,6 +566,23 @@ def test_missing_tests_tree_fails_the_run(monkeypatch, tmp_path) -> None:
     assert discovery_suites[0]["failed"] == 1
 
 
+def test_run_all_tests_restores_config_module(monkeypatch, tmp_path) -> None:
+    import plugin.framework.config as config_mod
+
+    plugin_dir = tmp_path / "plugin"
+    plugin_dir.mkdir()
+    monkeypatch.setattr(tr.current_office().options, "use_user_profile", False)
+    monkeypatch.setattr("plugin.framework.constants.get_plugin_dir", lambda: str(plugin_dir))
+    monkeypatch.setattr("plugin.framework.uno_context.set_fallback_ctx", lambda _ctx: None)
+    monkeypatch.setattr("plugin.framework.config.init_config", lambda _ctx=None: "")
+    monkeypatch.setattr("plugin.app.bootstrap", lambda ctx=None: None)
+    monkeypatch.setattr("plugin.framework.uno_context.get_desktop", lambda ctx=None: None)
+
+    orig = (config_mod.get_config, config_mod.save, config_mod.get_config_dict)
+    tr.run_all_tests(object())
+    assert (config_mod.get_config, config_mod.save, config_mod.get_config_dict) == orig
+
+
 def test_uno_shards_cover_every_suite_file() -> None:
     """Each discovered *_uno.py lands in exactly one shard, and no shard is empty."""
     repo_root = Path(__file__).resolve().parents[2]

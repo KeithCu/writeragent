@@ -707,6 +707,39 @@ def test_kokoro_env_override_1_byte_returned_as_is(tmp_path, monkeypatch):
     assert m_path == str(custom_model)
 
 
+def test_kokoro_missing_override_never_downloads(tmp_path, monkeypatch):
+    cache_dir = _kokoro_cache(tmp_path, monkeypatch)
+    cache_dir.mkdir(parents=True)
+    (cache_dir / KOKORO_VOICES_FILENAME).write_bytes(b"v")
+    monkeypatch.setattr("plugin.audio.tts_models.KOKORO_VOICES_MIN_BYTES", 1)
+    missing_model = tmp_path / "missing-custom.onnx"
+
+    with patch.dict("os.environ", {"KOKORO_MODEL_PATH": str(missing_model), "KOKORO_VOICES_PATH": ""}, clear=False), \
+         patch("plugin.audio.tts_models._download_to") as download_mock:
+        m_path, _v_path = resolve_kokoro_model_files()
+
+    download_mock.assert_not_called()
+    assert m_path == str(missing_model)
+
+
+def test_kokoro_tilde_small_override_never_overwritten(tmp_path, monkeypatch):
+    cache_dir = _kokoro_cache(tmp_path, monkeypatch)
+    cache_dir.mkdir(parents=True)
+    (cache_dir / KOKORO_VOICES_FILENAME).write_bytes(b"v")
+    monkeypatch.setattr("plugin.audio.tts_models.KOKORO_VOICES_MIN_BYTES", 1)
+    custom_model = tmp_path / "home" / "models" / "custom.onnx"
+    custom_model.parent.mkdir(parents=True)
+    custom_model.write_bytes(b"small")
+
+    with patch.dict("os.environ", {"KOKORO_MODEL_PATH": "~/models/custom.onnx", "KOKORO_VOICES_PATH": ""}, clear=False), \
+         patch("plugin.audio.tts_models._download_to") as download_mock:
+        m_path, _v_path = resolve_kokoro_model_files()
+
+    download_mock.assert_not_called()
+    assert m_path == str(custom_model)
+    assert custom_model.read_bytes() == b"small"
+
+
 def test_piper_floor_rejects_10_byte_body(tmp_path):
     dest = tmp_path / "voice.onnx"
     resp = io.BytesIO(b"0123456789")

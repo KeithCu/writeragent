@@ -93,7 +93,7 @@ def resolve_vision_image(ctx: Any, doc: Any, image_name: str, graphic: Any | Non
 
 
 def _validate_helper(helper: str) -> str:
-    name = str(helper or "").strip()
+    name = helper.strip()
     if not name:
         raise ToolExecutionError("helper is required", code="VISION_ERROR")
     if name not in HELPER_NAMES:
@@ -138,17 +138,16 @@ def run_trusted_vision(
     *graphic* is the shape discovery found for a non-Writer image.
     """
     name = _validate_helper(helper)
-    params_dict = merge_vision_params(ctx, dict(params) if params is not None else None)
+    params_dict = merge_vision_params(ctx, params)
 
     def _export_on_main_thread() -> tuple[bytes, dict[str, Any], dict[str, Any]]:
         # Graphic lookup, PNG export, and locale are UNO. OCR itself is not.
-        local_params = dict(params_dict)
-        image_name = str(local_params.get("image_name") or "").strip()
+        image_name = str(params_dict.get("image_name") or "").strip()
         graphic_obj, png_bytes = resolve_vision_image(ctx, doc, image_name, graphic)
-        if not local_params.get("lang"):
-            local_params["lang"] = _resolve_locale_language(ctx, graphic_obj)
+        if not params_dict.get("lang"):
+            params_dict["lang"] = _resolve_locale_language(ctx, graphic_obj)
         context: dict[str, Any] = {"source": "graphic_name", "image_name": image_name} if image_name else {"source": "selection"}
-        return png_bytes, local_params, context
+        return png_bytes, params_dict, context
 
     try:
         png_bytes, params_out, context = main.call(_export_on_main_thread)
@@ -242,17 +241,15 @@ class VisionBatch:
                 metrics.update(single_metrics)
 
         inserted = self.inserted_count > 0
+        image_names = list(self.target_names)
         if self.stopped_early:
             image_names = list(self.target_names[: len(self.results)])
             message = _("Stopped after {count} of {total} images.").format(count=len(self.results), total=len(self.target_names))
         elif inserted:
-            image_names = list(self.target_names)
             message = _("OCR complete ({count} images).").format(count=len(self.results)) if len(self.results) > 1 else _("OCR complete.")
         elif self.insert_into_document:
-            image_names = list(self.target_names)
             message = _("OCR complete. No text detected.")
         else:
-            image_names = list(self.target_names)
             message = _("OCR complete (text returned only; not inserted).")
 
         res_out: dict[str, Any] = {
@@ -340,6 +337,7 @@ def run_and_insert_vision_for_selection(
             except SendCancelled:
                 raise
             except ToolExecutionError as exc:
+                failure = error_result(exc.code, str(exc), helper=name, details=exc.details)
                 if "worker" in exc.details:
                     if is_cancelled(cancel):
                         if batch.results:
@@ -352,9 +350,9 @@ def run_and_insert_vision_for_selection(
                     log.exception("Vision OCR worker failed for image %r", image_name)
                     # A worker-level failure (timeout, IPC/spawn error) stops the run because the
                     # next image would likely hit it too, while finished images are still reported.
-                    batch.failures.append((image_name, error_result(exc.code, str(exc), helper=name, details=exc.details)))
+                    batch.failures.append((image_name, failure))
                     break
-                batch.failures.append((image_name, error_result(exc.code, str(exc), helper=name, details=exc.details)))
+                batch.failures.append((image_name, failure))
                 continue
             except Exception as exc:
                 reraise_if_disposed(exc)
@@ -384,7 +382,7 @@ def run_and_insert_vision_for_selection(
                     batch.kept_images.append(image_name)
             result["image_name"] = image_name
             result["discovered_index"] = idx
-            if "context" not in result or not isinstance(result["context"], dict):
+            if not isinstance(result.get("context"), dict):
                 result["context"] = {"image_name": image_name}
             else:
                 result["context"]["image_name"] = image_name
