@@ -128,7 +128,7 @@ def test_doc_type_truth_table(
     assert is_writer(model) is (expected_type == DocumentType.WRITER)
     assert is_calc(model) is (expected_type == DocumentType.CALC)
     assert is_draw(model) is (expected_type in (DocumentType.DRAW, DocumentType.IMPRESS))
-    assert is_impress(model) is (_IMPRESS_SERVICE in services if services else False)
+    assert is_impress(model) is (expected_type == DocumentType.IMPRESS)
 
 
 def test_get_document_uno_services_truth() -> None:

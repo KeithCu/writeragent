@@ -53,7 +53,7 @@ from plugin.framework.errors import (
     uno_read,
 )
 from plugin.framework.queue_executor import main
-from plugin.framework.thread_guard import _UnoThreadGuardProxy, main_thread_only
+from plugin.framework.thread_guard import is_guard_proxy, main_thread_only
 from plugin.framework.url_utils import normalize_file_url
 from plugin.framework.vcl_pumping import (
     focus_preserved as focus_preserved,
@@ -252,13 +252,13 @@ def _stable_component_context(ctx: Any) -> Any:
     is already stable. MainThread still unwraps before it stores a
     context; that compare is on the raw target.
     """
-    if ctx is None or isinstance(ctx, _UnoThreadGuardProxy):
+    if ctx is None or is_guard_proxy(ctx):
         return ctx
     slot = _component_context_proxies.get(id(ctx))
     if slot is not None and slot[0] is ctx:
         return slot[1]
     wrapped = _guard_returned_uno(ctx)
-    if isinstance(wrapped, _UnoThreadGuardProxy):
+    if is_guard_proxy(wrapped):
         _component_context_proxies[id(ctx)] = (ctx, wrapped)
     return wrapped
 

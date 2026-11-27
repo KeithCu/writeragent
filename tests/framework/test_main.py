@@ -587,41 +587,9 @@ def test_add_status_listener_replaces_same_url():
     assert len(main.menu_status.listeners) == 2
 
 
-def test_notify_menu_update_prune_uses_uno_same(monkeypatch):
-    """Two entries comparing equal under uno_same are both pruned when statusChanged raises."""
-    class ListenerProxy:
-        def __init__(self, val: int):
-            self.val = val
-
-        def __eq__(self, other: object) -> bool:
-            return isinstance(other, ListenerProxy) and self.val == other.val
-
-        def statusChanged(self, ev: object) -> None:
-            raise RuntimeError("dead listener")
-
-    l1 = ListenerProxy(10)
-    l2 = ListenerProxy(10)
-    assert l1 is not l2
-    assert l1 == l2
-
-    u1 = MagicMock()
-    u1.Complete = ".uno:WriterAgentAction"
-    u1.Path = "test.action"
-
-    main.menu_status.listeners.clear()
-    main.menu_status.listeners.append((l1, u1))
-    main.menu_status.listeners.append((l2, u1))
-    assert len(main.menu_status.listeners) == 2
-
-    monkeypatch.setattr(app, "get_menu_text", lambda cmd: "Test Label")
-    monkeypatch.setattr("plugin.framework.worker_pool.run_in_background", lambda fn: None)
-
-    main.menu_status.publish()
-    assert len(main.menu_status.listeners) == 0
-
-
-def test_notify_menu_update_posts_prune_off_main_thread(monkeypatch):
-    """Off the main thread, dead listeners are posted to the main thread for uno_same pruning."""
+@pytest.mark.parametrize("on_worker", [True, False], ids=["worker", "main"])
+def test_notify_menu_update_posts_prune_to_main_thread(monkeypatch, on_worker):
+    """Dead listeners are always posted to the main thread, where uno_same prunes both equal entries."""
     class ListenerProxy:
         def __init__(self, val: int):
             self.val = val
@@ -672,9 +640,12 @@ def test_notify_menu_update_posts_prune_off_main_thread(monkeypatch):
 
         monkeypatch.setattr("plugin.menu_state.uno_same", wrapped_uno_same)
 
-        worker = threading.Thread(target=main.menu_status.publish)
-        worker.start()
-        worker.join()
+        if on_worker:
+            worker = threading.Thread(target=main.menu_status.publish)
+            worker.start()
+            worker.join()
+        else:
+            main.menu_status.publish()
 
         assert len(main.menu_status.listeners) == 2
         assert len(uno_same_threads) == 0

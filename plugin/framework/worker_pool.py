@@ -37,7 +37,7 @@ import threading
 import uuid
 from collections import deque
 from concurrent.futures import CancelledError, Future, TimeoutError as FuturesTimeoutError
-from typing import Any, Callable, ClassVar, IO, Iterator
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, IO, Iterator
 
 from plugin.framework.constants import BACKGROUND_POOL_MAX_WORKERS
 from plugin.framework.errors import ToolExecutionError, WorkerPoolError
@@ -45,6 +45,10 @@ from plugin.framework.errors import ToolExecutionError, WorkerPoolError
 # Thread-safety guard (Layer A): tag threads born here so assert_main_thread
 # can name the offending background task in diagnostics.
 from plugin.framework import thread_guard
+
+if TYPE_CHECKING:
+    # Named cycle: managed_subprocess imports this module at load time.
+    from plugin.framework.managed_subprocess import ManagedSubprocess
 
 log = logging.getLogger("writeragent.framework.worker_pool")
 
@@ -437,24 +441,6 @@ def _quiet_close(stream: Any) -> None:
         pass
 
 
-def _kill_child(proc: subprocess.Popen[Any] | None, managed: Any) -> None:
-    """SIGKILL via the managed tree when present, otherwise the bare process.
-
-    managed.kill_tree() swallows Exception and logs. The bare kill swallows
-    only OSError. Leave unregister() at the call site: kill_tree() must not
-    unregister, and _reap unregisters after the wait, not inside the kill.
-    """
-    if managed is not None:
-        managed.kill_tree()
-        return
-    if proc is None:
-        return
-    try:
-        proc.kill()
-    except OSError:
-        pass
-
-
 class AsyncProcess:
     """Run a child process and deliver stdout, stderr, and exit on dedicated threads.
 
@@ -498,7 +484,7 @@ class AsyncProcess:
         self._env = env
         self._die_with_parent = die_with_parent
 
-        self._managed: Any = None
+        self._managed: ManagedSubprocess | None = None
         self._stdout_thread: BackgroundHandle | None = None
         self._stderr_thread: BackgroundHandle | None = None
         self._wait_thread: BackgroundHandle | None = None
@@ -518,13 +504,13 @@ class AsyncProcess:
             old = self.process
             assert old is not None
             old_managed = self._managed
+            assert old_managed is not None
             self.terminate()
             try:
                 old.wait(timeout=5.0)
             except subprocess.TimeoutExpired:
                 log.warning("Previous process still alive after terminate")
-                if old_managed is not None:
-                    old_managed.kill_tree()
+                old_managed.kill_tree()
         from plugin.framework.managed_subprocess import ManagedSubprocess
 
         # Drain stays false because these reader threads are the only stdout/stderr
@@ -581,9 +567,8 @@ class AsyncProcess:
             self._stdout_thread = None
             self._stderr_thread = None
             self._wait_thread = None
-            _kill_child(proc, managed)
-            if managed is not None:
-                managed.unregister()
+            managed.kill_tree()
+            managed.unregister()
             try:
                 proc.wait(timeout=1.0)
             except (subprocess.TimeoutExpired, OSError):
@@ -663,11 +648,9 @@ class AsyncProcess:
                 continue
             handle.join(timeout=timeout)
 
-    def _close_child_pipes(self, proc: subprocess.Popen[Any] | None, *, stdout_thread: BackgroundHandle | None = None, stderr_thread: BackgroundHandle | None = None) -> None:
+    def _close_child_pipes(self, proc: subprocess.Popen[Any], *, stdout_thread: BackgroundHandle | None = None, stderr_thread: BackgroundHandle | None = None) -> None:
         # Closes the Popen the caller passed, the same capture _wait_for_exit
         # and _reap use.
-        if proc is None:
-            return
         if proc.stdin is not None:
             _quiet_close(proc.stdin)
         if stdout_thread is None and proc.stdout is not None:
@@ -675,15 +658,14 @@ class AsyncProcess:
         if stderr_thread is None and proc.stderr is not None:
             _quiet_close(proc.stderr)
 
-    def _wait_for_exit(self, proc: subprocess.Popen[Any], stdout_thread: BackgroundHandle | None, stderr_thread: BackgroundHandle | None, generation: int, managed: Any = None) -> None:
+    def _wait_for_exit(self, proc: subprocess.Popen[Any], stdout_thread: BackgroundHandle | None, stderr_thread: BackgroundHandle | None, generation: int, managed: ManagedSubprocess) -> None:
         # Wait and join only this call's child. Reading self.process and
         # the reader handles at wait time follows start() if it runs again
         # and points those at a new child, so the first wait thread blocks
         # on that child and fires on_exit_cb for its exit as well. _reap
         # already captures the handles it was given.
         rc = proc.wait()
-        if managed is not None:
-            managed.unregister()
+        managed.unregister()
         # A bounded join still delivers a trailing line without a newline
         # when the readers finish in time, and on_exit_cb still runs when
         # they do not. timeout=None never returns if a grandchild inherited
@@ -701,7 +683,7 @@ class AsyncProcess:
             except Exception:
                 log.exception("Error in on_exit_cb for process")
 
-    def _reap(self, proc: subprocess.Popen[Any], stdout_thread: BackgroundHandle | None, stderr_thread: BackgroundHandle | None, wait_thread: BackgroundHandle | None, timeout: float, managed: Any = None) -> None:
+    def _reap(self, proc: subprocess.Popen[Any], stdout_thread: BackgroundHandle | None, stderr_thread: BackgroundHandle | None, wait_thread: BackgroundHandle | None, timeout: float, managed: ManagedSubprocess) -> None:
         """Wait, then SIGKILL via kill_tree, off the caller stack. See terminate().
 
         Handles are captured at terminate() time. A later start() replaces
@@ -711,14 +693,14 @@ class AsyncProcess:
             try:
                 proc.wait(timeout=timeout)
             except subprocess.TimeoutExpired:
-                _kill_child(proc, managed)
+                # kill_tree() does not unregister; that runs below, after the wait.
+                managed.kill_tree()
                 # A stuck SIGKILL (uninterruptible sleep) must not block forever.
                 try:
                     proc.wait(timeout=timeout)
                 except subprocess.TimeoutExpired:
                     log.warning("Process still alive after kill (timeout=%ss)", timeout)
-        if managed is not None:
-            managed.unregister()
+        managed.unregister()
         self._join_handles((stdout_thread, stderr_thread, wait_thread))
 
     def terminate(self, timeout: float = 5.0) -> None:
@@ -741,6 +723,7 @@ class AsyncProcess:
         if proc is None:
             return
         managed = self._managed
+        assert managed is not None
         stdout_thread = self._stdout_thread
         stderr_thread = self._stderr_thread
         wait_thread = self._wait_thread
@@ -754,4 +737,6 @@ class AsyncProcess:
 
     def kill_tree(self) -> None:
         """Immediate SIGKILL of the process group (including grandchildren and helper processes)."""
-        _kill_child(self.process, self._managed)
+        # Both are None before the first start(); start() sets them together.
+        if self._managed is not None:
+            self._managed.kill_tree()

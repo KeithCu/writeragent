@@ -497,42 +497,12 @@ def set_thread_violation_ui(fn: Any) -> None:
 UNTAGGED_DUMMY_IS_CURRENT = False
 
 
-def _wrap_uno(obj: Any) -> Any:
-    return obj
-
-class _UnoThreadGuardProxy:
-    """Stub proxy for release bundles.
-
-    Never constructed: ``_wrap_uno`` and ``guard_uno`` return the raw object,
-    so missing protocol dunders on this class do not change release behavior.
-    __eq__ without __hash__ and the missing comparisons are fine because
-    _wrap_uno never constructs this class; do not add them unless _wrap_uno
-    starts returning it.
-    """
-    def __init__(self, target: Any) -> None:
-        object.__setattr__(self, "_target", target)
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._target, name)
-
-    def __setattr__(self, name: str, value: Any) -> None:
-        if name == "_target":
-            object.__setattr__(self, name, value)
-        else:
-            setattr(self._target, name, value)
-
-    def __call__(self, *args: Any, **kwargs: Any) -> Any:
-        return self._target(*args, **kwargs)
-
-    def __eq__(self, other: object) -> bool:
-        return self._target == unwrap_uno(other)
+# Release guard_uno never wraps, so no object is a proxy and unwrap_uno
+# returns its argument unchanged (unwrap_uno(doc) is doc).
+def is_guard_proxy(obj: Any) -> bool:
+    return False
 
 def unwrap_uno(obj: Any) -> Any:
-    # Do not walk list/tuple/dict: _wrap_uno never wraps, and copying
-    # containers would change identity (unwrap_uno(doc) is doc). If _wrap_uno
-    # ever wraps, copy the dev recursion in the same change.
-    if isinstance(obj, _UnoThreadGuardProxy):
-        return obj._target
     return obj
 
 def guard_uno(obj: Any) -> Any:
@@ -550,7 +520,7 @@ __all__ = [
     "get_background_task_name",
     "set_thread_violation_ui",
     "UNTAGGED_DUMMY_IS_CURRENT",
-    "_wrap_uno",
+    "is_guard_proxy",
     "unwrap_uno",
     "GUARD_ON",
     "THREAD_VIOLATION_MARK",

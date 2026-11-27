@@ -471,6 +471,11 @@ def _wrap_uno(obj: Any) -> Any:
     return _UnoThreadGuardProxy(obj)
 
 
+def is_guard_proxy(obj: Any) -> bool:
+    """Return True if *obj* is a thread-guard proxy built by ``guard_uno``."""
+    return isinstance(obj, _UnoThreadGuardProxy)
+
+
 def unwrap_uno(obj: Any) -> Any:
     """Return the underlying UNO target if obj is one of our proxies.
 
@@ -500,7 +505,7 @@ __all__ = [
     "get_background_task_name",
     "set_thread_violation_ui",
     "UNTAGGED_DUMMY_IS_CURRENT",
-    "_wrap_uno",
+    "is_guard_proxy",
     "unwrap_uno",
     "GUARD_ON",
     "THREAD_VIOLATION_MARK",
