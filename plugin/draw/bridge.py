@@ -873,13 +873,10 @@ def set_notes_text(page: Any, text: str) -> bool:
 
 
 @main_thread_only
-def get_draw_context_for_chat(model: Any, max_context: int = 8000, ctx: Any | None = None) -> str:
+def get_draw_context_for_chat(model: Any, max_context: int) -> str:
     """Get a Draw/Impress chat summary. max_context is a prefix cap; when the summary is longer, the prefix is returned
-    with a blank line and "[... document truncated ...]" appended. ctx is unused and kept so document_helpers can pass
-    the chat signature."""
+    with a blank line and "[... document truncated ...]" appended."""
     try:
-        if model is None:
-            return "[Unable to read Draw/Impress context. The document may be locked or initializing.]"
         bridge = DrawBridge(model)
         pages = bridge.get_pages()
         active_page = bridge.get_active_page()
