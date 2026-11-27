@@ -206,6 +206,7 @@ def cache_put_sentence(
 
     if doc_id:
         p = get_persistence(doc_id)
+        # get_persistence returns None only for an empty id; narrows the type.
         if p is not None:
             _align_persistence_identity(p, ident)
             p.put(entry.fingerprint, locale_key, entry.errors)

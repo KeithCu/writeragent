@@ -1100,6 +1100,7 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
                 return self._tool_error(
                     "occurrence is only used when position is before or after.",
                     code="INVALID_PARAM")
+            needle = ""
         else:
             if not old_content or not old_content.strip():
                 return self._tool_error(
@@ -1109,6 +1110,7 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
                 return self._tool_error(
                     "old_content must be plain text.",
                     code="INVALID_PARAM")
+            needle = old_content.strip()
         if occurrence_error:
             return self._tool_error(occurrence_error, code="INVALID_PARAM")
         level = kwargs.get("level")
@@ -1128,7 +1130,7 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
             found, find_error = toc_match(
                 doc,
                 anchor,
-                cast("str", old_content).strip(),
+                needle,
                 occurrence,
                 case_sensitive=kwargs.get("case_sensitive"),
             )

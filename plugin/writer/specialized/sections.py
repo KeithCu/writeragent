@@ -292,6 +292,7 @@ class SectionGetInfo(ToolWriterSectionBase):
         return {
             "status": "ok",
             **_section_summary(name, section),
+            # Overrides summary's is_visible with the typed getPropertyValue read.
             **vis,
             **_margin_fields(section),
             "parent_section": parent.getName() if parent is not None else None,

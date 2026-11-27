@@ -81,6 +81,7 @@ def _normalized_stop_words(snowball_lang: str) -> frozenset[str]:
 
 def _locale_language(loc: Any) -> str | None:
     """ISO language of a UNO Locale, lowercased; 'zxx' (no linguistic content) is ignored."""
+    # A document-level CharLocale* can be void.
     if loc is None:
         return None
     raw = loc.Language.strip().lower()
