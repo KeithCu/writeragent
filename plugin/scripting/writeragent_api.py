@@ -840,7 +840,7 @@ class _CalcProxy:
 
         Args:
             range_name (required): Range(s) to sort. One entry per area: A1, A1:D10 or a named range. A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
-            has_header (required): true when row 1 is labels; false only for a headerless block (default: true).
+            has_header (required): true when row 1 is labels; false only for a headerless block.
             sort_column (optional): 0-based index of the key column inside the range (0 = leftmost). Use the numeric/metric column, not the label column, when sorting by amount.
             ascending (optional): true = smallest first; false = largest/highest first.
             then_by (optional): Optional tie-break keys, applied in order when the keys before them are equal (sort_column/ascending is always the first key). Each item: {"column": 0-based index inside the range, "ascending": true|false}. Omit for a one-key sort.
@@ -2860,7 +2860,7 @@ class _StyleProxy:
         return _result(call_host_tool("style_list", family=family))
 
     def update(self, style: str, *, family: str = 'ParagraphStyles', parent_style: str | None = None, property_updates: dict[str, Any] | None = None) -> _Item:
-        """Update the properties of an existing style. Provide 'family' (ParagraphStyles or CharacterStyles), 'style_name', and 'property_updates': a dictionary of UNO property names to values (e.g. {'CharColor': '#FF0000', 'CharWeight': 150, 'ParaAdjust': 'center'}). ParaAdjust is left/center/right/justify, not 0/1/2/3. Colors can be provided as hex strings or integers. Struct properties take an object of fields: ParaLineSpacing {'Mode': 'prop'|'minimum'|'leading'|'fix', 'Height': N} (Height is a percent for prop -- 150 is 1.5 lines -- and 1/100 mm for the others); the border properties (Left/Right/Top/BottomBorder, and the Char* ones) take a BorderLine2 object; ParaTabStops takes a list of TabStop objects. You can also update the 'parent_style' separately.
+        """Update the properties of an existing style. Provide 'family' (ParagraphStyles or CharacterStyles), 'style', and 'property_updates': a dictionary of UNO property names to values (e.g. {'CharColor': '#FF0000', 'CharWeight': 150, 'ParaAdjust': 'center'}). ParaAdjust is left/center/right/justify, not 0/1/2/3. Colors can be provided as hex strings or integers. Struct properties take an object of fields: ParaLineSpacing {'Mode': 'prop'|'minimum'|'leading'|'fix', 'Height': N} (Height is a percent for prop -- 150 is 1.5 lines -- and 1/100 mm for the others); the border properties (Left/Right/Top/BottomBorder, and the Char* ones) take a BorderLine2 object; ParaTabStops takes a list of TabStop objects. You can also update the 'parent_style' separately.
 
         Args:
             style (required): Name of the style to modify (e.g., 'Heading 1', 'Source Text').

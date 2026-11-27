@@ -12,6 +12,12 @@ from plugin.writer.tracking import (
     ManageTrackedChanges,
 )
 
+
+def _is_calc_service(name):
+    """Answer ``supportsService`` the way a Calc document does for the four document types."""
+    return name == "com.sun.star.sheet.SpreadsheetDocument"
+
+
 def _create_mock_ctx():
     ctx = MagicMock()
 
@@ -181,7 +187,8 @@ def test_track_changes_show_readback_mismatch():
 def test_track_changes_show_calc_like_controller_returns_stub():
     """Spreadsheet controllers have no getViewSettings; Calc path is a no-op stub for now."""
     ctx = MagicMock()
-    doc = MagicMock(spec=["getCurrentController", "setPropertyValue"])
+    doc = MagicMock(spec=["getCurrentController", "setPropertyValue", "supportsService"])
+    doc.supportsService.side_effect = _is_calc_service
 
     class CalcLikeController:
         pass
@@ -198,7 +205,8 @@ def test_track_changes_show_calc_like_controller_returns_stub():
 
 def test_track_changes_show_ignores_view_settings_without_redlines():
     ctx = MagicMock()
-    doc = MagicMock(spec=["getCurrentController", "setPropertyValue"])
+    doc = MagicMock(spec=["getCurrentController", "setPropertyValue", "supportsService"])
+    doc.supportsService.side_effect = _is_calc_service
     controller = MagicMock()
     controller.getViewSettings.return_value = MagicMock()
     doc.getCurrentController.return_value = controller
@@ -571,15 +579,18 @@ def test_single_accept_blocked_when_bounds_unreadable():
     dispatcher.executeDispatch.assert_not_called()
 
 
-def test_track_changes_list_no_get_redlines():
-    class NoRedlinesDoc:
+def test_track_changes_list_non_writer_document():
+    class NonWriterDoc:
         def getPropertyValue(self, name):
             if name == "RecordChanges":
                 return True
             raise KeyError(name)
 
+        def supportsService(self, name):
+            return _is_calc_service(name)
+
     ctx = MagicMock()
-    ctx.doc = NoRedlinesDoc()
+    ctx.doc = NonWriterDoc()
     res = TrackChangesList().execute(ctx, start_index=0, max_changes=100)
     assert res["status"] == "ok"
     assert res["recording"] is True
@@ -607,7 +618,8 @@ def test_track_changes_list_record_changes_read_fails():
 @pytest.mark.parametrize("action", ["accept_all", "reject_all"])
 def test_manage_tracked_changes_bulk_unsupported_when_dispatch_returns_none(action):
     ctx = MagicMock()
-    doc = MagicMock(spec=["getCurrentController"])
+    doc = MagicMock(spec=["getCurrentController", "supportsService"])
+    doc.supportsService.side_effect = _is_calc_service
     dispatcher = MagicMock()
     dispatcher.executeDispatch.return_value = None
     smgr = MagicMock()

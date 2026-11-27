@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Any
 
 from plugin.calc.base import ToolCalcSpecialTracking
 from plugin.doc.text_helpers import KeepViewSelection, iter_elements_limited
+from plugin.framework.doc_type import is_writer
 from plugin.framework.uno_context import execute_dispatch, uno_same
 from plugin.writer.edit_review import get_agent_edit_review_mode
 from plugin.writer.inline_review import agent_self_resolution_block_reason
@@ -263,8 +264,8 @@ class TrackChangesList(ToolWriterTrackingBase, ToolCalcSpecialTracking):  # type
             recording = None
         agent_mode = _agent_review_mode()
 
-        if not hasattr(doc, "getRedlines"):
-            # Without getRedlines, omit an empty change list and set track_changes_list_unsupported
+        if not is_writer(doc):
+            # Calc has no redline list, so omit an empty change list and set track_changes_list_unsupported
             # so non-Writer documents are not mistaken for a clean tracked-changes doc.
             result: dict[str, Any] = {
                 "status": "ok",
@@ -323,9 +324,8 @@ class TrackChangesShow(ToolWriterTrackingBase, ToolCalcSpecialTracking):  # type
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         show_b: bool = kwargs["show"]
-        # Writer vs Calc is decided by getRedlines on the document, not view settings, because
-        # Calc controllers may still expose getViewSettings.
-        if hasattr(ctx.doc, "getRedlines"):
+        # Markup visibility is a Writer document property; Calc has no redline list.
+        if is_writer(ctx.doc):
             # Markup visibility is set on document RedlineDisplayType, not ShowChangesInMargin
             # (margin layout only). IDL RedlineDisplayType (LO 26.8.1.1 probe):
             # 2 is INSERTED_AND_REMOVED (IsShowChanges), 1 is INSERTED (IsHideChanges).
@@ -409,7 +409,7 @@ class ManageTrackedChanges(ToolWriterTrackingBase, ToolCalcSpecialTracking):  # 
         blocked = agent_self_resolution_block_reason(ctx.doc)
         if blocked:
             return self._tool_error(blocked)
-        has_redlines = hasattr(ctx.doc, "getRedlines")
+        has_redlines = is_writer(ctx.doc)
         before = 0
         if has_redlines:
             before = int(ctx.doc.getRedlines().getCount())
@@ -442,7 +442,7 @@ class ManageTrackedChanges(ToolWriterTrackingBase, ToolCalcSpecialTracking):  # 
         )
 
     def _execute_single(self, ctx: ToolContext, index: int, is_accept: bool) -> dict[str, Any]:
-        if not hasattr(ctx.doc, "getRedlines"):
+        if not is_writer(ctx.doc):
             return self._tool_error("Document does not expose redlines API.")
 
         redlines = ctx.doc.getRedlines()

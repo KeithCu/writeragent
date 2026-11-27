@@ -24,6 +24,7 @@ import uuid
 from typing import Any, Iterator, cast
 
 import uno
+from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK  # type: ignore
 
 from plugin.doc.compound_undo import UndoStepOrRollback, UndoUnavailable, WriterCompoundUndo, commit_or_rollback
 from plugin.doc.temp_files import with_temp_buffer
@@ -49,7 +50,6 @@ from plugin.framework.i18n import _
 from plugin.framework.uno_context import create_property_value, supports_service, uno_any
 from . import field_restore, html_import_styles, html_ruby, hyperlink_fixup, image_placeholders, record_changes
 from .html_export import strip_html_boilerplate
-from .range_copy import PARAGRAPH_BREAK
 from .math.html_math_segment import (
     MathSegment,
     html_fragment_contains_mixed_math,

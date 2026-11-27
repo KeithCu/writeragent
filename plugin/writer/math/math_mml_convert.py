@@ -11,6 +11,9 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK  # type: ignore
+from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
+
 from plugin.doc.temp_files import with_temp_buffer
 from plugin.framework.errors import best_effort
 from plugin.framework.scratch_writer import close_scratch_document, load_scratch_document
@@ -22,12 +25,6 @@ log = logging.getLogger("writeragent.writer")
 
 # SO3_SM_CLASSID_60 (include/comphelper/classids.hxx).
 MATH_CLSID = "078B7ABA-54FC-457F-8551-6147e776a997"
-
-# com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK
-_PARAGRAPH_BREAK = 0
-
-# com.sun.star.text.TextContentAnchorType.AS_CHARACTER (inline / in-flow)
-_ANCHOR_AS_CHARACTER = 1
 
 # com.sun.star.style.ParagraphAdjust (CENTER=3)
 PARA_CENTER = 3
@@ -182,19 +179,19 @@ def insert_writer_math_formula(model: Any, cursor: Any, starmath: str, *, displa
     # an extra goRight(1) mid-paragraph consumes the next character and splits the
     # following run ("AAA|BBB" → "AAA" / "B[F]" / "BB" instead of "AAA" / "[F]" / "BBB").
     if display_block:
-        text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+        text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
         cursor.setPropertyValue("ParaAdjust", PARA_CENTER)
 
     embed = model.createInstance("com.sun.star.text.TextEmbeddedObject")
     embed.CLSID = MATH_CLSID
-    embed.AnchorType = _ANCHOR_AS_CHARACTER
+    embed.AnchorType = AS_CHARACTER
     insert_recorded_content(model, text, cursor, embed)
 
     inner = embed.getEmbeddedObject()
     inner.Formula = starmath
 
     if display_block:
-        text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+        text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
         cursor.setPropertyValue("ParaAdjust", para_adjust)
 
 

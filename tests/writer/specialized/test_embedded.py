@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import plugin.writer.specialized.embedded as embedded_mod
 from plugin.app import get_tools
 from plugin.tests.testing_utils import WriterDocStub
-from plugin.writer.specialized.embedded import EmbeddedEdit, EmbeddedInsert
+from plugin.writer.specialized.embedded import EmbeddedInsert
 
 
 def test_embedded_insert_in_delegate_catalog_not_default():
@@ -18,15 +18,8 @@ def test_embedded_insert_in_delegate_catalog_not_default():
     doc = WriterDocStub()
     default_names = {t.name for t in registry.get_tools(doc=doc)}
     assert "embedded_insert" not in default_names
-    assert "embedded_edit" not in default_names
     embedded_names = {t.name for t in registry.get_tools(doc=doc, active_domain="embedded", exclude_tiers=())}
     assert "embedded_insert" in embedded_names
-    assert "embedded_edit" not in embedded_names
-
-
-def test_embedded_edit_fails_immediately():
-    res = EmbeddedEdit().execute(MagicMock(), name="anything")
-    assert res["status"] == "error"
 
 
 def test_embedded_insert_rejects_bad_object_type_and_bool_cell():

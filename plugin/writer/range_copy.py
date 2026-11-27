@@ -11,6 +11,8 @@ import logging
 from dataclasses import dataclass, replace
 from typing import Any, Iterator
 
+from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK  # type: ignore
+
 from plugin.framework.errors import DocumentDisposedError, best_effort, reraise_if_disposed, uno_read
 from plugin.framework.uno_context import supports_service
 from plugin.doc.text_helpers import (
@@ -20,6 +22,7 @@ from plugin.doc.text_helpers import (
     get_string_without_tracked_deletions,
     go_right,
     iter_elements,
+    textfield_service_name,
     visible_portions,
 )
 from plugin.writer.math.math_mml_export import (
@@ -31,9 +34,6 @@ from .xhtml_style_postprocess import DELETED_MARK
 
 log = logging.getLogger("writeragent.writer")
 
-
-# com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK
-PARAGRAPH_BREAK = 0
 
 
 def record_math_placeholder(records: list[tuple[str, str, bool]], emb: Any, *, display_block: bool) -> str:
@@ -406,10 +406,9 @@ def paint_direct_formatting(
 
 def _copy_field_into(dest_doc: Any, dest_text: Any, dest_cursor: Any, src_field: Any) -> bool:
     """Recreate *src_field* in *dest_doc* (used for table-cell fields)."""
-    services = uno_read(lambda: [s for s in src_field.getSupportedServiceNames() if str(s).startswith("com.sun.star.text.textfield.")], FAILED)
-    if services is FAILED or not services:
+    svc = uno_read(lambda: textfield_service_name(src_field), FAILED)
+    if svc is FAILED or not svc:
         return False
-    svc = sorted(services, key=len)[-1]
     new_field = uno_read(lambda: dest_doc.createInstance(svc), FAILED)
     if new_field is FAILED:
         return False

@@ -707,9 +707,9 @@ def test_range_and_selection_reads_report_paragraph_font_like_full_read_uno(ctx:
     """Id 306: range and selection reads report paragraph font/colour in data-lo-para like full."""
     import re
     from com.sun.star.awt.FontSlant import ITALIC
+    from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK
 
     from plugin.writer import html_export
-    from plugin.writer.range_copy import PARAGRAPH_BREAK
 
     text = doc.getText()
     text.setString("")
