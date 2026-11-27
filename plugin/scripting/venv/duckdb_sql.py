@@ -310,8 +310,8 @@ def _unregister(raw: Any, name: str) -> None:
     # Swallow so a missing relation does not skip the catalog DROP or the stem drop.
     try:
         raw.unregister(name)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.debug("Failed to unregister %r: %s", name, exc)
 
 
 def _drop_catalog_name(raw: Any, name: str) -> None:

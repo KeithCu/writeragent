@@ -9,9 +9,11 @@ from __future__ import annotations
 import contextlib
 import logging
 import sys
-import threading
 import wave
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
+
+if TYPE_CHECKING:
+    import threading
 
 from plugin.scripting.audio_silence_detector import (
     RECORDER_STATUS_AUTO_STOPPED,

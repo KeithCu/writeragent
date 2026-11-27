@@ -6,10 +6,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 from contextlib import contextmanager
 import logging
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from plugin.scripting.venv.coerce import (
     column_by_label,
@@ -26,6 +25,9 @@ from plugin.scripting.venv.trusted_dispatch import (
 )
 
 log = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 _CORR_METHODS = frozenset({"pearson", "kendall", "spearman"})
 
@@ -346,7 +348,7 @@ def time_series_plot(
         plot_cols.append(upper_col)
 
     series = df[plot_cols].copy()
-    dates_all = cast(pd.Series, parse_date_column(series[date_col]))
+    dates_all = cast("pd.Series", parse_date_column(series[date_col]))
     if dates_all.isna().all():
         return error_result("INVALID_DATES", "Could not parse date column.", helper="time_series_plot")
 
@@ -356,7 +358,7 @@ def time_series_plot(
         series = series.iloc[order]
         dates_all = dates_all.iloc[order]
 
-    hist_values = cast(pd.Series, pd.to_numeric(series[hist_col], errors="coerce"))
+    hist_values = cast("pd.Series", pd.to_numeric(series[hist_col], errors="coerce"))
     # Only an all-text value column is an error; a stray text cell is skipped like a blank.
     if series[hist_col].notna().any() and hist_values.isna().all():
         return error_result("NON_NUMERIC_COLUMN", f"Non-numeric columns: {hist_col}", helper="time_series_plot")
@@ -367,15 +369,15 @@ def time_series_plot(
     # or None when the column is absent or has no such row.
     forecast_points: tuple[pd.Series, pd.Series] | None = None
     if forecast_col and forecast_col in series.columns:
-        forecast_values = cast(pd.Series, pd.to_numeric(series[forecast_col], errors="coerce"))
+        forecast_values = cast("pd.Series", pd.to_numeric(series[forecast_col], errors="coerce"))
         forecast_mask = dated & forecast_values.notna()
         if forecast_mask.any():
             forecast_points = (dates_all[forecast_mask], forecast_values[forecast_mask])
 
     band_points: tuple[pd.Series, pd.Series, pd.Series] | None = None
     if lower_col and upper_col and lower_col in series.columns and upper_col in series.columns:
-        lower_values = cast(pd.Series, pd.to_numeric(series[lower_col], errors="coerce"))
-        upper_values = cast(pd.Series, pd.to_numeric(series[upper_col], errors="coerce"))
+        lower_values = cast("pd.Series", pd.to_numeric(series[lower_col], errors="coerce"))
+        upper_values = cast("pd.Series", pd.to_numeric(series[upper_col], errors="coerce"))
         band_mask = dated & lower_values.notna() & upper_values.notna()
         if band_mask.any():
             band_points = (dates_all[band_mask], lower_values[band_mask], upper_values[band_mask])

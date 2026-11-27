@@ -29,12 +29,15 @@ import sys
 import threading
 import time
 import types
-from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextvars import ContextVar, copy_context
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 log = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from plugin.scripting.venv.sandbox_request import SandboxRequest
 
 # ``LocalPythonExecutor.timeout()`` needs an int ≥ 1.
 # ``child_runtime.Deadline.run_for()`` returns a float; ceil with a one-second floor matches alarm semantics.
@@ -72,7 +75,6 @@ from plugin.scripting.named_scripts import (
 )
 from plugin.scripting.venv.to_wire import UnsupportedResultTypeError, plot_image_payload, to_wire
 from plugin.scripting.venv import optional_import
-from plugin.scripting.venv.sandbox_request import SandboxRequest
 from plugin.framework.ipc import UserStopped
 from plugin.framework.constants import auto_imports
 from plugin.scripting.venv.results import DEFER_TIMEOUT_FINALIZE, error_result

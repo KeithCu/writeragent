@@ -11,8 +11,6 @@ import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from plugin.embeddings.embeddings_fs import ParagraphChunk, WriterFileEntry
 from plugin.embeddings.venv import embeddings_folder_maintain
 from plugin.embeddings.venv.embeddings_zvec import maintain_folder_zvec

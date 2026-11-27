@@ -133,6 +133,33 @@ dev = [
 
 [tool.ruff]
 line-length = 300
+# Explicit default excludes without "venv" so plugin/*/venv/ is linted.
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".ipynb_checkpoints",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pyenv",
+    ".pytest_cache",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    ".vscode",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "dist",
+    "node_modules",
+    "site-packages",
+]
 extend-exclude = [
     "plugin/contrib",
     "plugin/lib",
@@ -162,6 +189,10 @@ extend-ignore = ["E402", "E701"]
 "plugin/audio/tts_service.py" = ["TC001"]
 "scripts/**" = ["S110", "S112"]
 "compute_service/**" = ["S110", "S112"]
+# Parked modules: keep untouched and suppress only their existing hits.
+"plugin/embeddings/venv/embeddings_lancedb.py" = ["S110", "S112"]
+"plugin/embeddings/venv/embeddings_zvec.py" = ["S112"]
+"plugin/scripting/venv/analysis.py" = ["TC003"]
 
 [tool.ruff.lint.flake8-type-checking]
 quote-annotations = true

@@ -12,6 +12,7 @@ import datetime
 import decimal
 import fractions
 import io
+import logging
 import sys
 from typing import Any
 
@@ -28,6 +29,8 @@ from plugin.scripting.payload_codec import (
 )
 from plugin.scripting.venv import optional_import
 from plugin.scripting.venv.coerce import dedupe_column_names, flat_label
+
+log = logging.getLogger(__name__)
 
 _MAX_DEPTH = 64
 
@@ -114,8 +117,8 @@ def _temporal_cell_to_stdlib(value: Any, pd_mod: Any) -> Any:
     try:
         if pd_mod is not None and pd_mod.isna(value):
             return None
-    except Exception:
-        pass
+    except Exception as exc:
+        log.debug("pd.isna check failed for %r: %s", type(value).__name__, exc)
     if isinstance(value, datetime.datetime):
         return _strip_datetime_tz(value).isoformat()
     if isinstance(value, datetime.date):
@@ -131,14 +134,14 @@ def _temporal_cell_to_stdlib(value: Any, pd_mod: Any) -> Any:
             if isinstance(dt, datetime.date):
                 return dt.isoformat()
             return dt
-        except Exception:
-            pass
+        except Exception as exc:
+            log.debug("to_pydatetime failed for %r: %s", type(value).__name__, exc)
     to_pytd = getattr(value, "to_pytimedelta", None)
     if callable(to_pytd):
         try:
             return to_pytd()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.debug("to_pytimedelta failed for %r: %s", type(value).__name__, exc)
     kind = _dtype_kind(value)
     if kind == "M":
         try:
@@ -147,8 +150,8 @@ def _temporal_cell_to_stdlib(value: Any, pd_mod: Any) -> Any:
                 if pd_mod.isna(ts):
                     return None
                 return _strip_datetime_tz(ts.to_pydatetime()).isoformat()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.debug("Timestamp conversion failed for %r: %s", type(value).__name__, exc)
         text = str(value)
         return None if text == "NaT" else text
     if kind == "m":
@@ -417,8 +420,9 @@ def to_wire(
             kind = _dtype_kind(arr)
             if kind is not None and is_numeric_wire_kind(kind):
                 return child_pack_result(arr, force=force)
-        except Exception:
-            pass  # an extension dtype whose to_numpy or pack fails takes the object grid below
+        except Exception as exc:
+            # An extension dtype whose to_numpy or pack fails takes the object grid below.
+            log.debug("Fast numeric frame packing failed, falling back to object grid: %s", exc)
         if isinstance(val, pd_mod.DataFrame):
             grid: list[Any] = [
                 [_temporal_cell_to_stdlib(c, pd_mod) for c in row]

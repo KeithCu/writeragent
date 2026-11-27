@@ -16,11 +16,13 @@ from __future__ import annotations
 import importlib
 import logging
 from pathlib import Path
-from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from plugin.embeddings.venv.embeddings_sqlite import DEFAULT_NEAR_SLOP
 from plugin.embeddings.venv.langdetect_rpc import LANGDETECT_VERSION
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 log = logging.getLogger(__name__)
 
