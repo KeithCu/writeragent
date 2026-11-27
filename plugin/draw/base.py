@@ -20,7 +20,7 @@ from typing import Any, ClassVar
 
 from plugin.framework.doc_type import DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE
 from plugin.framework.prompts import DELEGATION_PUBLIC_WEB_HINT, DELEGATION_USER_FILE_DATA_HINT
-from plugin.framework.tool import ToolBase
+from plugin.framework.tool import ToolSpecialBase
 from plugin.framework.tool_schema import page_index_param
 
 DRAW_AND_IMPRESS = [DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE]
@@ -35,7 +35,7 @@ DRAW_PAGE_PROPERTY: dict[str, Any] = page_index_param("The active page if omitte
 DRAW_REQUIRED_PAGE_PROPERTY: dict[str, Any] = page_index_param()
 
 
-class ToolDrawSpecialBase(ToolBase):
+class ToolDrawSpecialBase(ToolSpecialBase):
     """Base class for all specialized Draw tools.
 
     Tools deriving from this base are NOT exposed directly to the main
@@ -43,11 +43,6 @@ class ToolDrawSpecialBase(ToolBase):
     specialized sub-agent when the user delegates a task to that specific
     domain.
     """
-
-    tier: str = "specialized"
-    is_app_specialized_tool: ClassVar[bool] = True
-    specialized_domain: ClassVar[str | None] = None
-    specialized_domain_description: ClassVar[str | None] = None
 
 
 # --- Domain-Specific Base Classes ---

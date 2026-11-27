@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple, Sequence, cast
+from typing import Any, NamedTuple, Sequence
 
 from plugin.framework.prompts import (
     CALC_HIDDEN_SPECIALIZED_DOMAINS,
@@ -11,12 +11,7 @@ from plugin.framework.prompts import (
     SHAPE_UNITS_RULE,
     WRITER_SIDEBAR_ONLY_DOMAINS,
 )
-from plugin.framework.tool import ToolBase, tool_supports_document
-
-if TYPE_CHECKING:
-    class _SpecialToolBase(ToolBase):
-        specialized_domain: ClassVar[str | None]
-        specialized_domain_description: ClassVar[str]
+from plugin.framework.tool import ToolSpecialBase, tool_supports_document
 
 _FOOTNOTES_DIRECT_HINT = (
     "For footnote_insert: if the task quotes or names the document anchor "
@@ -121,7 +116,7 @@ def catalog_entries_from_base(
             continue
         if agent_label == "Draw" and domain in IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS:
             continue
-        if uno_services and not tool_supports_document(cast("ToolBase", cls), doc_type=None, uno_services_supported=uno_services):
+        if uno_services and not tool_supports_document(cls, doc_type=None, uno_services_supported=uno_services):
             continue
         if available_fn is not None and not available_fn(domain, ctx):
             # A live list, where the UNO context or the document's services are known, hides domains that cannot run.
@@ -132,17 +127,17 @@ def catalog_entries_from_base(
     return entries
 
 
-def _special_base(agent_label: str | None) -> type[_SpecialToolBase]:
+def _special_base(agent_label: str | None) -> type[ToolSpecialBase]:
     # Lazy: plugin.writer.specialized_base imports plugin.doc.specialized_base, which
     # imports this module (import cycle); the Calc and Draw bases are cross-app.
     if agent_label == "Calc":
         from plugin.calc.base import ToolCalcSpecialBase
-        return cast("type[_SpecialToolBase]", ToolCalcSpecialBase)
+        return ToolCalcSpecialBase
     if agent_label == "Draw":
         from plugin.draw.base import ToolDrawSpecialBase
-        return cast("type[_SpecialToolBase]", ToolDrawSpecialBase)
+        return ToolDrawSpecialBase
     from plugin.writer.specialized_base import ToolWriterSpecialBase
-    return cast("type[_SpecialToolBase]", ToolWriterSpecialBase)
+    return ToolWriterSpecialBase
 
 
 def get_specialized_domain_catalog(
@@ -177,7 +172,7 @@ def get_specialized_domain_catalog(
     return [{"domain": dom, "description": seen[dom]} for dom in sorted(seen)]
 
 
-def _is_chat_tier(cls: type[_SpecialToolBase]) -> bool:
+def _is_chat_tier(cls: type[ToolSpecialBase]) -> bool:
     return cls.tier == "chat"
 
 
@@ -354,8 +349,7 @@ def apply_inner_outcome(
         if isinstance(final_ans, dict):
             text = str(final_ans.get("message") or final_ans.get("answer") or final_ans.get("result") or final_ans)
         else:
-            popped = payload.pop("result", "")
-            text = "" if final_ans is None else str(popped)
+            text = str(payload.pop("result", ""))
         payload.update(status="incomplete", code="SPECIALIZED_WORKFLOW_INCOMPLETE", message=text)
         return payload
 

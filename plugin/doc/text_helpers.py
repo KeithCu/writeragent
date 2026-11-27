@@ -48,7 +48,7 @@ from plugin.framework import url_utils as _url_utils
 
 log = logging.getLogger(__name__)
 
-T = TypeVar("T")
+_T = TypeVar("_T")
 
 PARAGRAPH_SERVICE = "com.sun.star.text.Paragraph"
 _DRAW_SHAPE_SERVICE = "com.sun.star.drawing.Shape"
@@ -1269,7 +1269,7 @@ def build_heading_tree(model: Any, elements: list[Any] | None = None) -> Heading
         else:
             text = uno_call(model.getText, "Get document text")
             enum = uno_call(text.createEnumeration, "Create enumeration")
-            walked = list(iter_elements(enum))
+            walked = uno_call(lambda: list(iter_elements(enum)), "Enumerate document text")
         flags = paragraph_deletion_flags(model, walked)
 
         for para_index, element in enumerate(walked):
@@ -1546,7 +1546,7 @@ def visible_point_in_paragraph(para: Any, offset: int, *, opened: bool, at_end: 
     return para.getEnd(), offset
 
 
-def with_view_cursor_left_body_locked(doc: Any, vc: Any, action_fn: Callable[[], T]) -> T:
+def with_view_cursor_left_body_locked(doc: Any, vc: Any, action_fn: Callable[[], _T]) -> _T:
     """Move the view cursor to the body start, lock controllers, run *action_fn*, unlock, then put the view cursor back.
 
     The body's getText() cannot clone a cursor that sits in a table cell or frame, so the cursor is cloned through its own text first.

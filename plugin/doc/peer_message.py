@@ -309,34 +309,32 @@ def resolve_peer_target(
     uno_ctx: Any,
     self_doc: Any,
     document_url: str,
-) -> tuple[Any | None, str | None, str]:
+) -> tuple[Any, None, str] | tuple[None, str, str]:
     """Resolve *document_url* as file URL, RuntimeUID, or unique display name.
 
     Returns ``(model, error_code, error_message)``. Success: ``(model, None, "")``.
     """
-    target = document_url
-
     self_uid = get_runtime_uid(self_doc) if self_doc is not None else ""
 
-    model = _resolve_open_model(uno_ctx, target)
+    model = _resolve_open_model(uno_ctx, document_url)
 
     if model is None:
         peers = list_v1_peers(uno_ctx, self_doc)
-        name_hits = [p for p in peers if p["name"] == target]
+        name_hits = [p for p in peers if p["name"] == document_url]
         if len(name_hits) > 1:
             return (
                 None,
                 "PEER_AMBIGUOUS",
-                f"document_url {target!r} matches more than one open peer; use a uid or file URL.",
+                f"document_url {document_url!r} matches more than one open peer; use a uid or file URL.",
             )
         if len(name_hits) == 1:
             model = _resolve_open_model(uno_ctx, name_hits[0]["uid"])
 
     if model is None:
         # list_v1_peers omits self; match identity_from_doc so the caller does not get PEER_NOT_FOUND.
-        if self_doc is not None and target == identity_from_doc(self_doc)["name"]:
+        if self_doc is not None and document_url == identity_from_doc(self_doc)["name"]:
             return None, "PEER_SELF", "Cannot send a peer message to the same document."
-        return None, "PEER_NOT_FOUND", f"No open Writer, Calc, Draw, or Impress peer matches {target!r}."
+        return None, "PEER_NOT_FOUND", f"No open Writer, Calc, Draw, or Impress peer matches {document_url!r}."
 
     peer_uid = get_runtime_uid(model)
     if self_uid and peer_uid and self_uid == peer_uid:
@@ -636,8 +634,7 @@ class _SendPeerBase(ToolBase):
             return self._tool_error("message is required.", code="VALIDATION_ERROR")
 
         model, err_code, err_msg = resolve_peer_target(ctx.ctx, ctx.doc, document_url)
-        if model is None:
-            assert err_code is not None
+        if err_code is not None:
             return self._tool_error(err_msg, code=err_code)
 
         uid = get_runtime_uid(model)

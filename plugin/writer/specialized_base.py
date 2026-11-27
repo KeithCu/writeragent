@@ -22,7 +22,7 @@ import json
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from plugin.framework.doc_type import DOCUMENT_SERVICES
-from plugin.framework.tool import ToolBase
+from plugin.framework.tool import ToolBase, ToolSpecialBase
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -79,7 +79,7 @@ def grouped_text_box_error(tool: ToolBase, index: str) -> dict[str, Any]:
     )
 
 
-class ToolWriterSpecialBase(ToolBase):
+class ToolWriterSpecialBase(ToolSpecialBase):
     """Base class for all specialized Writer tools.
 
     Tools deriving from this base are NOT exposed directly to the main
@@ -88,14 +88,8 @@ class ToolWriterSpecialBase(ToolBase):
     domain (e.g., 'tables', 'charts').
     """
 
-    # Not on the main chat default tool list (tier specialized); exposed via delegation only.
-    tier: str = "specialized"
-    is_app_specialized_tool: ClassVar[bool] = True
-
     # The domain name this tool belongs to (e.g., "tables").
     # Subclasses MUST override this.
-    specialized_domain: ClassVar[str | None] = None
-    specialized_domain_description: ClassVar[str | None] = None
     required_core_tools: ClassVar[frozenset[str] | None] = frozenset(["get_content", "get_tree"])
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
 

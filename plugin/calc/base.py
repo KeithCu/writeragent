@@ -34,7 +34,7 @@ tools (``plugin/writer/images/images.py``, which also run on Calc),
 from typing import ClassVar
 
 from plugin.framework.prompts import DELEGATION_PUBLIC_WEB_HINT, DELEGATION_USER_FILE_DATA_HINT
-from plugin.framework.tool import ToolBase
+from plugin.framework.tool import ToolSpecialBase
 
 # Params using these notes resolve through CalcBridge.resolve_range_or_address /
 # resolve_cell / resolve, which accept Calc '.', Excel '!', quoted names, and '$',
@@ -47,7 +47,7 @@ CALC_SHEET_PREFIX_NOTE: str = (
 CALC_RANGE_LIST_NOTE: str = f"One entry per area: A1, A1:D10 or a named range. {CALC_SHEET_PREFIX_NOTE}"
 
 
-class ToolCalcSpecialBase(ToolBase):
+class ToolCalcSpecialBase(ToolSpecialBase):
     """Base class for all specialized Calc tools.
 
     Tools deriving from this base are NOT exposed directly to the main
@@ -56,10 +56,6 @@ class ToolCalcSpecialBase(ToolBase):
     domain (e.g., 'images').
     """
 
-    tier: str = "specialized"
-    is_app_specialized_tool: ClassVar[bool] = True
-    specialized_domain: ClassVar[str | None] = None
-    specialized_domain_description: ClassVar[str | None] = None
     required_core_tools: ClassVar[frozenset[str] | None] = frozenset(["get_sheet_summary", "read_range"])
     uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
 

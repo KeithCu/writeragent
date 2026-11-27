@@ -516,7 +516,7 @@ class _CacheUnloadListener:
 
     def documentEventOccured(self, Event: Any) -> None:  # noqa: N802, N803 -- UNO spelling
         try:
-            name = Event.EventName or ""
+            name = Event.EventName
             if name == "OnUnload":
                 _teardown_cache_listener(self._doc_key_val, owner_unload=self)
         except Exception:

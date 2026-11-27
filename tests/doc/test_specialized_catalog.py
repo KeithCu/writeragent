@@ -243,7 +243,7 @@ def test_apply_inner_outcome_plain_text_is_incomplete() -> None:
 
 def test_apply_inner_outcome_none_final_ans_clears_result() -> None:
     final_ans = None
-    payload = {"status": "ok", "result": "None"}
+    payload = {"status": "ok", "result": ""}
     result = apply_inner_outcome(payload, final_ans, calls=[], expect_edits=True)
     assert result["status"] == "incomplete"
     assert result["code"] == "SPECIALIZED_WORKFLOW_INCOMPLETE"

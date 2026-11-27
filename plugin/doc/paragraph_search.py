@@ -75,10 +75,6 @@ def search_paragraph_texts(
     return matches, False
 
 
-# ``XText.createEnumeration`` also yields ``SwXTextTable``, which does not support
-# this service and is not an ``XTextRange`` (no ``getStart`` / ``getEnd``).
-
-
 def get_paragraph_ranges(model: Any) -> list[Any]:
     """Return top-level text-enumeration elements, including tables.
 

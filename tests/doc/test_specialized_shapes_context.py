@@ -3,7 +3,6 @@
 
 """Tests for shapes specialized sub-agent canvas context."""
 
-import sys
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -151,8 +150,8 @@ def test_format_shapes_canvas_context_active_slide(
         assert snippet in s
 
 
-class _DistinctSheet:
-    """PyUNO-style wrapper: distinct objects, ``==`` misses, identity is ``_ident``."""
+class _FakeSheet:
+    """Calc sheet stand-in: index comes from getRangeAddress().Sheet."""
 
     def __init__(self, name: str, ident: int, draw_page: object | None = None) -> None:
         self.Name = name
@@ -168,20 +167,9 @@ class _DistinctSheet:
     def getRangeAddress(self) -> object:
         return SimpleNamespace(Sheet=self._ident - 1)
 
-    def __eq__(self, other: object) -> bool:
-        return False
-
-
-def _issame(left: object, right: object) -> bool:
-    return (
-        isinstance(left, _DistinctSheet)
-        and isinstance(right, _DistinctSheet)
-        and left._ident == right._ident
-    )
-
 
 def test_format_shapes_canvas_context_calc_active_sheet():
-    """Active sheet index follows uno identity, not wrapper ``is`` / ``==``."""
+    """Active sheet index comes from getRangeAddress().Sheet."""
     doc = MagicMock()
 
     def supports(svc: str) -> bool:
@@ -193,14 +181,11 @@ def test_format_shapes_canvas_context_calc_active_sheet():
     draw_page.Width = 30_000
     draw_page.Height = 20_000
 
-    # getActiveSheet and getByIndex(1) are different wrappers for sheet 2.
-    active = _DistinctSheet("Sheet2", ident=2, draw_page=draw_page)
+    active = _FakeSheet("Sheet2", ident=2, draw_page=draw_page)
     indexed = [
-        _DistinctSheet("Sheet1", ident=1),
-        _DistinctSheet("Sheet2", ident=2),
+        _FakeSheet("Sheet1", ident=1),
+        _FakeSheet("Sheet2", ident=2),
     ]
-    assert active is not indexed[1]
-    assert (active == indexed[1]) is False
 
     sheets = MagicMock()
     sheets.getCount.return_value = 2
@@ -211,8 +196,7 @@ def test_format_shapes_canvas_context_calc_active_sheet():
     ctrl.getActiveSheet.return_value = active
     doc.getCurrentController.return_value = ctrl
 
-    with patch.object(sys.modules["uno"], "isSame", _issame):
-        s = format_shapes_canvas_context(doc)
+    s = format_shapes_canvas_context(doc)
     assert "Calc" in s
     assert "Sheet2" in s
     assert "30000 x 20000" in s
@@ -229,10 +213,10 @@ def test_format_shapes_canvas_context_calc_zero_size_draw_page():
     draw_page.Width = 0
     draw_page.Height = 0
 
-    active = _DistinctSheet("Sheet2", ident=2, draw_page=draw_page)
+    active = _FakeSheet("Sheet2", ident=2, draw_page=draw_page)
     indexed = [
-        _DistinctSheet("Sheet1", ident=1),
-        _DistinctSheet("Sheet2", ident=2),
+        _FakeSheet("Sheet1", ident=1),
+        _FakeSheet("Sheet2", ident=2),
     ]
 
     sheets = MagicMock()
@@ -244,8 +228,7 @@ def test_format_shapes_canvas_context_calc_zero_size_draw_page():
     ctrl.getActiveSheet.return_value = active
     doc.getCurrentController.return_value = ctrl
 
-    with patch.object(sys.modules["uno"], "isSame", _issame):
-        s = format_shapes_canvas_context(doc)
+    s = format_shapes_canvas_context(doc)
     assert s != ""
     assert "no fixed page size" in s
     assert "index 1 (0-based)" in s

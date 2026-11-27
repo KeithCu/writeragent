@@ -95,14 +95,13 @@ def undo_last_agent_edit(doc: Any) -> str:
         return _("There is no agent edit to undo.")
     if current != record.after:
         return _("The document was edited since the last agent edit.")
-    steps = record.steps
     try:
         um = doc.getUndoManager()
-        for _unused in range(steps):
+        for _unused in range(record.steps):
             um.undo()
     except Exception as exc:
         reraise_if_disposed(exc)
         log.exception("agent_undo: undo failed")
         return _("Could not undo the last agent edit.")
     clear_agent_undo_record(doc)
-    return _("Undid the last agent edit ({0} steps)").format(steps)
+    return _("Undid the last agent edit ({0} steps)").format(record.steps)
