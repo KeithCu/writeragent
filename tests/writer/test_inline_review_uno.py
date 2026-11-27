@@ -693,3 +693,50 @@ def test_resolve_one_of_two_agent_row_deletes_in_same_table_uno(ctx, doc):
             assert doc.getTextTables().getByName(t_name).getRows().getCount() == expected_rows
     finally:
         save({"doc.agent_edit_review_mode": prev})
+
+
+_HIDDEN_SENT = "The quick brown fox jumps over the lazy dog near the river bank today."
+
+
+def _two_agent_replaces_hidden(doc, ctx):
+    """Two agent replaces in one paragraph, then deleted text hidden as tracking_show(show=False) does."""
+    reset_body(doc, ctx, _HIDDEN_SENT, "Second para.")
+    _agent_edit(doc, ctx, ("quick", "fast"), ("river", "canal"))
+    doc.setPropertyValue("RedlineDisplayType", 1)
+    doc.getCurrentController().getViewCursor().gotoRange(doc.getText().getStart(), False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_resolve_with_deletions_hidden_resolves_whole_pair_uno(ctx, doc):
+    """Hidden deletions have no span; one resolve still takes both halves and keeps the user's display type."""
+    try:
+        for accept, para in (
+            (True, "The fast brown fox jumps over the lazy dog near the canalriver bank today."),
+            (False, "The quick brown fox jumps over the lazy dog near the canalriver bank today."),
+        ):
+            _two_agent_replaces_hidden(doc, ctx)
+            assert goto_adjacent_agent_change(doc, True) is not None
+            ok, msg = resolve_change_at_cursor(doc, ctx, accept)
+            assert ok, msg
+            assert doc.getPropertyValue("RedlineDisplayType") == 1
+            doc.setPropertyValue("RedlineDisplayType", 2)
+            assert _para_with(doc, "brown fox") == para, _para_with(doc, "brown fox")
+            left = agent_changes(doc)
+            assert len(left) == 1 and left[0]["new"] == "canal", left
+    finally:
+        doc.setPropertyValue("RedlineDisplayType", 2)
+
+
+@native_test
+@with_native_doc("writer")
+def test_resolve_all_with_deletions_hidden_keeps_display_type_uno(ctx, doc):
+    try:
+        _two_agent_replaces_hidden(doc, ctx)
+        n, msg = resolve_all_with_feedback(doc, ctx, False)
+        assert n == 2 and msg == "", (n, msg)
+        assert doc.getPropertyValue("RedlineDisplayType") == 1
+        assert _para_with(doc, "brown fox") == _HIDDEN_SENT
+        assert _redline_count(doc) == 0
+    finally:
+        doc.setPropertyValue("RedlineDisplayType", 2)

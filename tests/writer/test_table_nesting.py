@@ -95,9 +95,9 @@ def test_host_read_hides_pending_tracked_deletion() -> None:
         "novavelha",
         portions=[
             _Portion(TextPortionType="Text", Text="nova"),
-            _Portion(TextPortionType="Redline", RedlineType="Delete", IsStart=True),
+            _Portion(TextPortionType="Redline", RedlineType="Delete", IsStart=True, IsCollapsed=False),
             _Portion(TextPortionType="Text", Text="velha"),
-            _Portion(TextPortionType="Redline", RedlineType="Delete", IsStart=False),
+            _Portion(TextPortionType="Redline", RedlineType="Delete", IsStart=False, IsCollapsed=False),
         ],
     )
     from plugin.doc.text_helpers import DeletionState

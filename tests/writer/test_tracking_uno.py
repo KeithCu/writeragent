@@ -134,3 +134,77 @@ def test_writer_accept_all_clears_redlines_uno(ctx, doc):
     res = ManageTrackedChanges().execute(tctx, action="accept_all")
     assert res.get("status") == "ok", res
     assert doc.getRedlines().getCount() == 0
+
+
+def _user_replace_and_delete(doc, ctx):
+    """A user's replace (quick -> fast) and deletion ("Second "), recorded without agent tokens."""
+    from tests.writer.doc_builders import find_first, reset_body
+
+    reset_body(doc, ctx, "The quick brown fox.", "Second para.")
+    doc.setPropertyValue("RecordChanges", True)
+    quick = find_first(doc, "quick")
+    quick.getText().insertString(quick.getEnd(), "fast", False)
+    find_first(doc, "quick").setString("")
+    find_first(doc, "Second ").setString("")
+    doc.setPropertyValue("RecordChanges", False)
+
+
+def _listed_index(tctx, redline_type, text):
+    from plugin.writer.tracking import TrackChangesList
+
+    listed = TrackChangesList().execute(tctx, start_index=0, max_changes=100)
+    assert listed.get("status") == "ok", listed
+    return next(c["index"] for c in listed["changes"] if c["RedlineType"] == redline_type and c.get("text") == text)
+
+
+@native_test
+@with_native_doc("writer")
+def test_manage_by_index_with_deletions_hidden_uno(ctx, doc):
+    """tracking_list indexes read with deletions hidden resolve the listed change and keep the display type."""
+    from plugin.app import get_services
+    from plugin.writer.tracking import ManageTrackedChanges, redline_text
+
+    tctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native", doc_type="writer", services=get_services())
+    try:
+        _user_replace_and_delete(doc, ctx)
+        doc.setPropertyValue("RedlineDisplayType", 1)
+        for action, redline_type, text in (("accept", "Delete", "quick"), ("reject", "Insert", "fast")):
+            res = ManageTrackedChanges().execute(tctx, action=action, index=_listed_index(tctx, redline_type, text))
+            assert res.get("status") == "ok", res
+            assert doc.getPropertyValue("RedlineDisplayType") == 1
+        doc.setPropertyValue("RedlineDisplayType", 2)
+        left = [(r.getPropertyValue("RedlineType"), redline_text(r)) for r in _redlines(doc)]
+        assert left == [("Delete", "Second ")], left
+        assert doc.getText().getString().startswith("The  brown fox.")
+    finally:
+        doc.setPropertyValue("RedlineDisplayType", 2)
+
+
+@native_test
+@with_native_doc("writer")
+def test_recording_and_markup_toggles_warn_when_changes_pending_uno(ctx, doc):
+    from plugin.app import get_services
+    from plugin.writer.tracking import TrackChangesShow, TrackChangesStart, TrackChangesStop
+    from tests.writer.doc_builders import reset_body
+
+    tctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native", doc_type="writer", services=get_services())
+    try:
+        reset_body(doc, ctx, "No changes here.")
+        assert "warning" not in TrackChangesStop().execute(tctx)
+        _user_replace_and_delete(doc, ctx)
+        for res in (TrackChangesStart().execute(tctx), TrackChangesStop().execute(tctx), TrackChangesShow().execute(tctx, show=False)):
+            assert res.get("status") == "ok", res
+            assert "warning" in res, res
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        doc.setPropertyValue("RedlineDisplayType", 2)
+
+
+def _redlines(doc):
+    from plugin.framework.uno_context import enum_has_more
+
+    out = []
+    e = doc.getRedlines().createEnumeration()
+    while enum_has_more(e):
+        out.append(e.nextElement())
+    return out

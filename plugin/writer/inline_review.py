@@ -181,28 +181,31 @@ def resolve_change_at_cursor(
 
     Only agent changes (wa-review session tokens) are eligible -- the user's own tracked
     changes are left to LibreOffice's native review UI. Returns ``(ok, message)``.
+    The resolve runs with deleted text shown (``review_scan.RedlinesShown``); a *view* read
+    while it was hidden is discarded, because its positions cover only the visible half.
     """
-    if view is None:
-        view = scan_redline_view(model)
-    if token is None:
-        token = cursor_in_agent_change(model, view=view)
-    if token is None:
-        if not view.reliable:
-            return False, _review_message(ResolveStatus.UNRELIABLE, accept=accept)
-        if not any(r.token is not None for r in view.rows):
-            return False, _("No agent changes to review in this document.")
-        return False, _("Put the cursor on a highlighted agent change first.")
+    with review_scan.RedlinesShown(model) as shown:
+        if view is None or shown.changed:
+            view = scan_redline_view(model)
+        if token is None:
+            token = cursor_in_agent_change(model, view=view)
+        if token is None:
+            if not view.reliable:
+                return False, _review_message(ResolveStatus.UNRELIABLE, accept=accept)
+            if not any(r.token is not None for r in view.rows):
+                return False, _("No agent changes to review in this document.")
+            return False, _("Put the cursor on a highlighted agent change first.")
 
-    res, after_view = resolve_agent_change(model, ctx, token, accept, before=view)
-    if res.status == ResolveStatus.RESOLVED:
-        return True, _review_message(ResolveStatus.RESOLVED, accept=accept)
-    if res.status == ResolveStatus.REFUSED_SIBLING:
-        group_res = _resolve_overlapping_agent_changes(model, ctx, token, accept, before=after_view)
-        if group_res.status == ResolveStatus.RESOLVED and group_res.resolved_count > 0:
-            return True, _review_message(ResolveStatus.RESOLVED, accept=accept, group_count=group_res.resolved_count)
-        status = group_res.status if group_res.status in (ResolveStatus.UNRELIABLE, ResolveStatus.PARTIAL) else ResolveStatus.REFUSED_SIBLING
-        return False, _review_message(status, accept=accept)
-    return False, _review_message(res.status, accept=accept)
+        res, after_view = resolve_agent_change(model, ctx, token, accept, before=view)
+        if res.status == ResolveStatus.RESOLVED:
+            return True, _review_message(ResolveStatus.RESOLVED, accept=accept)
+        if res.status == ResolveStatus.REFUSED_SIBLING:
+            group_res = _resolve_overlapping_agent_changes(model, ctx, token, accept, before=after_view)
+            if group_res.status == ResolveStatus.RESOLVED and group_res.resolved_count > 0:
+                return True, _review_message(ResolveStatus.RESOLVED, accept=accept, group_count=group_res.resolved_count)
+            status = group_res.status if group_res.status in (ResolveStatus.UNRELIABLE, ResolveStatus.PARTIAL) else ResolveStatus.REFUSED_SIBLING
+            return False, _review_message(status, accept=accept)
+        return False, _review_message(res.status, accept=accept)
 
 
 def resolve_all_with_feedback(model: Any, ctx: Any, accept: bool) -> tuple[int, str]:
@@ -934,7 +937,12 @@ def _resolve_overlapping_agent_changes(
 
 
 def _resolve_all_agent_changes(model: Any, ctx: Any, accept: bool) -> ResolveAllResult:
-    """Accept/reject all agent changes; returns ResolveAllResult."""
+    """Accept/reject all agent changes with deleted text shown (``review_scan.RedlinesShown``)."""
+    with review_scan.RedlinesShown(model):
+        return _resolve_all_shown(model, ctx, accept)
+
+
+def _resolve_all_shown(model: Any, ctx: Any, accept: bool) -> ResolveAllResult:
     entry_view = scan_redline_view(model)
     if not entry_view.reliable:
         log.warning("inline_review: resolve-all aborted -- redline snapshot unreliable")

@@ -326,6 +326,27 @@ sibling changes share those paragraphs.
 All safety scans are **fail-closed**: incomplete redline enumeration never backs a success claim;
 resolve-all returns user-facing messages when verification fails.
 
+### Hidden markup (`RedlineDisplayType` 1 or 3)
+
+`tracking_show(show=false)` sets `RedlineDisplayType` 1. That is a model-level hide
+(`SwXTextDocument::setPropertyValue`, `WID_DOC_REDLINE_DISPLAY` → `SetRedlineFlags`): LibreOffice
+moves each Delete's text out of the paragraph, so the redline has no span and its portion walk shows
+one collapsed start marker with no end marker (`lcl_FillRedlineArray`, `unoportenum.cxx`). The
+View ▸ Track Changes ▸ Show toggle is layout-only and leaves the type at 2.
+
+* **Reads:** `DeletionState.apply_marker` skips a collapsed marker, so every portion-walk read
+  (chat context, `search return_offsets`, `get_content` ranges, surroundings) sees the same visible
+  text as with markup shown.
+* **Resolves:** a selection over a replace covers only its visible half, and Writer switches to
+  type 2 before resolving (`DocumentRedlineManager::AcceptRedline` / `RejectRedline`), so it would
+  resolve only that half. Inline resolve, resolve-all and `tracking_manage` therefore run inside
+  `review_scan.RedlinesShown`: they set type 2, read the redlines again, resolve, and put the user's
+  type back. `tracking_manage` finds the change at the listed index again by its identity key,
+  because showing deletions resorts the redline table.
+* **Toggles:** `tracking_start`, `tracking_stop` and `tracking_show` change the user's own
+  settings; when the document holds pending tracked changes their result carries a `warning`
+  telling the model to say what it changed.
+
 ### When the user records changes and agent review is Off
 
 When the user turns on Track Changes > Record while agent review is Off, operations that Writer cannot natively record are either flagged (`style_unreviewed: true`) or left undone with a reason:

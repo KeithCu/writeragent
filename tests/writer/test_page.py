@@ -2001,6 +2001,8 @@ def _redline_portion(redline_type: str, is_start: bool) -> MagicMock:
             return redline_type
         if name == "IsStart":
             return is_start
+        if name == "IsCollapsed":
+            return False
         return None
 
     p.getPropertyValue.side_effect = _get_prop
@@ -2230,7 +2232,7 @@ def _cursor_portion(kind: str, text: str = "", *, is_start: bool = False, start:
     p = MagicMock()
     p.getPropertyValue.side_effect = lambda name: (
         kind if name == "TextPortionType"
-        else ("Delete" if name == "RedlineType" else is_start)
+        else ("Delete" if name == "RedlineType" else (False if name == "IsCollapsed" else is_start))
     )
     p.getString.return_value = text
     p.getStart.return_value = start

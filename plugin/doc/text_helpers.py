@@ -644,6 +644,11 @@ class DeletionState:
         try:
             if str(portion.getPropertyValue("RedlineType")) == "Delete":
                 self.saw_delete = True
+                # With deletions hidden (RedlineDisplayType 1 or 3) LibreOffice moves the struck
+                # text out of the paragraph and the redline has no end, so it shows only a start
+                # marker (``lcl_FillRedlineArray``, ``unoportenum.cxx``); there is nothing to skip.
+                if portion.getPropertyValue("IsCollapsed"):
+                    return
                 # A Delete that ends at offset 0 of this paragraph shows only its end marker (IsStart=False), so a toggle would hide the paragraph.
                 self.in_delete = bool(portion.getPropertyValue("IsStart"))
                 if self.in_delete:

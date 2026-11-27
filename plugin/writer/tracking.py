@@ -24,6 +24,7 @@ tracking_manage (accept/reject one or all), and tracking_show.
 from __future__ import annotations
 
 from collections import Counter
+from contextlib import nullcontext
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -33,7 +34,7 @@ from plugin.framework.doc_type import is_writer
 from plugin.framework.uno_context import execute_dispatch, uno_same
 from plugin.writer.edit_review import get_agent_edit_review_mode
 from plugin.writer.inline_review import agent_self_resolution_block_reason
-from plugin.writer.review_scan import is_agent_token, redline_identity_key, redline_is_agent_change
+from plugin.writer.review_scan import RedlinesShown, is_agent_token, redline_identity_key, redline_is_agent_change
 from plugin.writer.search import LocationLabeler
 from .specialized_base import ToolWriterTrackingBase, enum_param
 
@@ -127,10 +128,28 @@ def _resolve_outcome(index: int, before_keys: list[tuple[Any, ...]], after_keys:
     return "wrong"
 
 
+def _with_pending_warning(doc: Any, result: dict[str, Any], setting: str) -> dict[str, Any]:
+    """Add a ``warning`` to *result* when the Writer document *doc* holds pending tracked changes.
+
+    Recording and markup display are the user's own settings, not the agent review mode, so
+    the model is told to say what it changed. Calc has no redline list and gets no warning.
+    """
+    if is_writer(doc):
+        pending = int(doc.getRedlines().getCount())
+        if pending:
+            result["warning"] = (
+                "This document has %d pending tracked changes, and %s is the user's own setting. "
+                "Tell the user what you changed." % (pending, setting)
+            )
+    return result
+
+
 def _set_recording(doc: Any, record: bool) -> dict[str, Any]:
     done = "Started" if record else "Stopped"
     doc.setPropertyValue("RecordChanges", record)
-    return {"status": "ok", "message": f"{done} recording changes."}
+    return _with_pending_warning(
+        doc, {"status": "ok", "message": f"{done} recording changes."}, "Track Changes recording"
+    )
 
 
 _REDLINE_FIELD_UNREADABLE = "tracking_list: redline field unreadable"
@@ -338,7 +357,11 @@ class TrackChangesShow(ToolWriterTrackingBase, ToolCalcSpecialTracking):  # type
             curr_sc = ctx.doc.getPropertyValue("ShowChanges")
             success = (curr_type == 2 and curr_sc is True) if show_b else (curr_type == 1 and curr_sc is False)
             if success:
-                return {"status": "ok", "message": f"{'Showing' if show_b else 'Hiding'} tracked changes markup."}
+                return _with_pending_warning(
+                    ctx.doc,
+                    {"status": "ok", "message": f"{'Showing' if show_b else 'Hiding'} tracked changes markup."},
+                    "showing or hiding tracked-change markup",
+                )
             return self._tool_error(
                 "Failed to set tracked-changes markup visibility (requested show=%s, RedlineDisplayType=%r, ShowChanges=%r)."
                 % (show_b, curr_type, curr_sc),
@@ -414,32 +437,35 @@ class ManageTrackedChanges(ToolWriterTrackingBase, ToolCalcSpecialTracking):  # 
         if has_redlines:
             before = int(ctx.doc.getRedlines().getCount())
 
-        cmd = ".uno:AcceptAllTrackedChanges" if is_accept else ".uno:RejectAllTrackedChanges"
-        res = execute_dispatch(ctx.ctx, ctx.doc.getCurrentController(), cmd)
+        # Writer shows deleted text before it resolves anything (AcceptRedline in
+        # DocumentRedlineManager.cxx); RedlinesShown puts the user's display type back after.
+        with RedlinesShown(ctx.doc) if has_redlines else nullcontext():
+            cmd = ".uno:AcceptAllTrackedChanges" if is_accept else ".uno:RejectAllTrackedChanges"
+            res = execute_dispatch(ctx.ctx, ctx.doc.getCurrentController(), cmd)
 
-        msg = "All tracked changes accepted." if is_accept else "All tracked changes rejected."
-        if not has_redlines:
-            if res is None:
-                return self._tool_error(
-                    "Accepting or rejecting all tracked changes is not supported on this document.",
-                    code="UNSUPPORTED",
-                    top_level={"tracked_changes_bulk_unsupported": True},
-                )
-            return {"status": "ok", "message": msg}
+            msg = "All tracked changes accepted." if is_accept else "All tracked changes rejected."
+            if not has_redlines:
+                if res is None:
+                    return self._tool_error(
+                        "Accepting or rejecting all tracked changes is not supported on this document.",
+                        code="UNSUPPORTED",
+                        top_level={"tracked_changes_bulk_unsupported": True},
+                    )
+                return {"status": "ok", "message": msg}
 
-        # Bulk resolve success is judged by redline getCount() before and after dispatch
-        # because executeDispatch returns None on success in Writer.
-        after = int(ctx.doc.getRedlines().getCount())
-        if before == 0 or after == 0:
-            return {"status": "ok", "message": msg}
-        if after == before:
-            return self._tool_error("Failed to resolve all tracked changes.")
+            # Bulk resolve success is judged by redline getCount() before and after dispatch
+            # because executeDispatch returns None on success in Writer.
+            after = int(ctx.doc.getRedlines().getCount())
+            if before == 0 or after == 0:
+                return {"status": "ok", "message": msg}
+            if after == before:
+                return self._tool_error("Failed to resolve all tracked changes.")
 
-        verb_all = "Accept-all" if is_accept else "Reject-all"
-        return self._undo_error(
-            ctx,
-            "%s did not clear every tracked change (left %d)." % (verb_all, after),
-        )
+            verb_all = "Accept-all" if is_accept else "Reject-all"
+            return self._undo_error(
+                ctx,
+                "%s did not clear every tracked change (left %d)." % (verb_all, after),
+            )
 
     def _execute_single(self, ctx: ToolContext, index: int, is_accept: bool) -> dict[str, Any]:
         if not is_writer(ctx.doc):
@@ -481,60 +507,80 @@ class ManageTrackedChanges(ToolWriterTrackingBase, ToolCalcSpecialTracking):  # 
                 "Use Edit > Track Changes > Manage in LibreOffice."
             )
 
-        # To accept/reject a specific change, we select its text range then use the dispatcher.
-        # Redline objects from getRedlines() have no getAnchor() (SwXRedline,
-        # sw/inc/unoredline.hxx, is not an XTextContent); they are property sets
-        # exposing RedlineStart/RedlineEnd (XTextRange).
-        start = target_redline.getPropertyValue("RedlineStart")
-        cur = start.getText().createTextCursorByRange(start)
-        end = start
-        try:
-            end_val = target_redline.getPropertyValue("RedlineEnd")
-            if end_val is not None:
-                end = end_val
-                cur.gotoRange(end, True)
-        except Exception:
-            # collapsed span (e.g. a deletion) — selecting the start point suffices
-            log.debug("tracking_manage: RedlineEnd unreadable; selecting the start point", exc_info=True)
+        # Hidden deletions have no span, so the select below would cover only the visible
+        # half of a change (see RedlinesShown); resolve with them shown.
+        with RedlinesShown(ctx.doc) as shown:
+            target_index = index
+            if shown.changed:
+                # Showing deletions resorts the redline table (SetRedlineFlags), so the change at
+                # *index*, read with them hidden, is found again by identity key; messages keep *index*.
+                objs, total = _enumerate_redlines(redlines)
+                shown_keys = _identity_keys(objs) if len(objs) == total else None
+                if shown_keys is None or Counter(shown_keys) != Counter(before_keys):
+                    return self._tool_error(
+                        "Couldn't find tracked change %d again after showing deleted text, so nothing was resolved. "
+                        "Call tracking_list again." % index
+                    )
+                target_key = before_keys[index]
+                rank = before_keys[:index].count(target_key)
+                target_index = [i for i, k in enumerate(shown_keys) if k == target_key][rank]
+                before_keys = shown_keys
+                target_redline = objs[target_index]
 
-        refusal = _overlap_refusal(index, objs, start, end)
-        if refusal is not None:
-            return self._tool_error(refusal)
+            # To accept/reject a specific change, we select its text range then use the dispatcher.
+            # Redline objects from getRedlines() have no getAnchor() (SwXRedline,
+            # sw/inc/unoredline.hxx, is not an XTextContent); they are property sets
+            # exposing RedlineStart/RedlineEnd (XTextRange).
+            start = target_redline.getPropertyValue("RedlineStart")
+            cur = start.getText().createTextCursorByRange(start)
+            end = start
+            try:
+                end_val = target_redline.getPropertyValue("RedlineEnd")
+                if end_val is not None:
+                    end = end_val
+                    cur.gotoRange(end, True)
+            except Exception:
+                # collapsed span (e.g. a deletion) — selecting the start point suffices
+                log.debug("tracking_manage: RedlineEnd unreadable; selecting the start point", exc_info=True)
 
-        controller = ctx.doc.getCurrentController()
-        with KeepViewSelection(controller):
-            controller.select(cur)
-            cmd = ".uno:AcceptTrackedChange" if is_accept else ".uno:RejectTrackedChange"
-            execute_dispatch(ctx.ctx, controller, cmd)
+            refusal = _overlap_refusal(target_index, objs, start, end)
+            if refusal is not None:
+                return self._tool_error(refusal)
 
-            objs2, total2 = _enumerate_redlines(redlines)
-            after_keys = _identity_keys(objs2) if len(objs2) == total2 else None
-            if after_keys is None:
-                return self._undo_error(ctx, "Couldn't re-read tracked changes after the resolve.")
+            controller = ctx.doc.getCurrentController()
+            with KeepViewSelection(controller):
+                controller.select(cur)
+                cmd = ".uno:AcceptTrackedChange" if is_accept else ".uno:RejectTrackedChange"
+                execute_dispatch(ctx.ctx, controller, cmd)
 
-            outcome = _resolve_outcome(index, before_keys, after_keys)
-            if outcome == "silent":
-                return self._tool_error("Failed to resolve tracked change: operation silently failed.")
+                objs2, total2 = _enumerate_redlines(redlines)
+                after_keys = _identity_keys(objs2) if len(objs2) == total2 else None
+                if after_keys is None:
+                    return self._undo_error(ctx, "Couldn't re-read tracked changes after the resolve.")
 
-            if outcome == "agent":
-                return self._undo_error(
-                    ctx,
-                    "Agent edit was resolved, which is forbidden.",
-                    "tracking_manage: undo of a forbidden agent resolution failed",
-                    " Undo failed; the change is still resolved.",
-                )
+                outcome = _resolve_outcome(target_index, before_keys, after_keys)
+                if outcome == "silent":
+                    return self._tool_error("Failed to resolve tracked change: operation silently failed.")
 
-            if outcome == "wrong":
-                return self._undo_error(
-                    ctx,
-                    "Resolved a different tracked change than index %d." % index,
-                )
+                if outcome == "agent":
+                    return self._undo_error(
+                        ctx,
+                        "Agent edit was resolved, which is forbidden.",
+                        "tracking_manage: undo of a forbidden agent resolution failed",
+                        " Undo failed; the change is still resolved.",
+                    )
 
-            action_str = "Accepted" if is_accept else "Rejected"
-            return {
-                "status": "ok",
-                "message": (
-                    "%s tracked change at index %d. Call tracking_list again before another accept or reject; indexes shift after each resolve."
-                    % (action_str, index)
-                ),
-            }
+                if outcome == "wrong":
+                    return self._undo_error(
+                        ctx,
+                        "Resolved a different tracked change than index %d." % index,
+                    )
+
+                action_str = "Accepted" if is_accept else "Rejected"
+                return {
+                    "status": "ok",
+                    "message": (
+                        "%s tracked change at index %d. Call tracking_list again before another accept or reject; indexes shift after each resolve."
+                        % (action_str, index)
+                    ),
+                }

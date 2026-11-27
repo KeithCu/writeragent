@@ -769,7 +769,7 @@ def _delete_writer_graphic_tracked(ctx: Any, doc: Any, graphic: Any) -> None:
             raise ToolExecutionError(_("Could not delete the image: %s") % exc, code="IMAGE_DELETE_FAILED") from exc
     if result is None or result.State != _DISPATCH_SUCCESS:
         raise ToolExecutionError(
-            _("LibreOffice cannot record deleting this image as a tracked change, so it was kept. Turn off Track Changes recording to delete it."),
+            _("LibreOffice cannot record deleting this image as a tracked change, so it was kept. Ask the user to delete it."),
             code="IMAGE_DELETE_NOT_TRACKABLE",
         )
 
