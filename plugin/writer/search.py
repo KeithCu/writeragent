@@ -1680,6 +1680,8 @@ class SearchInDocument(ToolBase):
     """Search for text anywhere in a document (body, tables, text boxes) and report where."""
 
     name: str | None = "search"
+    # The bare name "search" has no read-verb prefix or later token, so the name heuristic would class it as mutating.
+    is_mutation: bool | None = False
     description: str = (
         "Search for text ANYWHERE in the document using LibreOffice native search — body paragraphs "
         "and headings, table cells, text boxes / frames, floating drawing shapes, page headers/footers, "

@@ -20,6 +20,7 @@ from tests.writer.doc_builders import (
     body_shape,
     body_texts,
     reject_all_changes,
+    reset_body,
     seed_styled_body,
 )
 
@@ -3947,6 +3948,36 @@ def test_recorded_partial_block_replace_authors_deletion_separately_uno(ctx: Any
 
         accept_all_changes(doc, ctx)
         assert body_texts(doc.getText()) == ["Keep before", "ReA", "B", " me", "Keep after"]
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_recorded_all_matches_over_touching_matches_accepts_every_replacement_uno(ctx: Any, doc: Any) -> None:
+    """Three or more touching matches each sit next to the previous change's review anchor."""
+    from plugin.framework.config import get_config, save
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    cases = [
+        ("Pay 1000 by 2020.", "0", "9", "Pay 1999 by 2929."),
+        ("Say foofoofoo bar.", "foo", "qux", "Say quxquxqux bar."),
+    ]
+    try:
+        save({flag: "record"})
+        for original, old, new, accepted in cases:
+            for resolve, want in ((accept_all_changes, accepted), (reject_all_changes, original)):
+                reset_body(doc, ctx, original)
+                res = ApplyDocumentContent().execute(
+                    native_writer_tool_context(doc, ctx),
+                    target="search", old_content=old, content=[new], all_matches=True,
+                )
+                assert res.get("status") == "ok", res
+                resolve(doc, ctx)
+                assert body_texts(doc.getText()) == [want], (original, resolve.__name__)
     finally:
         save({flag: prev})
         doc.setPropertyValue("RecordChanges", False)

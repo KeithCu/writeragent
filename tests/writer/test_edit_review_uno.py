@@ -11,10 +11,12 @@
 import unittest
 
 import uno  # noqa: F401
+from com.sun.star.beans import UnknownPropertyException
 
 from plugin.framework.uno_context import execute_dispatch
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
+from plugin.writer import review_authors
 from plugin.writer.edit_review import EditReviewSession, _BOOKMARK_PREFIX
 from tests.writer.doc_builders import accept_all_changes, find_first, list_redlines, reject_all_changes, reset_body
 
@@ -420,3 +422,22 @@ def test_cross_paragraph_change_reports_accepted_and_rejected_uno(ctx, doc):
         assert payload["changes"][0]["outcome"] == expected_outcome, payload
         expected_text = change.accepted_text if accept else change.rejected_text
         assert expected_text == normalize_linebreaks(text.getString())
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_uno_error_inside_review_session_keeps_its_cause_uno(ctx, doc):
+    """A UNO exception raised by a recorded edit reaches the caller as itself, with recording and author restored."""
+    reset_body(doc, ctx, "Before.")
+    author = review_authors.office_author(ctx)
+    session = EditReviewSession(doc, ctx, enabled=True)
+    try:
+        with session:
+            session.record_mutation(lambda: doc.getPropertyValue("NoSuchProperty"))
+        raise AssertionError("the UNO exception did not propagate")
+    except Exception as exc:
+        assert isinstance(exc, UnknownPropertyException), repr(exc)
+    finally:
+        session.cleanup()
+    assert doc.getPropertyValue("RecordChanges") is False
+    assert review_authors.office_author(ctx) == author

@@ -575,6 +575,9 @@ _CHANGED_REGION_RE = re.compile(
     re.DOTALL,
 )
 _DELETION_BODY_RE = re.compile(r"<text:deletion>(.*?)</text:deletion>", re.DOTALL)
+# A redline comment is a text:p inside office:change-info (XMLRedlineExport::WriteComment,
+# xmloff/source/text/XMLRedlineExport.cxx), so it would count as one more deleted block.
+_CHANGE_INFO_RE = re.compile(r"<office:change-info\b.*?</office:change-info>", re.DOTALL)
 _CHANGE_ID_RE = re.compile(r'text:change-id="([^"]+)"')
 _XML_ID_ATTR_RE = re.compile(r'\s+xml:id="[^"]*"')
 _START_VALUE_ATTR_RE = re.compile(r'\s+text:start-value="[^"]*"')
@@ -646,7 +649,7 @@ def expand_tracked_deletions(fodt: str) -> str | None:
     for cid, region in _CHANGED_REGION_RE.findall(fodt):
         del_match = _DELETION_BODY_RE.search(region)
         if del_match:
-            blocks = _deleted_blocks(del_match.group(1))
+            blocks = _deleted_blocks(_CHANGE_INFO_RE.sub("", del_match.group(1)))
             if blocks:
                 regions[cid] = blocks
     if not regions:

@@ -2011,8 +2011,13 @@ def _text_runs(target_range: Any, *, in_redlines: bool) -> list[Any]:
     """Non-empty text portions in *target_range*, or [] when it holds anything but text.
 
     A break between paragraphs is in no run, so a range over several paragraphs adds up to
-    less than its string. When *in_redlines* is True, ``Redline`` boundary portions are
-    skipped so recorded replaces across another author's change still keep formatting.
+    less than its string. When *in_redlines* is True, ``Redline`` boundary portions and
+    zero-width ``Bookmark`` portions are skipped so recorded replaces across another
+    author's change still keep formatting. Skipping bookmarks keeps touching matches on
+    the insert-after-run path: the previous change's ``wa_review_`` anchor starts at this
+    range's end. The two-step path of ``_replace_recorded`` inserts at the range start,
+    which is the end of the next match to the left, so that match would grow over the new
+    text and its own replace would strike it.
     When *in_redlines* is False (untracked), a range edge may carry a leading/trailing
     marker, but text inside a redline or a mid-range redline returns ``[]`` so untracked
     replaces do not alter or split tracked-change markup without recording.
@@ -2027,6 +2032,8 @@ def _text_runs(target_range: Any, *, in_redlines: bool) -> list[Any]:
                     inside = portion.getPropertyValue("IsStart")
                     if runs and not inside and not in_redlines:
                         return []
+                    continue
+                if kind == "Bookmark" and in_redlines:
                     continue
                 if kind not in ("Text", "SoftPageBreak"):
                     return []

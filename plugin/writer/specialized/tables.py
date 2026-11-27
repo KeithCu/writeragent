@@ -48,7 +48,8 @@ from ..target_resolver import request_selection_range
 
 log = logging.getLogger("writeragent.writer.specialized.tables")
 
-# The zero-width joiner Writer drops into an empty row to anchor its tracked deletion.
+# The zero-width joiner (CH_TXT_TRACKED_DUMMY_CHAR, sw/inc/hintids.hxx) Writer drops into an
+# empty cell to anchor a tracked row insertion or deletion.
 _EMPTY_ROW_ANCHOR = "\u200d"
 # LibreOffice relative column-separator total (sw/inc/fmtclds.hxx / TableColumnSeparators).
 _UNO_TABLE_COLUMN_SUM = 10000
@@ -948,10 +949,13 @@ def _cell_text(deletions: TrackedDeletions, cell: Any, hosted: list[str]) -> str
 
     Host cells omit concatenated inner-table text. ``get_string_without_tracked_deletions``
     hides pending tracked deletions: ``getString()`` also returns deleted text, so a pending
-    "velha" -> "nova" would otherwise read "celula novavelha".
+    "velha" -> "nova" would otherwise read "celula novavelha". A cell that holds only
+    LibreOffice's tracked-row anchor reads as empty, so the model does not take the
+    marker for cell text.
     """
     state = deletions.state_at(cell)
-    return cell_plain_siblings(cell, state) if hosted else get_string_without_tracked_deletions(cell, state)
+    text = cell_plain_siblings(cell, state) if hosted else get_string_without_tracked_deletions(cell, state)
+    return "" if text == _EMPTY_ROW_ANCHOR else text
 
 
 class TableGetCells(ToolWriterTableBase):
