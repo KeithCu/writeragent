@@ -1487,7 +1487,9 @@ def test_set_header_refuses_unrecorded_rewrite_over_pending_changes_uno(ctx, doc
         assert before_count == 2
 
         tctx = writer_services_tool_context(doc, ctx)
-        read_res = PageGetHeaderFooterText().execute(tctx, style="Standard", region="header")
+        read_res = PageGetHeaderFooterText().execute(
+            tctx, style="Standard", region="header", include_images=False
+        )
         assert read_res["status"] == "ok", read_res
 
         res = _set_text(doc, ctx, "header", read_res["content"])
@@ -1515,8 +1517,8 @@ def test_set_header_in_record_mode_is_tracked_and_rejects_uno(ctx, doc):
         assert res.get("status") == "ok", res
         assert res.get("tracked") is True, res
         assert "style_unreviewed" not in res, res
-        alice = [r for r in list_redlines(doc) if r["RedlineAuthor"] == "Alice"]
-        assert len(alice) == 2, alice
+        alice = [(r["type"], r["RedlineAuthor"]) for r in list_redlines(doc) if r["RedlineAuthor"] == "Alice"]
+        assert alice == [("Delete", "Alice")], alice
 
         reject_all_changes(doc, ctx)
         assert header.getString() == "Head keeps HEADDEL word end."
@@ -1561,7 +1563,8 @@ def test_replace_header_in_record_mode_is_tracked_and_rejects_uno(ctx, doc):
             style="Standard",
             region="header",
             old_content="ALIHDR",
-            new_text="X3",
+            content="X3",
+            all_matches=False,
         )
         assert res.get("status") == "ok", res
         assert res.get("tracked") is True, res

@@ -1613,8 +1613,14 @@ class StyleGetInfo(ToolWriterStyleBase):
 
 
 def _crosses_deletion_error(mode: search_mod.MatchMode | None) -> dict[str, Any]:
+    msg = search_mod.CROSSES_DELETION_MESSAGE
+    if mode is None:
+        msg += (
+            " To change the selection, use target='search' on the text on one side of the deletion, "
+            "or ask the user to turn on Track Changes."
+        )
     err = make_tool_error(
-        search_mod.CROSSES_DELETION_MESSAGE,
+        msg,
         code="MATCH_CROSSES_DELETION",
         top_level={"applied": False, "matched": True},
     )

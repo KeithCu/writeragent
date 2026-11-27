@@ -1401,15 +1401,19 @@ class ApplyDocumentContent(ToolBase):
         # Anchor BEFORE the edit: the selection insert clears the selection first, so only a
         # collapsed position (not the selection range itself) survives the replace.
         rng, after_object = request_insert_range(ctx)
-        # The selection insert clears the range with setString(""), so unrecorded it erases a struck span.
-        if rng is not None and not after_object:
-            rng_text = uno_read(rng.getText, None)
-            if rng_text is not None and rng_text.compareRegionStarts(rng.getStart(), rng.getEnd()) != 0:
-                refused = search_mod.crossing_match_error(
-                    ctx.doc, rng, recorded=params.track_reviewable or is_recording_changes(ctx.doc)
+        # The selection insert clears a non-collapsed range with setString(""), so unrecorded it
+        # erases a struck span. A caret is exempt: TrackedDeletions.overlaps is half-open, so a
+        # caret strictly inside a struck span counts as overlapping, yet a caret insert erases nothing.
+        if rng is not None and uno_read(lambda: rng.getText().compareRegionStarts(rng.getStart(), rng.getEnd()) != 0, False):
+            refused = search_mod.crossing_match_error(
+                ctx.doc, rng, recorded=params.track_reviewable or is_recording_changes(ctx.doc)
+            )
+            if refused is not None:
+                refused["message"] += (
+                    " To change the selection, use target='search' on the text on one side of the deletion, "
+                    "or ask the user to turn on Track Changes."
                 )
-                if refused is not None:
-                    return refused
+                return refused
         anchor = collapsed_anchor(rng) if rng is not None else None
         headings = headings_if_touched(ctx.doc, [rng]) if rng is not None else None
         with (UndoStepOrRollback(ctx.doc, next_agent_edit_undo_title()) if headings is not None else contextlib.nullcontext()), session:

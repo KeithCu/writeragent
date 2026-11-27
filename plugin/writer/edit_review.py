@@ -167,9 +167,8 @@ def flag_style_unreviewed(result: dict[str, Any], doc: Any | None = None) -> Non
     when the user has Track Changes > Record on while agent review is Off), including
     header/footer writes that enabled the region or changed auto-height. Callers omit
     *doc* when Writer records the change itself while the document is recording
-    (header/footer text-only writes, character styles). Paragraph ``apply_style`` records
-    its own ``ParagraphFormat`` redline whenever the document is recording or agent review
-    is on.
+    (character styles). Paragraph ``apply_style`` records its own ``ParagraphFormat``
+    redline whenever the document is recording or agent review is on.
     """
     if result.get("status") != "ok":
         return

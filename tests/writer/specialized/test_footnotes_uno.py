@@ -344,11 +344,13 @@ def test_footnote_edit_refuses_unrecorded_rewrite_over_pending_changes_uno(ctx, 
         listed = FootnotesList().execute(tctx, note="footnote")
         assert listed["status"] == "ok", listed
 
+        before_note = note.getString()
         refused = FootnotesEdit().execute(
             tctx, note="footnote", index=0, text=listed["notes"][0]["text"]
         )
         assert refused.get("status") == "error", refused
         assert refused.get("code") == "PENDING_TRACKED_CHANGES", refused
+        assert note.getString() == before_note
 
         label_ok = FootnotesEdit().execute(tctx, note="footnote", index=0, label="*")
         assert label_ok.get("status") == "ok", label_ok
