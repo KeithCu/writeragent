@@ -14,6 +14,7 @@ from plugin.tests.testing_utils import logo_32_path, pinned_writer_tool_context,
 from plugin.writer.images.image_tools import insert_image_at_locator
 from plugin.writer.images.images import ImageDelete, ImageGetInfo, ImageInsert, ImageList
 from plugin.draw.shapes import DeleteShape
+from tests.writer.doc_builders import list_redlines
 from tests.writer.docx_objects_fixture import build_docx_objects_doc
 
 
@@ -250,19 +251,13 @@ def test_image_insert_and_delete_tracked_uno(ctx, doc):
                 tctx, path=tmp_logo, target="body", style="Standard", auto_height=True, width_mm=10, height_mm=10
             )
             assert res_ins["status"] == "ok" and res_ins.get("pending_review") is True
-            comments = [
-                doc.getRedlines().getByIndex(i).getPropertyValue("RedlineComment")
-                for i in range(doc.getRedlines().getCount())
-            ]
+            comments = [rl["RedlineComment"] for rl in list_redlines(doc)]
             assert any("wa-review:" in c for c in comments), comments
             execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
 
             res_del = ImageDelete().execute(tctx, name=res_ins["image_name"])
             assert res_del["status"] == "ok" and res_del.get("tracked") is True
-            comments_del = [
-                doc.getRedlines().getByIndex(i).getPropertyValue("RedlineComment")
-                for i in range(doc.getRedlines().getCount())
-            ]
+            comments_del = [rl["RedlineComment"] for rl in list_redlines(doc)]
             assert any("wa-review:" in c for c in comments_del), comments_del
             execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
         finally:

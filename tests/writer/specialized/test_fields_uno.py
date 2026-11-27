@@ -6,7 +6,7 @@ from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import TestingFactory, with_native_doc
 from plugin.writer.specialized.fields import FieldsDelete, FieldsInsert
-from tests.writer.doc_builders import set_body_text
+from tests.writer.doc_builders import list_redlines, set_body_text
 
 
 def _count_text_fields(doc):
@@ -167,11 +167,7 @@ def test_fields_insert_recorded_accept_reject_and_token_uno(ctx, doc):
             )
             assert res_f["status"] == "ok", res_f
             assert res_f["tracked"] is True and res_f["pending_review"] is True, res_f
-            redlines = doc.getRedlines()
-            comments = [
-                str(redlines.getByIndex(i).getPropertyValue("RedlineComment") or "")
-                for i in range(redlines.getCount())
-            ]
+            comments = [rl["RedlineComment"] for rl in list_redlines(doc)]
             assert any(c.startswith("wa-review:") for c in comments), (field_name, comments)
             execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
             assert doc.getText().getString() == "hello MATCH world"
@@ -183,9 +179,7 @@ def test_fields_insert_recorded_accept_reject_and_token_uno(ctx, doc):
         )
         assert res_m["status"] == "ok", res_m
         assert res_m["tracked"] is True and res_m["pending_review"] is True, res_m
-        redlines = doc.getRedlines()
-        assert redlines.getCount() >= 1
-        comments = [str(redlines.getByIndex(i).getPropertyValue("RedlineComment") or "") for i in range(redlines.getCount())]
+        comments = [rl["RedlineComment"] for rl in list_redlines(doc)]
         assert any(c.startswith("wa-review:") for c in comments), comments
         execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
         assert doc.getText().getString() == "dear NAME,"

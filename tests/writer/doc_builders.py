@@ -14,7 +14,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from plugin.doc.text_helpers import iter_elements
-from plugin.framework.uno_context import enum_has_more, execute_dispatch
+from plugin.framework.uno_context import execute_dispatch
 
 # com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK
 _PARAGRAPH_BREAK = 0
@@ -148,16 +148,29 @@ def reject_all_changes(doc: Any, ctx: Any) -> None:
 
 
 def list_redlines(doc: Any) -> list[dict[str, str]]:
-    """Return ``type``, ``RedlineComment`` and ``RedlineAuthor`` per redline, in enumeration order."""
-    out: list[dict[str, str]] = []
-    enum = doc.getRedlines().createEnumeration()
-    while enum_has_more(enum):
-        redline = enum.nextElement()
-        entry = {"type": str(redline.getPropertyValue("RedlineType"))}
-        for prop in ("RedlineComment", "RedlineAuthor"):
-            entry[prop] = str(redline.getPropertyValue(prop))
-        out.append(entry)
-    return out
+    """Return ``type``, ``RedlineComment`` and ``RedlineAuthor`` per redline, in redline-table order.
+
+    Tests talk to LibreOffice over a URP pipe, which runs each release of a remote object
+    on its own thread (``Bridge::makeReleaseCall``, binaryurp/source/bridge.cxx). The
+    ``SwXRedline`` destructor takes no SolarMutex while it unregisters from the standard
+    page style's notifier (``SwXRedline::~SwXRedline``, sw/source/core/unocore/unoredline.cxx),
+    and the next ``getByIndex`` broadcasts on that same notifier (``SwXRedlines::GetObject``,
+    sw/source/core/unocore/unoredlines.cxx). Dropping one redline and fetching the next at
+    once can therefore corrupt soffice's heap and crash it. So every redline is fetched
+    exactly once and all stay referenced until the last one has been read. ``getByIndex``
+    is used because it takes the SolarMutex, which ``SwXRedlineEnumeration::nextElement``
+    does not.
+    """
+    redlines = doc.getRedlines()
+    held = [redlines.getByIndex(i) for i in range(redlines.getCount())]
+    return [
+        {
+            "type": str(redline.getPropertyValue("RedlineType")),
+            "RedlineComment": str(redline.getPropertyValue("RedlineComment")),
+            "RedlineAuthor": str(redline.getPropertyValue("RedlineAuthor")),
+        }
+        for redline in held
+    ]
 
 
 def list_redline_types(doc: Any) -> list[str]:
