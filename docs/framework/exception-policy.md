@@ -12,7 +12,7 @@ Use the helpers in `plugin/framework/errors.py`: `is_disposal`, `suppress_dispos
 
 Do **not** wrap UNO dispose as `ToolExecutionError(str(e))`. That strips dispose identity, so `execute_safe` returns `TOOL_EXECUTION_ERROR` instead of `DOCUMENT_DISPOSED`, and the native test runner treats a dead URP as a normal tool failure instead of aborting the remaining suite.
 
-`_document_is_disposed` in `plugin/framework/tool.py` probes `getImplementationName()` and returns true only for `DisposedException` / `DocumentDisposedError`. Any other exception from that probe means the document is still live.
+`document_is_disposed` in `plugin/framework/errors.py` probes `getURL()` (SfxModelGuard) and returns true only for `DisposedException` / `DocumentDisposedError`. Any other exception from that probe means the document is still live.
 
 `WriterAgentException` translates short catalog msgids through `i18n._`. A runtime message longer than the gettext msgid bound (`DEAL_MAX_MSGID`) is stored as-is. Passing that string through `_()` raised `deal.PreContractError` in deal-enabled builds, so `NetworkError` and `make_tool_error` never constructed. The `code` argument on `WriterAgentException` is keyword-only (`code=None`) to avoid swapping error message and code.
 

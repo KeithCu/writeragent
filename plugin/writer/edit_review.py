@@ -10,7 +10,7 @@ the redline helpers and many call sites import from here (compound undo is in
 plugin.doc.compound_undo).
 
 One module owns the whole review story (recording state, author scoping, change tagging,
-anchoring, outcome detection, wait-for-review, cleanup), so entry points don't sprinkle
+anchoring, outcome detection, wait-for-review), so entry points don't sprinkle
 ``RecordChanges`` / author toggles around::
 
     with EditReviewSession(doc, ctx, enabled=flag) as session:
@@ -25,13 +25,13 @@ How a change is tracked end to end:
   Completion is a reliable empty intersection of those comments with tokens on registered
   ``ChangeRecord``s — NOT "zero redlines in the document", and NOT "every
   ``wa-review:<session>:`` comment is gone". A tag left behind when the change was not
-  registered (tagging failed, or the missing-bookmark clear left the token) must not keep
+  registered (tagging failed, or the missing-anchor clear left the token) must not keep
   ``wait_for_review`` blocked. An incomplete scan still fail-closes. The user's own
   pre-existing redlines never block or confuse it.
-* Each change is anchored with a bookmark (``wa_review_<session>_<n>``) spanning the affected
-  range (for a change across several texts such as table cells, the first text that changes),
-  so it survives positions shifting as other changes are resolved. Bookmarks are
-  always removed when the review finishes (success, timeout, or error).
+* Each change is anchored by a text cursor spanning its redline span (for a change across
+  several texts such as table cells, the first text that changes), so it survives positions
+  shifting as other changes are resolved. Cursors follow edits and never enter undo history,
+  so nothing is removed after review. Text typed directly after a pending change joins it.
 * Outcome detection must survive the redline disappearing on BOTH accept and reject, and the
   user editing the text during review. At record time we derive, from the tracked state, the
   paragraph text as it would read after an accept (skip tracked deletions) and after a reject
@@ -46,7 +46,7 @@ returns an empty complete result), and degrades to inert if tracking cannot be e
 from __future__ import annotations
 
 import contextlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import itertools
 import logging
 import re
@@ -62,7 +62,13 @@ from plugin.doc.text_helpers import FAILED, go_right, iter_elements, iter_portio
 # suites run (review mode reads "off" unless a test sets it); a from-import would keep the original.
 from plugin.framework import config
 from plugin.framework.doc_type import is_writer
-from plugin.framework.errors import ToolExecutionError, document_is_disposed, reraise_if_disposed, uno_read
+from plugin.framework.errors import (
+    DocumentDisposedError,
+    ToolExecutionError,
+    document_is_disposed,
+    reraise_if_disposed,
+    uno_read,
+)
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 from plugin.framework.i18n import N_, _
 from plugin.framework.uno_context import get_ctx
@@ -82,7 +88,6 @@ from plugin.writer.word_diff_split import split_change
 
 log = logging.getLogger(__name__)
 
-_BOOKMARK_PREFIX = "wa_review_"
 _PREVIEW_MAX_CHARS = 300
 # Frame portions read "", so without a mark an object-only change reads the same accepted
 # and rejected; _preview strips it because it is not document text.
@@ -440,7 +445,8 @@ class ChangeRecord:
     """One reviewable change: its token, anchor, and the two expected end states."""
 
     token: str
-    bookmark: str
+    # Live UNO cursor; exclude from repr/compare/hash so off-main-thread logging or == never calls UNO.
+    anchor: Any = field(compare=False, repr=False)
     accepted_text: str
     rejected_text: str
     original_preview: str
@@ -448,13 +454,9 @@ class ChangeRecord:
 
 
 def run_in_review_session(doc: Any, ctx: Any, run: Callable[[EditReviewSession], Any]) -> Any:
-    """Run *run(session)* inside an ``EditReviewSession`` and clean up its bookmarks."""
-    review = EditReviewSession(doc, ctx, enabled=review_recording_enabled())
-    try:
-        with review:
-            return run(review)
-    finally:
-        review.cleanup()
+    """Run *run(session)* inside an ``EditReviewSession``."""
+    with EditReviewSession(doc, ctx, enabled=review_recording_enabled()) as review:
+        return run(review)
 
 
 _T = TypeVar("_T")
@@ -529,7 +531,7 @@ class EditReviewSession:
         if self._record_cm is not None:
             self._record_cm.__exit__(exc_type, exc, tb)
             self._record_cm = None
-        # Bookmarks stay until wait_for_review/cleanup: outcomes are read after this block.
+        # The anchors stay on the change records: outcomes are read after this block.
 
     # -- recording ---------------------------------------------------------------------------
 
@@ -561,7 +563,7 @@ class EditReviewSession:
                 self._first_snapshot = (before, before_ok)
             result = apply_fn()
 
-            # A failed tag or a failed missing-bookmark clear can leave
+            # A failed tag or a failed missing-anchor clear can leave
             # wa-review:<session>:<n> on a redline without appending a ChangeRecord.
             # len(self.changes) would mint that same n again, so the leftover becomes
             # the next registered token and wait_for_review stays blocked after the
@@ -576,7 +578,7 @@ class EditReviewSession:
                 return result
             token, new_redlines = tagged
 
-            # Bounding span across the new redlines -> anchor bookmark + expected end states.
+            # Bounding span across the new redlines -> anchor cursor + expected end states.
             # Built with cursor.gotoRange(range, expand=True): XTextRangeCompare is unreliable on
             # redline ranges (a tracked DELETE's text sits outside the normal flow), so comparing
             # starts/ends can collapse the span for replace changes.
@@ -600,7 +602,7 @@ class EditReviewSession:
                             break
                     else:
                         groups.append([end])
-            bookmark_name = ""
+            anchor: Any = None
             accepted_text = rejected_text = ""
             accepted_all: list[str] = []
             rejected_all: list[str] = []
@@ -611,7 +613,7 @@ class EditReviewSession:
                         span = text_group[0].getText().createTextCursorByRange(text_group[0])
                         for point in text_group[1:]:
                             span.gotoRange(point, True)  # expand=True grows the span in either direction
-                        # Scope the captured states AND the anchor bookmark to the CHANGE's own redline
+                        # Scope the captured states AND the anchor cursor to the CHANGE's own redline
                         # span, not the whole paragraph -- so when several changes share a paragraph each
                         # one's outcome/final_text reflects only itself, and a change deep in a long
                         # paragraph is never truncated out of the preview.
@@ -624,29 +626,25 @@ class EditReviewSession:
                         # one that changes can tell Accept from Reject.
                         if anchor_span is None and (acc != rej or (len(groups) == 1 and not at_table)):
                             anchor_span, accepted_text, rejected_text = span, acc, rej
-                    if anchor_span is not None:
-                        bookmark_name = "%s%s_%d" % (_BOOKMARK_PREFIX, self.session_id, n)
-                        bm = self.doc.createInstance("com.sun.star.text.Bookmark")
-                        bm.setName(bookmark_name)
-                        anchor_span.getText().insertTextContent(anchor_span, bm, True)
+                    anchor = anchor_span
                 except Exception:
-                    bookmark_name = ""
+                    anchor = None
                     log.debug("EditReviewSession: anchoring failed for change %d", n, exc_info=True)
         finally:
             if group is not None:
                 group.close()
 
-        # No bookmark → do not register. ChangeRecord with bookmark="" makes _outcome guess
+        # No anchor → do not register. ChangeRecord with anchor=None makes _outcome guess
         # rejected/modified (current is None). That is a lie to the model. Same as failed tagging:
         # the edit already applied; it stays untagged. Do not "fix" this by appending and
-        # special-casing _outcome — empty bookmark is not the same as a bookmark the user later
-        # removed (pure-insert reject).
+        # special-casing _outcome — missing anchor is not the same as a cursor that later became
+        # unusable (pure-insert reject).
         # A failed clear can leave wa-review:<session>:<n> on the redline. The leftover stays
         # unregistered, its index is not issued again, and _pending_tokens ignores tokens that
         # are not on a ChangeRecord, so wait_for_review still finishes once every registered
         # change is resolved. Keep this untag attempt: when it succeeds the redline comment
         # is cleared.
-        if not bookmark_name:
+        if anchor is None:
             log.warning(
                 "EditReviewSession: no review anchor for change %d; leaving this edit untagged "
                 "(not a reviewable agent change)",
@@ -658,7 +656,7 @@ class EditReviewSession:
             return result
 
         self.changes.append(ChangeRecord(
-            token, bookmark_name, accepted_text, rejected_text,
+            token, anchor, accepted_text, rejected_text,
             original_preview or "\n".join(rejected_all),
             proposed_preview or "\n".join(accepted_all)))
         # A new pending change exists -> reveal the review fast-travel toolbar. Runs on the main
@@ -708,13 +706,18 @@ class EditReviewSession:
 
     # -- review ------------------------------------------------------------------------------
 
-    def _pending_tokens(self) -> tuple[set[str], bool]:
-        """``(registered tokens that still have an unresolved redline, reliable)``.
+    def _pending_tokens(self) -> tuple[set[str], bool] | None:
+        """``(registered tokens that still have an unresolved redline, reliable)``, or ``None`` if closed.
+
+        ``getRedlines()`` on a closed Writer model dereferences a null doc shell
+        (``SwXTextDocument::getSwRedlines``, ``sw/source/uibase/uno/unotxdoc.cxx``). The
+        liveness probe and the scan therefore share one main-thread call; this is the
+        dispose check that ``execute_safe`` skips for async tools.
 
         The scan still collects every ``RedlineComment`` that starts with this session's
         prefix. The returned set is the intersection with tokens on ``ChangeRecord``s.
 
-        A failed tag, or a missing-bookmark clear that left orphans, does
+        A failed tag, or a missing-anchor clear that left orphans, does
         not register a change, but the redline can still carry
         ``wa-review:<session>:<n>``. ``wait_for_review`` must not loop
         until every such comment is gone. An unregistered leftover blocks
@@ -729,6 +732,8 @@ class EditReviewSession:
         fail-closes and keeps waiting, because the unseen tail might
         still hold a registered change.
         """
+        if document_is_disposed(self.doc):
+            return None
         prefix = _review_scan.session_token_prefix(self.session_id)
         registered = {record.token for record in self.changes}
         seen: set[str] = set()
@@ -748,22 +753,18 @@ class EditReviewSession:
         return seen & registered, reliable
 
     def _change_text_at_anchor(self, record: ChangeRecord) -> str | None:
-        """Current text of the CHANGE's own region (its anchor bookmark span), or None if the anchor
-        is gone. Scoped to the change, not the whole paragraph, so a neighbouring change sharing the
-        paragraph never contaminates this one's reported text."""
+        """Current text of the CHANGE's own region (its anchor cursor span), or None when the
+        cursor is unusable, for example when its table cell or frame was deleted. Scoped to the
+        change, not the whole paragraph, so a neighbouring change sharing the paragraph never
+        contaminates this one's reported text."""
         try:
-            bookmarks = self.doc.getBookmarks()
-            if not bookmarks.hasByName(record.bookmark):
-                return None
-            anchor = bookmarks.getByName(record.bookmark).getAnchor()
             # Skip tracked DELETIONS so the text reads as the region WOULD after accepting, instead
             # of gluing struck text to the insertion (e.g. "quickfast"). _outcome is unaffected: a
             # RESOLVED change has no redlines left, so this equals the raw string there; for a
             # pending change _outcome short-circuits to "pending" before comparing text.
-            cur = anchor.getText().createTextCursorByRange(anchor)
-            return _string_skipping_redline(cur, "Delete")
+            return _string_skipping_redline(record.anchor, "Delete")
         except Exception:
-            log.debug("EditReviewSession: anchor read failed for %s", record.bookmark, exc_info=True)
+            log.debug("EditReviewSession: anchor read failed for %s", record.token, exc_info=True)
             return None
 
     def _outcome(self, record: ChangeRecord, pending_tokens: set[str], pending_reliable: bool) -> str:
@@ -774,9 +775,9 @@ class EditReviewSession:
             return "pending"
         current = self._change_text_at_anchor(record)
         if current is None:
-            # The anchor bookmark is gone: a rejected pure insertion can take its whole span (and
-            # the bookmark) with it; an accepted pure deletion does the same; anything else means
-            # the user reworked/removed the area.
+            # The anchor cursor is unusable (its text was deleted): a rejected pure insertion
+            # can take its whole span with it; an accepted pure deletion does the same; anything
+            # else means the user reworked/removed the area.
             if record.rejected_text == "":
                 return "rejected"
             if record.accepted_text == "":
@@ -796,45 +797,11 @@ class EditReviewSession:
                 return "rejected"
         return "modified"
 
-    def _remove_anchor_bookmarks(self, records: list[ChangeRecord]) -> None:
-        """Remove the anchor bookmarks of *records*, under the undo lock so the removal stays off the
-        user's undo stack. Best-effort: any failure is logged at debug, never raised. Shared by
-        cleanup() and discard_changes_since()."""
-        try:
-            bookmarks = self.doc.getBookmarks()
-            with UndoLock(self.doc):
-                for record in records:
-                    try:
-                        if bookmarks.hasByName(record.bookmark):
-                            bm = bookmarks.getByName(record.bookmark)
-                            bm.getAnchor().getText().removeTextContent(bm)
-                    except Exception:
-                        log.debug("EditReviewSession: anchor bookmark removal failed for %s",
-                                  record.bookmark, exc_info=True)
-        except Exception:
-            log.debug("EditReviewSession: anchor bookmark removal failed", exc_info=True)
-
-    def cleanup(self) -> None:
-        """Remove this session's anchor bookmarks. Safe to call more than once."""
-        if not self._active or not self.changes:
-            return
-        self._remove_anchor_bookmarks(self.changes)
-
     def discard_changes_since(self, count: int) -> None:
-        """Drop change records recorded after index *count*, removing their anchor bookmarks.
-
-        Used to roll back a partially-applied batch (a surgical multi-edit that failed mid-apply):
-        the caller undoes the document mutations, then calls this so neither the change
-        list nor the document is left holding records/bookmarks for edits that no longer exist.
-        Best-effort and self-contained: bookmark removal runs under the undo lock (kept off the
-        user's undo stack) and any failure is logged, never raised."""
+        """Trim the records of a rolled-back batch after index *count*."""
         if count < 0 or count >= len(self.changes):
             return
-        doomed = self.changes[count:]
         del self.changes[count:]
-        if not self._active:
-            return
-        self._remove_anchor_bookmarks(doomed)
 
     def _review_payload(self, complete: bool, timed_out: bool) -> dict[str, Any]:
         # Derive BOTH the header and the per-change outcomes from THIS one scan so they can never
@@ -842,7 +809,9 @@ class EditReviewSession:
         # outcome), AND only report complete when this same scan is reliable and shows nothing pending
         # (never upgrade a False). Otherwise a transient unreliable/non-empty re-scan here could pair
         # complete=True with all-"pending" outcomes -- an internally contradictory report.
-        pending, pending_ok = self._pending_tokens()
+        scan = self._pending_tokens()
+        # A closed document reports every change as pending without touching the model.
+        pending, pending_ok = scan if scan is not None else (set(), False)
         complete = complete and pending_ok and not pending
         return {
             "complete": complete,
@@ -860,7 +829,7 @@ class EditReviewSession:
                     # anchor paragraph is gone (e.g. a rejected pure insertion removed it).
                     # The anchor is read again here instead of reusing _outcome's read: this runs
                     # once per change after review and keeps _outcome self-contained.
-                    "final_text": _preview(self._change_text_at_anchor(record) or ""),
+                    "final_text": _preview(self._change_text_at_anchor(record) or "") if scan is not None else "",
                 }
                 for record in self.changes
             ],
@@ -879,41 +848,35 @@ class EditReviewSession:
 
         Thread placement: poll from a background/HTTP thread so the main thread stays free for
         the user's accept/reject clicks. UNO is not thread-safe, so callers off the main thread
-        pass ``uno_runner`` (e.g. ``main.call``) and every document read/cleanup in
+        pass ``uno_runner`` (e.g. ``main.call``) and every document read in
         the loop is marshalled through it; the sleep itself stays on the calling thread.
         """
         run = uno_runner if uno_runner is not None else (lambda fn: fn())
         if not self._active or not self.changes:
             return {"complete": True, "timed_out": False, "changes": []}
-        try:
-            deadline = time.monotonic() + max(0.0, timeout)
-            timed_out = False
-            while True:
-                # execute_safe skips the pre-execute disposed probe when is_async() (review-wait
-                # runs off the main thread). This loop is that probe. Do not add assert_main_thread
-                # here and do not force the execute_safe check onto async tools.
-                if run(lambda: document_is_disposed(self.doc)):
-                    # Dead doc, not a user-timeout. Unreliable getRedlines() is a *different*
-                    # signal (incomplete enum on a live doc) — never treat that as complete
-                    # (would resolve the user's own redlines) and never equate it with dispose.
-                    return run(lambda: self._review_payload(complete=False, timed_out=False))
-                pending, reliable = run(self._pending_tokens)
-                # Done ONLY on a reliable empty intersection of scanned tags with registered
-                # change tokens. An orphan tag (not on a ChangeRecord) does not count. An
-                # unreliable scan keeps waiting — never complete off a partial read that might
-                # have missed an unresolved registered change (fail closed).
-                if reliable and not pending:
-                    break
-                # Only explicit False ends the wait (review mode off); other falsy returns keep waiting.
-                if is_cancelled(cancel) or (still_reviewing is not None and still_reviewing() is False):
-                    return run(lambda: self._review_payload(complete=False, timed_out=False))
-                if time.monotonic() >= deadline:
-                    timed_out = True
-                    break
-                time.sleep(poll)
-            return run(lambda: self._review_payload(complete=not timed_out, timed_out=timed_out))
-        finally:
-            run(self.cleanup)
+        deadline = time.monotonic() + max(0.0, timeout)
+        timed_out = False
+        while True:
+            scan = run(self._pending_tokens)
+            if scan is None:
+                # A closed document, not a timeout. An unreliable scan (..., False) is a live
+                # document whose enumeration is incomplete; keep waiting on it, and never merge it with None.
+                return run(lambda: self._review_payload(complete=False, timed_out=False))
+            pending, reliable = scan
+            # Done ONLY on a reliable empty intersection of scanned tags with registered
+            # change tokens. An orphan tag (not on a ChangeRecord) does not count. An
+            # unreliable scan keeps waiting — never complete off a partial read that might
+            # have missed an unresolved registered change (fail closed).
+            if reliable and not pending:
+                break
+            # Only explicit False ends the wait (review mode off); other falsy returns keep waiting.
+            if is_cancelled(cancel) or (still_reviewing is not None and still_reviewing() is False):
+                return run(lambda: self._review_payload(complete=False, timed_out=False))
+            if time.monotonic() >= deadline:
+                timed_out = True
+                break
+            time.sleep(poll)
+        return run(lambda: self._review_payload(complete=not timed_out, timed_out=timed_out))
 
 
 # ---------------------------------------------------------------------------
@@ -1407,6 +1370,9 @@ def _begin_streamed_edit(doc: Any, text_range: Any, title: str) -> tuple[WriterC
 
 
 def _write_stream_chunk(session: Any, text: str, label: str) -> None:
+    if document_is_disposed(session.doc):
+        # The chunk is dropped, because a write into a closed document's range aborts LibreOffice.
+        return
     try:
         session.text_range.setString(text)
     except Exception as exc:
@@ -1474,6 +1440,9 @@ class _WriterStreamedSessionBase:
     ) -> str | None:
         """Finalize the streamed edit, collapsing it into a single tracked change."""
         try:
+            if document_is_disposed(self.doc):
+                # A closed document must not reach getRedlines or setString.
+                raise DocumentDisposedError("Document closed during streamed edit")
             if not (self.was_recording or self.track_reviewable):
                 link_warning = self._retarget_links()
                 self._exit_stream_recording()

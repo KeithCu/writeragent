@@ -967,12 +967,6 @@ class ApplyDocumentContent(ToolBase):
             result["selected_match"] = selected_match
         return result
 
-    def _release_review_session(self, session: Any) -> None:
-        try:
-            _run_on_main_thread(session.cleanup)
-        except Exception:
-            log.exception("apply_content: review session cleanup failed")
-
     def _resolve_heading_links(
         self, doc: Any, params: EditParams
     ) -> tuple[EditParams, list[Diagnostic]]:
@@ -1017,7 +1011,6 @@ class ApplyDocumentContent(ToolBase):
             except ToolExecutionError as e:
                 return self._tool_error(str(e), code=e.code)
         wait_seconds = self._review_wait_seconds()
-        session_box: list[Any] = []
 
         def _do_edit() -> tuple[dict[str, Any], Any, bool]:
             parsed = self._parse_edit_params(ctx, kwargs)
@@ -1025,7 +1018,6 @@ class ApplyDocumentContent(ToolBase):
                 return parsed, None, False
             parsed, diags = self._resolve_heading_links(ctx.doc, parsed)
             session = EditReviewSession(ctx.doc, ctx.ctx, enabled=parsed.track_reviewable)
-            session_box.append(session)
             result = self._dispatch_edit(ctx, session, parsed)
             result = append_warnings(result, diags)
             pending = result.get("status") == "ok" and session.left_tracked_changes()
@@ -1036,10 +1028,7 @@ class ApplyDocumentContent(ToolBase):
             # to a worker thread, or we ARE the main thread (where blocking would freeze the UI
             # and the user could never click accept/reject). Edit once, don't wait -- but UNO is
             # not thread-safe, so when we're on a worker thread (the toggled-off case) the edit
-            # and its cleanup run on the main thread via marshalling rather than here.
-            # The session is appended to session_box in _do_edit before dispatch, so anchor
-            # bookmarks are released in `finally` even if the edit raises mid-way (e.g. the 2nd
-            # of 3 replace-all matches fails after the 1st).
+            # runs on the main thread via marshalling rather than here.
             try:
                 result, _session, pending = _run_on_main_thread(_do_edit)
                 if pending:
@@ -1047,9 +1036,6 @@ class ApplyDocumentContent(ToolBase):
                 return result
             except ToolExecutionError as e:
                 return self._tool_error(str(e), code=e.code)
-            finally:
-                if session_box:
-                    self._release_review_session(session_box[0])
 
         # Review-wait path, on a background (MCP HTTP / chat worker) thread: run the edit
         # on the main thread, then block HERE until the user reviews the tracked changes.
@@ -1058,15 +1044,9 @@ class ApplyDocumentContent(ToolBase):
             # default 30s marshalling timeout would reject large full-document replaces that
             # are fine without review mode.
             result, session, pending = _run_on_main_thread(_do_edit)
-        except Exception as e:
-            if session_box:
-                self._release_review_session(session_box[0])
-            if isinstance(e, ToolExecutionError):
-                return self._tool_error(str(e), code=e.code)
-            raise
+        except ToolExecutionError as e:
+            return self._tool_error(str(e), code=e.code)
         if session is None or not session.changes or result.get("status") != "ok":
-            if session is not None:
-                self._release_review_session(session)
             if pending:
                 flag_tracked(result)
             return result
