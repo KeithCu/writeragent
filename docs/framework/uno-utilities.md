@@ -63,7 +63,7 @@ Still [`uno_context.py`](../../plugin/framework/uno_context.py), plus the resear
 |--------|--------|---------|
 | `normalize_doc_url` | `uno_context` | Strip + drop a trailing `/` so URL identity compares. |
 | `get_runtime_uid` | `uno_context` | Per-session id (`getRuntimeUID` / attribute / property); works for untitled docs. |
-| `uno_same` | `uno_context` | UNO object identity: `is` → `==` → `uno.isSame` (unwrap viral proxy first). PyUNO wrappers, not a thread-proxy requirement. Calc shapes canvas uses it to match the active sheet to `getByIndex` (distinct wrappers). |
+| `uno_same` | `uno_context` | UNO object identity: `is` → `==` (`PyUNO_cmp` compares wrapped UNO `Any`s, and the debug thread-guard proxy unwraps `_target` in `__eq__`). PyUNO wrappers, not a thread-proxy requirement. Calc shapes canvas uses it to match the active sheet to `getByIndex` (distinct wrappers). |
 | `resolve_document_by_url` | `uno_context` | Walk desktop components; match normalized URL **or** RuntimeUID; return `(model, doc_type)` (registered scratch documents excluded). A failed `nextElement` ends the walk (the enumeration may not advance). A fetched element that then raises is skipped. LibreOffice's desktop enumeration is a finite snapshot (`OComponentAccess::createEnumeration`, `OComponentEnumeration::nextElement`), so the walk needs no limit. |
 | `get_open_documents` | `document_research` | List open OfficeDocuments with name/url/uid/path/type/active/modified (untitled kept; registered scratch documents, including hidden research reads, excluded). |
 | `_office_model_from_desktop_element` | `document_research` | Frame-or-model → `guard_uno(model)` for desktop walks. |

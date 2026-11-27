@@ -8,8 +8,7 @@ Pure control-flow tests with fakes (no LibreOffice). The UNO behavior itself (fi
 header/footer text, comments being invisible to it) was verified live; what is testable here is
 the labeling logic of _header_footer_label / describe_match_location and the matching plus
 defensiveness of iter_comment_hits."""
-import sys
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 
 from plugin.writer.search import iter_comment_hits, describe_match_location, _header_footer_label
@@ -156,7 +155,7 @@ def test_header_label_when_style_text_is_a_distinct_wrapper():
         ImplementationName = "SwXHeadFootText"
 
         def __eq__(self, other):
-            return False
+            return isinstance(other, DistinctHeadFoot)
 
         def __hash__(self):
             return id(self)
@@ -164,13 +163,8 @@ def test_header_label_when_style_text_is_a_distinct_wrapper():
     match_text = DistinctHeadFoot()
     style_text = DistinctHeadFoot()
     doc = FakeDoc(styles=[FakePageStyle("Standard", header=style_text)])
-    with patch.object(
-        sys.modules["uno"],
-        "isSame",
-        side_effect=lambda a, b: {a, b} == {match_text, style_text},
-        create=True,
-    ):
-        assert _header_footer_label(match_text, doc) == "header (page style 'Standard')"
+    assert match_text is not style_text
+    assert _header_footer_label(match_text, doc) == "header (page style 'Standard')"
 
 
 def test_style_walk_failure_still_labels_generically():
