@@ -235,20 +235,21 @@ def _fill_clone(
     shape_type: str,
     *,
     uno_ctx: Any,
-    image_path: str | None,
     image_paths: list[str | None] | None,
     shape_index: int,
     warnings: list[str] | None,
 ) -> ClonedShape:
     """Copy *src_shape* onto *clone*, which is already in its container."""
-    shape_warnings: list[str] = []
+    warn_start = len(warnings) if warnings is not None else 0
+
+    def warn(token: str) -> None:
+        if warnings is not None:
+            warnings.append(token)
+
     for prop in SHAPE_CLONE_PROPS:
         res = copy_prop(clone, src_shape, prop)
         if res == "rejected":
-            token = f"rejected {prop} on shape {shape_index}"
-            shape_warnings.append(token)
-            if warnings is not None:
-                warnings.append(token)
+            warn(f"rejected {prop} on shape {shape_index}")
         elif res == "copied" and prop == "FillStyle":
             try:
                 val = src_shape.getPropertyValue("FillStyle")
@@ -259,34 +260,22 @@ def _fill_clone(
             fill_kind = fill_style_kind(val)
             if fill_kind == "gradient":
                 if copy_prop(clone, src_shape, "FillGradient") != "copied":
-                    token = f"fill gradient not copied on shape {shape_index}"
-                    shape_warnings.append(token)
-                    if warnings is not None:
-                        warnings.append(token)
+                    warn(f"fill gradient not copied on shape {shape_index}")
                 else:
                     copy_prop(clone, src_shape, "FillTransparenceGradient")
             elif fill_kind == "hatch":
                 if copy_prop(clone, src_shape, "FillHatch") != "copied":
-                    token = f"fill hatch not copied on shape {shape_index}"
-                    shape_warnings.append(token)
-                    if warnings is not None:
-                        warnings.append(token)
+                    warn(f"fill hatch not copied on shape {shape_index}")
             elif fill_kind == "bitmap":
-                token = f"fill bitmap not copied on shape {shape_index}"
-                shape_warnings.append(token)
-                if warnings is not None:
-                    warnings.append(token)
+                warn(f"fill bitmap not copied on shape {shape_index}")
             elif fill_kind not in ("none", "solid"):
-                token = f"fill {fill_kind} not copied on shape {shape_index}"
-                shape_warnings.append(token)
-                if warnings is not None:
-                    warnings.append(token)
+                warn(f"fill {fill_kind} not copied on shape {shape_index}")
 
     reimported: bool | None = None
     graphic_shapes = 0
     graphic_reimports = 0
     if "GraphicObject" in shape_type:
-        img_path = (image_paths.pop(0) if image_paths else None) if isinstance(image_paths, list) else image_path
+        img_path = image_paths.pop(0) if image_paths else None
         reimported = reimport_graphic(
             uno_ctx,
             src_shape,
@@ -300,7 +289,6 @@ def _fill_clone(
 
     empty_group_message: str | None = None
     if "GroupShape" in shape_type:
-        src_child_count = 0
         try:
             src_child_count = int(src_shape.getCount())
         except Exception as exc:
@@ -331,7 +319,6 @@ def _fill_clone(
                     graphic_reimports=graphic_reimports,
                     empty_group_message=child_result.empty_group_message,
                 )
-        dest_child_count = 0
         try:
             dest_child_count = int(clone.getCount())
         except Exception as exc:
@@ -379,7 +366,7 @@ def _fill_clone(
     # Geometry last so layout does not overwrite chrome metrics.
     copy_prop(clone, src_shape, "Position")
     copy_prop(clone, src_shape, "Size")
-    log.debug("clone_shape index=%s type=%s warnings=%s", shape_index, shape_type, shape_warnings)
+    log.debug("clone_shape index=%s type=%s warnings=%s", shape_index, shape_type, warnings[warn_start:] if warnings is not None else [])
     return ClonedShape(
         shape=clone,
         shape_type=shape_type,
@@ -396,7 +383,6 @@ def clone_shape(
     src_shape: Any,
     *,
     uno_ctx: Any = None,
-    image_path: str | None = None,
     image_paths: list[str | None] | None = None,
     shape_index: int = 0,
     warnings: list[str] | None = None,
@@ -434,7 +420,6 @@ def clone_shape(
             src_shape,
             shape_type,
             uno_ctx=uno_ctx,
-            image_path=image_path,
             image_paths=image_paths,
             shape_index=shape_index,
             warnings=warnings,

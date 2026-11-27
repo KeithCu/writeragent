@@ -133,7 +133,7 @@ def test_insert_math_invalid_page_returns_error(monkeypatch: pytest.MonkeyPatch)
         "plugin.draw.math_insert.convert_latex_to_starmath",
         lambda *args, **kwargs: MathConversionResult(True, "x", None),
     )
-    ctx = SimpleNamespace(doc=_FakeDoc([]), active_page_index=0)
+    ctx = SimpleNamespace(doc=_FakeDoc([]), active_page_index=0, ctx=None)
     with pytest.raises(ToolExecutionError, match="Page index 5 out of range."):
         InsertMathDraw().execute(ctx, formula_type="latex", formula="x^2", page=5, x=0, y=0)
 
@@ -155,6 +155,6 @@ def test_insert_math_disposal_propagates(monkeypatch: pytest.MonkeyPatch) -> Non
         def getDrawPages(self) -> Any:
             return _DisposedPages()
 
-    ctx = SimpleNamespace(doc=_DocWithDisposedPages(), active_page_index=0)
+    ctx = SimpleNamespace(doc=_DocWithDisposedPages(), active_page_index=0, ctx=None)
     with pytest.raises(DocumentDisposedError):
         InsertMathDraw().execute(ctx, formula_type="latex", formula="x^2", page=0, x=0, y=0)

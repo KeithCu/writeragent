@@ -9,8 +9,10 @@ from __future__ import annotations
 import logging
 import subprocess
 import time
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 from plugin.framework.config import get_config
 from plugin.framework.managed_subprocess import ManagedSubprocess
@@ -28,7 +30,7 @@ _BUILD_POLL_SEC = 0.2
 
 def find_project_pptx(project_path: Path) -> Path | None:
     """Return the newest native PPTX under ``exports/`` (skip ``*_svg.pptx`` snapshots)."""
-    exports = Path(project_path).expanduser().resolve() / "exports"
+    exports = project_path / "exports"
     if not exports.is_dir():
         return None
     candidates = sorted(exports.glob("*.pptx"), key=lambda p: p.stat().st_mtime, reverse=True)
@@ -39,7 +41,6 @@ def find_project_pptx(project_path: Path) -> Path | None:
 
 
 def build_project_pptx(
-    ctx: Any,
     project_path: Path,
     data_root: Path,
     *,
@@ -47,9 +48,6 @@ def build_project_pptx(
     timeout_sec: float = _BUILD_TIMEOUT_SEC,
 ) -> tuple[Path | None, str | None]:
     """Run upstream ``svg_to_pptx.py -q`` in the configured user venv."""
-    del ctx  # reserved for future venv worker IPC
-    project_path = Path(project_path).expanduser().resolve()
-    data_root = Path(data_root).expanduser().resolve()
     venv_dir = str(get_config("scripting.python_venv_path") or "").strip()
     python_exe = resolve_venv_python(venv_dir) if venv_dir else None
     if not python_exe:
@@ -132,7 +130,6 @@ def build_project_pptx(
 
 
 def ensure_project_pptx(
-    ctx: Any,
     project_path: Path,
     data_root: Path,
     *,
@@ -142,4 +139,4 @@ def ensure_project_pptx(
     existing = find_project_pptx(project_path)
     if existing is not None:
         return existing, None
-    return build_project_pptx(ctx, project_path, data_root, cancel=cancel)
+    return build_project_pptx(project_path, data_root, cancel=cancel)

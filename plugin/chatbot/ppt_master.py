@@ -62,7 +62,6 @@ def _run_ppt_master_venv_agent(
         return format_error_payload(ToolExecutionError("PPT-Master stopped by user.", code="USER_STOPPED"))
 
     return run_ppt_master_venv_turn(
-        ctx.ctx,
         query=query,
         history_text=history_text,
         topic=topic,

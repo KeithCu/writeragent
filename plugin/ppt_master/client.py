@@ -18,7 +18,6 @@ from plugin.framework.queue_executor import main
 from plugin.ppt_master.adapter.uno_enhance import apply_enhancement_project
 from plugin.ppt_master.adapter.uno_pptx_import import import_pptx_to_doc
 from plugin.ppt_master.adapter.uno_template_fill import apply_fill_plan_file
-from plugin.ppt_master.paths import data_root_status
 from plugin.ppt_master.pptx_build import ensure_project_pptx, find_project_pptx
 
 
@@ -27,6 +26,7 @@ def export_project_to_doc(
     project_path: str | Path,
     ctx: Any | None = None,
     *,
+    data_root: Path,
     cancel: SendCancellation | None = None,
 ) -> dict[str, Any]:
     """Export a ppt-master project into *doc* via PPTX → LO ODP import.
@@ -43,17 +43,7 @@ def export_project_to_doc(
     if ctx is None:
         return format_error_payload(ToolExecutionError("UNO context required for PPTX import."))
 
-    status = data_root_status(ctx)
-    if not status.get("ok"):
-        return format_error_payload(
-            ToolExecutionError(
-                "PPT-Master data package not configured (Settings → Python → PPT-Master data path).",
-                code="PPT_MASTER_DATA_MISSING",
-            )
-        )
-    data_root = Path(status["data_root"])
-
-    pptx_path, build_err = ensure_project_pptx(ctx, project_path, data_root, cancel=cancel)
+    pptx_path, build_err = ensure_project_pptx(project_path, data_root, cancel=cancel)
     if pptx_path is None:
         return format_error_payload(
             ToolExecutionError(
@@ -77,12 +67,12 @@ def export_project_to_doc(
 
 def apply_template_fill(doc: Any, plan_path: str | Path) -> dict[str, Any]:
     """Apply a fill plan JSON file to *doc*."""
-    return apply_fill_plan_file(doc, Path(plan_path))
+    return apply_fill_plan_file(doc, Path(plan_path).expanduser().resolve())
 
 
 def apply_native_enhance(doc: Any, project_path: str | Path) -> dict[str, Any]:
     """Apply enhancement metadata from a project directory."""
-    return apply_enhancement_project(doc, Path(project_path))
+    return apply_enhancement_project(doc, Path(project_path).expanduser().resolve())
 
 
 def validate_project_structure(project_path: str | Path) -> dict[str, Any]:

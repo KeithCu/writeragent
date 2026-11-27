@@ -54,6 +54,8 @@ import time
 import uuid
 from typing import Any, Callable, ClassVar, Generator, TypeVar
 
+from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK  # type: ignore
+
 from plugin.doc.compound_undo import UndoLock, UndoOutcome, UndoUnavailable, WriterCompoundUndo, commit_or_rollback
 from plugin.doc.text_helpers import FAILED, go_right, iter_elements, iter_portions
 # Module-qualified on purpose: plugin/testing_runner.py replaces config.get_config while native
@@ -68,7 +70,6 @@ from plugin.writer import review_authors
 from plugin.writer import review_scan as _review_scan
 from plugin.writer.heading_links import headings_if_touched, retarget_renamed_links
 from plugin.writer.html_import import replace_preserving_format
-from plugin.writer.range_copy import PARAGRAPH_BREAK
 from plugin.writer.record_changes import (
     is_recording_changes,
     overlaps_foreign_insertion,

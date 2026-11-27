@@ -8,15 +8,15 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from plugin.draw.bridge import DrawBridge
 from plugin.draw.placeholders import find_placeholder
 from plugin.framework.errors import ToolExecutionError, format_error_payload
 
 
-def apply_fill_plan_to_doc(doc: Any, plan: dict[str, Any], *, template_doc: Any | None = None) -> dict[str, Any]:
-    """Best-effort fill: duplicate slides and set placeholder/body text from plan."""
+def apply_fill_plan_to_doc(doc: Any, plan: dict[str, Any]) -> dict[str, Any]:
+    """Best-effort fill: insert one blank slide per plan item and set placeholder text."""
     slides = plan.get("slides")
     if not isinstance(slides, list) or not slides:
         return format_error_payload(ToolExecutionError("fill_plan must contain a non-empty slides list."))
@@ -27,14 +27,13 @@ def apply_fill_plan_to_doc(doc: Any, plan: dict[str, Any], *, template_doc: Any 
         if not isinstance(item, dict):
             continue
         bridge.create_slide(offset, switch=False)
-        item_dict = cast("dict[str, Any]", item)
-        replacements = item_dict.get("replacements") or item_dict.get("text") or {}
+        replacements = item.get("replacements") or item.get("text") or {}
         page, _slide_idx = bridge.resolve_page(offset)
         if isinstance(replacements, dict):
-            for _key, text in replacements.items():
+            for key, text in replacements.items():
                 if not text:
                     continue
-                shape, _ph_idx = find_placeholder(page, _key)
+                shape, _ph_idx = find_placeholder(page, key)
                 if shape is not None and hasattr(shape, "setString"):
                     shape.setString(text)
                     filled += 1

@@ -4,22 +4,31 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Build and inspect live Writer documents in UNO tests.
 
-Every function takes a real Writer document (``@with_native_doc("writer")``). The document
-pool, tool contexts and fakes live in ``tests/testing_utils.py``.
+Every function except ``bookmark_service`` takes a real Writer document
+(``@with_native_doc("writer")``). The document pool, tool contexts and fakes live in
+``tests/testing_utils.py``.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
+from types import SimpleNamespace
 from typing import Any
 
+from plugin.doc.document_helpers import DocumentService
 from plugin.doc.text_helpers import iter_elements
 from plugin.framework.uno_context import enum_has_more, execute_dispatch
+from plugin.writer.specialized.bookmarks import BookmarkService
 
 # com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK
 _PARAGRAPH_BREAK = 0
 _PARAGRAPH = "com.sun.star.text.Paragraph"
 _TEXT_TABLE = "com.sun.star.text.TextTable"
+
+
+def bookmark_service() -> BookmarkService:
+    """A ``BookmarkService`` backed by a real ``DocumentService``, as the registry builds it."""
+    return BookmarkService(SimpleNamespace(document=DocumentService()))
 
 
 def reset_body(doc: Any, ctx: Any, *paragraphs: str) -> None:

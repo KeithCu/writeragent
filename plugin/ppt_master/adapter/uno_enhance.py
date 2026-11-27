@@ -8,10 +8,13 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 from plugin.draw.bridge import DrawBridge, find_notes_shape
+from plugin.framework.doc_type import is_impress
 from plugin.framework.errors import ToolExecutionError, format_error_payload, is_disposal
 
 log = logging.getLogger(__name__)
@@ -19,7 +22,6 @@ log = logging.getLogger(__name__)
 
 def apply_enhancement_project(doc: Any, project_path: Path) -> dict[str, Any]:
     """Apply notes/transitions from project enhancement JSON if present."""
-    project_path = Path(project_path).expanduser().resolve()
     plan_path = project_path / "enhancement_plan.json"
     if not plan_path.is_file():
         return {"status": "ok", "message": "No enhancement_plan.json; nothing to apply.", "applied": 0}
@@ -27,6 +29,7 @@ def apply_enhancement_project(doc: Any, project_path: Path) -> dict[str, Any]:
     plan = json.loads(plan_path.read_text(encoding="utf-8"))
     bridge = DrawBridge(doc)
     pages = bridge.get_pages()
+    impress = is_impress(doc)
     applied = 0
     failures: list[str] = []
     for item in plan.get("slides") or []:
@@ -39,7 +42,7 @@ def apply_enhancement_project(doc: Any, project_path: Path) -> dict[str, Any]:
         if idx < 0 or idx >= pages.getCount():
             continue
         notes = item.get("notes")
-        if notes and doc.supportsService("com.sun.star.presentation.PresentationDocument"):
+        if notes and impress:
             # find_notes_shape is the NotesShape lookup the notes tools use.
             # Header, footer, and date chrome also implement setString and can
             # precede the notes body. Dispose propagates. applied increments

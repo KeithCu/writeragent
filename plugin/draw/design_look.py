@@ -40,7 +40,7 @@ from plugin.draw.otp_zip import (
     read_member as _read_member,
 )
 
-log = logging.getLogger("writeragent.draw.design_look")
+log = logging.getLogger(__name__)
 
 _MAX_RAW_PNG = 4 * 1024 * 1024
 _MAX_SAMPLED_PIXELS = 1024

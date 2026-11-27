@@ -36,7 +36,7 @@ DEFAULT_DPI = 150
 
 @dataclass
 class StructuralMetrics:
-    svg_text_elements: int = 0
+    pptx_text_shapes: int = 0
     odf_text_shapes: int = 0
     odf_shape_counts: dict[str, int] = field(default_factory=dict)
 
@@ -131,14 +131,6 @@ def count_odf_shape_types(page: Any) -> dict[str, int]:
     return counts
 
 
-def count_page_text_shapes(page: Any) -> int:
-    count = 0
-    for i in range(page.getCount()):
-        if "TextShape" in page.getByIndex(i).getShapeType():
-            count += 1
-    return count
-
-
 def _get_pptx_slide_xml_name(zf: zipfile.ZipFile, slide_index: int) -> str | None:
     try:
         if "ppt/presentation.xml" in zf.namelist() and "ppt/_rels/presentation.xml.rels" in zf.namelist():
@@ -217,7 +209,7 @@ def count_pptx_slide_text_shapes(pptx_path: Path, slide_index: int) -> int:
 
 def structural_metrics_pptx(
     imported_page: Any,
-    pptx_path: Path | None = None,
+    pptx_path: Path,
     slide_index: int = 0,
 ) -> StructuralMetrics:
     """Derive structural metrics comparing imported ODF shapes against source PPTX.
@@ -227,12 +219,9 @@ def structural_metrics_pptx(
     dropped during import: odf_text_shapes must be able to fall below expected.
     """
     counts = count_odf_shape_types(imported_page)
-    if pptx_path is not None:
-        expected_text = count_pptx_slide_text_shapes(pptx_path, slide_index)
-    else:
-        expected_text = count_page_text_shapes(imported_page)
+    expected_text = count_pptx_slide_text_shapes(pptx_path, slide_index)
     return StructuralMetrics(
-        svg_text_elements=expected_text,
+        pptx_text_shapes=expected_text,
         odf_text_shapes=counts.get("TextShape", 0),
         odf_shape_counts=counts,
     )
@@ -319,34 +308,6 @@ def soffice_convert_to_pdf(soffice: str, source: Path, out_dir: Path, *, timeout
     return pdfs[0] if pdfs else None
 
 
-def pdf_to_png(pdf_path: Path, png_path: Path, *, dpi: int = DEFAULT_DPI, timeout_sec: int = 60) -> bool:
-    """Rasterize first PDF page to PNG (pdftoppm, then ImageMagick)."""
-    png_path.parent.mkdir(parents=True, exist_ok=True)
-    stem = png_path.with_suffix("")
-    pdftoppm = shutil.which("pdftoppm")
-    if pdftoppm:
-        out_base = stem
-        cmd = [pdftoppm, "-png", "-singlefile", "-f", "1", "-l", "1", "-r", str(dpi), str(pdf_path), str(out_base)]
-        try:
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_sec, check=False)
-        except (OSError, subprocess.TimeoutExpired):
-            proc = None
-        produced = Path(f"{out_base}.png")
-        if proc is not None and proc.returncode == 0 and produced.is_file():
-            if produced != png_path:
-                produced.replace(png_path)
-            return True
-    magick = shutil.which("magick") or shutil.which("convert")
-    if magick:
-        cmd = [magick, "-density", str(dpi), f"{pdf_path}[0]", str(png_path)]
-        try:
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_sec, check=False)
-        except (OSError, subprocess.TimeoutExpired):
-            return False
-        return proc.returncode == 0 and png_path.is_file()
-    return False
-
-
 def pdf_page_to_png(pdf_path: Path, png_path: Path, *, page_1based: int, dpi: int = DEFAULT_DPI, timeout_sec: int = 60) -> bool:
     """Rasterize one PDF page (1-based index) to PNG."""
     png_path.parent.mkdir(parents=True, exist_ok=True)
@@ -354,13 +315,12 @@ def pdf_page_to_png(pdf_path: Path, png_path: Path, *, page_1based: int, dpi: in
     pdftoppm = shutil.which("pdftoppm")
     page = max(1, int(page_1based))
     if pdftoppm:
-        out_base = stem
-        cmd = [pdftoppm, "-png", "-singlefile", "-f", str(page), "-l", str(page), "-r", str(dpi), str(pdf_path), str(out_base)]
+        cmd = [pdftoppm, "-png", "-singlefile", "-f", str(page), "-l", str(page), "-r", str(dpi), str(pdf_path), str(stem)]
         try:
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_sec, check=False)
         except (OSError, subprocess.TimeoutExpired):
             proc = None
-        produced = Path(f"{out_base}.png")
+        produced = Path(f"{stem}.png")
         if proc is not None and proc.returncode == 0 and produced.is_file():
             if produced != png_path:
                 produced.replace(png_path)
@@ -379,7 +339,6 @@ def pdf_page_to_png(pdf_path: Path, png_path: Path, *, page_1based: int, dpi: in
 def evaluate_slide_fidelity(
     ctx: Any,
     *,
-    project_dir: Path,
     slide_label: str,
     slide_index: int,
     pptx_path: Path,
@@ -418,15 +377,12 @@ def evaluate_slide_fidelity(
         result.artifacts["imported_odp"] = str(odp_path)
 
         if skip_visual:
-            if result.structural:
-                text_ok = result.structural.odf_text_shapes >= result.structural.svg_text_elements
-                result.passed = text_ok
-                if not text_ok:
-                    result.errors.append(
-                        f"text shape count {result.structural.odf_text_shapes} < pptx text {result.structural.svg_text_elements}"
-                    )
-            else:
-                result.passed = page.getCount() > 0
+            text_ok = result.structural.odf_text_shapes >= result.structural.pptx_text_shapes
+            result.passed = text_ok
+            if not text_ok:
+                result.errors.append(
+                    f"text shape count {result.structural.odf_text_shapes} < pptx text {result.structural.pptx_text_shapes}"
+                )
             return result
 
         imp_pdf_dir = slide_dir / "imp_pdf"
@@ -448,7 +404,7 @@ def evaluate_slide_fidelity(
         if not pdf_page_to_png(ref_pdf, ref_png, page_1based=ref_page, dpi=dpi):
             result.errors.append("reference PNG rasterize failed (install poppler pdftoppm or ImageMagick)")
             return result
-        if not pdf_to_png(imp_pdf, imp_png, dpi=dpi):
+        if not pdf_page_to_png(imp_pdf, imp_png, page_1based=1, dpi=dpi):
             result.errors.append("imported PNG rasterize failed (install poppler pdftoppm or ImageMagick)")
             return result
 
@@ -463,9 +419,9 @@ def evaluate_slide_fidelity(
                 f"visual diff_fraction {result.visual.diff_fraction:.3f} > threshold {threshold:.3f} "
                 f"(see {diff_png.name})"
             )
-        if result.structural and result.structural.odf_text_shapes < result.structural.svg_text_elements:
+        if result.structural.odf_text_shapes < result.structural.pptx_text_shapes:
             result.errors.append(
-                f"text shapes {result.structural.odf_text_shapes} < pptx text shapes {result.structural.svg_text_elements}"
+                f"text shapes {result.structural.odf_text_shapes} < pptx text shapes {result.structural.pptx_text_shapes}"
             )
 
         return result
@@ -492,9 +448,9 @@ def run_project_fidelity(
 
     pptx_path = find_project_pptx(project_dir)
     if pptx_path is None:
-        status = data_root_status(ctx)
+        status = data_root_status()
         if status.get("ok"):
-            pptx_path, build_err = ensure_project_pptx(ctx, project_dir, Path(status["data_root"]))
+            pptx_path, build_err = ensure_project_pptx(project_dir, Path(status["data_root"]))
             if pptx_path is None:
                 raise RuntimeError(build_err or "PPTX not available for fidelity run")
         else:
@@ -525,7 +481,6 @@ def run_project_fidelity(
         report.slides.append(
             evaluate_slide_fidelity(
                 ctx,
-                project_dir=project_dir,
                 slide_label=svg_path.name,
                 slide_index=i,
                 pptx_path=pptx_path,
@@ -565,9 +520,8 @@ def write_agent_summary(report: ProjectFidelityReport, path: Path) -> None:
         diff = slide.visual.diff_fraction if slide.visual else "n/a"
         status = "PASS" if slide.passed and not slide.errors else "FAIL"
         lines.append(f"- **{status}** `{slide.svg_name}` diff_fraction={diff}")
-        if slide.errors:
-            for err in slide.errors:
-                lines.append(f"  - {err}")
+        for err in slide.errors:
+            lines.append(f"  - {err}")
         if slide.visual:
             lines.append(f"  - diff image: `{slide.visual.diff_png}`")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")

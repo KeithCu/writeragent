@@ -12,6 +12,7 @@ from plugin.doc.text_helpers import (
     get_document_path,
     get_string_without_tracked_deletions,
     normalize_linebreaks,
+    textfield_service_name,
 )
 from plugin.framework.errors import DocumentDisposedError
 from plugin.tests.testing_utils import DisposedException, FakeUnoEnum
@@ -2247,3 +2248,21 @@ def test_visible_portions_yields_kept_frame_inside_deletion():
     assert state.para_live is True
     assert state.para_frame is True
     assert state.strikes_paragraph(para, False) is False
+
+
+@pytest.mark.parametrize(
+    "names, expected",
+    [
+        # SwXTextField: provider name, its textfield. spelling, TextContent.
+        (
+            ("com.sun.star.text.TextField.DocInfo.Title", "com.sun.star.text.textfield.docinfo.Title", "com.sun.star.text.TextContent"),
+            "com.sun.star.text.textfield.docinfo.Title",
+        ),
+        # editeng fields (Calc, Draw) report the capital-T TextField service only.
+        (("com.sun.star.text.TextField", "com.sun.star.text.TextContent"), ""),
+    ],
+)
+def test_textfield_service_name(names, expected):
+    field = MagicMock()
+    field.getSupportedServiceNames.return_value = names
+    assert textfield_service_name(field) == expected

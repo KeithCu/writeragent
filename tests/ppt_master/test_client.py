@@ -15,7 +15,7 @@ from plugin.ppt_master import client
 def test_export_project_to_doc_missing_directory_does_not_collect_svgs(tmp_path: Path) -> None:
     missing = tmp_path / "nope"
     with patch.object(client, "collect_svg_files") as collect:
-        out = client.export_project_to_doc(MagicMock(), missing, ctx=MagicMock())
+        out = client.export_project_to_doc(MagicMock(), missing, ctx=MagicMock(), data_root=tmp_path)
     collect.assert_not_called()
     assert "Project path not found" in out.get("message", "")
 
@@ -25,7 +25,7 @@ def test_export_project_to_doc_no_svgs_does_not_set_data_root_env(monkeypatch, t
     project = tmp_path / "proj"
     project.mkdir()
     (project / "svg_final").mkdir()
-    out = client.export_project_to_doc(MagicMock(), project, ctx=MagicMock())
+    out = client.export_project_to_doc(MagicMock(), project, ctx=MagicMock(), data_root=tmp_path)
     assert "No SVG slides" in out.get("message", "")
     assert os.environ.get("PPT_MASTER_DATA_ROOT") is None
 
@@ -37,11 +37,10 @@ def test_export_project_to_doc_forwards_cancel_and_returns_error_on_stop(tmp_pat
     (project / "svg_final" / "slide_001.svg").write_text("<svg></svg>", encoding="utf-8")
     cancel = MagicMock()
     ctx = MagicMock()
-    with patch("plugin.ppt_master.client.data_root_status", return_value={"ok": True, "data_root": str(tmp_path)}), \
-         patch("plugin.ppt_master.client.ensure_project_pptx", return_value=(None, "PPTX build stopped.")) as mock_ensure, \
+    with patch("plugin.ppt_master.client.ensure_project_pptx", return_value=(None, "PPTX build stopped.")) as mock_ensure, \
          patch("plugin.ppt_master.client.main.call") as mock_main_call:
-        res = client.export_project_to_doc(MagicMock(), project, ctx=ctx, cancel=cancel)
-    mock_ensure.assert_called_once_with(ctx, project, tmp_path, cancel=cancel)
+        res = client.export_project_to_doc(MagicMock(), project, ctx=ctx, data_root=tmp_path, cancel=cancel)
+    mock_ensure.assert_called_once_with(project, tmp_path, cancel=cancel)
     mock_main_call.assert_not_called()
     assert res.get("status") == "error"
     assert res.get("code") == "PPTX_BUILD_FAILED"

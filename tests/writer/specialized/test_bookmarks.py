@@ -8,9 +8,9 @@ from plugin.writer.specialized.bookmarks import (
     BookmarkRename,
     BookmarkGet,
     BookmarkList,
-    BookmarkService,
     _BookmarkSaveListener,
 )
+from tests.writer.doc_builders import bookmark_service
 
 
 @pytest.fixture
@@ -201,7 +201,7 @@ def test_untracked_restores_modified_and_unlocks_on_error():
     doc.getUndoManager.return_value = um
 
     with pytest.raises(RuntimeError):
-        with BookmarkService()._untracked(doc):
+        with bookmark_service()._untracked(doc):
             raise RuntimeError("insert failed")
 
     um.lock.assert_called_once()
@@ -218,7 +218,7 @@ def test_ensure_heading_bookmarks_never_stores():
     text.createEnumeration.return_value = enum
     doc.getText.return_value = text
     doc.getBookmarks.return_value.getElementNames.return_value = []
-    BookmarkService().ensure_heading_bookmarks(doc, [])
+    bookmark_service().ensure_heading_bookmarks(doc, [])
     doc.store.assert_not_called()
 
 
@@ -330,7 +330,7 @@ def test_ensure_removes_mcp_bookmark_when_heading_is_demoted(monkeypatch):
             "Mine": _Mark("Mine", para=2),
         },
     )
-    result = BookmarkService().ensure_heading_bookmarks(doc, [1, 3])
+    result = bookmark_service().ensure_heading_bookmarks(doc, [1, 3])
     assert result[1] == "_mcp_keep"
     assert result[3].startswith("_mcp_")
     assert result[3] != "_mcp_old"
@@ -358,7 +358,7 @@ def test_ensure_drops_unplaced_mcp_bookmark_instead_of_paragraph_zero(monkeypatc
         [_Para("Title", 1)],
         {"_mcp_stale": _Mark("_mcp_stale", anchor=_Broken())},
     )
-    result = BookmarkService().ensure_heading_bookmarks(doc, [0])
+    result = bookmark_service().ensure_heading_bookmarks(doc, [0])
     assert result[0].startswith("_mcp_")
     assert result[0] != "_mcp_stale"
     assert "_mcp_stale" not in doc.bookmarks
@@ -378,7 +378,7 @@ def test_ensure_keeps_demoted_bookmark_during_save_hook(monkeypatch):
             "_mcp_old": _Mark("_mcp_old", para=2),
         },
     )
-    svc = BookmarkService()
+    svc = bookmark_service()
     doc_key = svc._doc_key(doc)
     with _in_save_hook(doc_key):
         result = svc.ensure_heading_bookmarks(doc, [1])
@@ -408,7 +408,7 @@ def test_ensure_heading_bookmarks_raising_map_read(monkeypatch):
         [_Para("Title", 1)],
         {"_mcp_existing": _Mark("_mcp_existing", para=0)},
     )
-    svc = BookmarkService()
+    svc = bookmark_service()
 
     def raise_map(*args, **kwargs):
         raise RuntimeError("boom")
@@ -420,13 +420,13 @@ def test_ensure_heading_bookmarks_raising_map_read(monkeypatch):
 
 
 def test_restore_after_save_failure_leaves_pending(monkeypatch):
-    from plugin.writer.specialized.bookmarks import BookmarkService, _PendingStrip, _PENDING_STRIPS
+    from plugin.writer.specialized.bookmarks import _PendingStrip, _PENDING_STRIPS
 
     doc = _HeadingDoc(
         [_Para("Title", 1)],
         {},
     )
-    svc = BookmarkService()
+    svc = bookmark_service()
     doc_key = "test_restore_key"
     monkeypatch.setattr(svc, "_doc_key", lambda d: doc_key)
     _PENDING_STRIPS[doc_key] = _PendingStrip({0: "_mcp_saved"}, False, doc)
@@ -471,7 +471,7 @@ def test_ensure_heading_bookmarks_skips_when_name_collides():
         [_Para("Title", 1)],
         {},
     )
-    svc = BookmarkService()
+    svc = bookmark_service()
     inserted = []
     doc.insertTextContent = lambda cursor, bookmark, absorb: inserted.append(bookmark)
     doc.getBookmarks().hasByName = lambda name: True
@@ -505,7 +505,7 @@ def test_save_hook_key_doc_a_does_not_suppress_doc_b(monkeypatch):
         [_Para("Title B", 1), _Para("Demoted B", 0)],
         {"_mcp_b_keep": _Mark("_mcp_b_keep", para=0), "_mcp_b_old": _Mark("_mcp_b_old", para=1)},
     )
-    svc = BookmarkService()
+    svc = bookmark_service()
     key_a = "doc_key_a"
     key_b = "doc_key_b"
     monkeypatch.setattr(svc, "_doc_key", lambda d: key_a if d is doc_a else key_b)
@@ -528,7 +528,7 @@ def test_untracked_is_modified_raises_does_not_call_set_modified():
     doc = MagicMock()
     doc.isModified.side_effect = RuntimeError("cannot read modified")
     doc.getUndoManager.return_value = MagicMock()
-    svc = BookmarkService()
+    svc = bookmark_service()
     with svc._untracked(doc):
         pass
     doc.setModified.assert_not_called()
@@ -541,7 +541,7 @@ def test_strip_and_restore_after_save_failed_is_modified_does_not_call_set_modif
     doc.isModified.side_effect = RuntimeError("cannot read modified")
     doc.getUndoManager.return_value = MagicMock()
     doc.getBookmarks.return_value.getElementNames.return_value = []
-    svc = BookmarkService()
+    svc = bookmark_service()
     monkeypatch.setattr(svc, "_doc_key", lambda d: "test_doc_key")
     monkeypatch.setattr("plugin.writer.specialized.bookmarks.is_cacheable_doc_key", lambda k: True)
     monkeypatch.setattr(svc, "get_mcp_bookmark_map", lambda d: {0: "_mcp_heading"})
@@ -687,7 +687,7 @@ def test_read_mcp_bookmark_map_skips_paragraph_scan_when_no_mcp_names(monkeypatc
 
     monkeypatch.setattr("plugin.writer.specialized.bookmarks.get_paragraph_ranges", fail_if_called)
 
-    svc = BookmarkService()
+    svc = bookmark_service()
     bm_map, all_names = svc._read_mcp_bookmark_map_and_names(doc, para_ranges=None)
     assert bm_map == {}
     assert all_names == []

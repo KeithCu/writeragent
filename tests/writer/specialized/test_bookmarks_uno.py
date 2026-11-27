@@ -9,6 +9,7 @@ from plugin.tests.testing_utils import pinned_writer_tool_context, with_native_d
 from types import SimpleNamespace
 
 from plugin.writer.specialized.bookmarks import BookmarkDelete, BookmarkService
+from tests.writer.doc_builders import bookmark_service
 
 
 def _setup_headings(doc):
@@ -45,7 +46,7 @@ def _mcp_count_in_odt(path):
 @with_native_doc("writer")
 def test_ensure_heading_bookmarks_and_map(ctx, doc):
     _setup_headings(doc)
-    bookmark_svc = BookmarkService()
+    bookmark_svc = bookmark_service()
 
     # Initially no bookmarks
     bms = doc.getBookmarks().getElementNames()
@@ -73,7 +74,7 @@ def test_ensure_heading_bookmarks_and_map(ctx, doc):
 @with_native_doc("writer")
 def test_find_nearest_heading_bookmark(ctx, doc):
     _setup_headings(doc)
-    bookmark_svc = BookmarkService()
+    bookmark_svc = bookmark_service()
 
     bookmark_map = bookmark_svc.ensure_heading_bookmarks(doc, [0, 2])
 
@@ -94,7 +95,7 @@ def test_find_nearest_heading_bookmark(ctx, doc):
 @with_native_doc("writer")
 def test_cleanup_mcp_bookmarks(ctx, doc):
     _setup_headings(doc)
-    bookmark_svc = BookmarkService()
+    bookmark_svc = bookmark_service()
 
     # Ensure we have some bookmarks
     bookmark_svc.ensure_heading_bookmarks(doc, [0, 2])
@@ -118,7 +119,7 @@ def test_cleanup_mcp_bookmarks(ctx, doc):
 def test_ensure_does_not_dirty_document(ctx, doc):
     _setup_headings(doc)
     doc.setModified(False)
-    BookmarkService().ensure_heading_bookmarks(doc, [0, 2])
+    bookmark_service().ensure_heading_bookmarks(doc, [0, 2])
     assert doc.isModified() is False
     assert len(_mcp_names(doc)) == 2
 
@@ -152,7 +153,7 @@ def test_undo_after_ensure_undoes_user_type(ctx, doc):
     text.insertString(cursor, "UNIQUE_TYPE", False)
     assert "UNIQUE_TYPE" in text.getString()
 
-    bookmark_svc = BookmarkService()
+    bookmark_svc = bookmark_service()
     bookmark_map = bookmark_svc.ensure_heading_bookmarks(doc, [0, 2])
     assert len(bookmark_map) == 2
 
@@ -167,7 +168,7 @@ def test_undo_after_ensure_undoes_user_type(ctx, doc):
 @with_native_doc("writer")
 def test_strip_on_save_omits_mcp_from_file(ctx, doc):
     _setup_headings(doc)
-    bookmark_svc = BookmarkService()
+    bookmark_svc = bookmark_service()
     bookmark_map = bookmark_svc.ensure_heading_bookmarks(doc, [0, 2])
     names_before = set(bookmark_map.values())
     assert names_before
@@ -189,7 +190,7 @@ def test_strip_on_save_omits_mcp_from_file(ctx, doc):
 @with_native_doc("writer")
 def test_save_as_restores_same_names(ctx, doc):
     _setup_headings(doc)
-    bookmark_svc = BookmarkService()
+    bookmark_svc = bookmark_service()
     names = set(bookmark_svc.ensure_heading_bookmarks(doc, [0, 2]).values())
     fd, path = tempfile.mkstemp(suffix=".odt")
     os.close(fd)
@@ -208,7 +209,7 @@ def test_save_as_restores_same_names(ctx, doc):
 @with_native_doc("writer")
 def test_save_a_copy_keeps_original_modified(ctx, doc):
     _setup_headings(doc)
-    bookmark_svc = BookmarkService()
+    bookmark_svc = bookmark_service()
     names = set(bookmark_svc.ensure_heading_bookmarks(doc, [0, 2]).values())
     text = doc.getText()
     cursor = text.createTextCursor()
@@ -314,7 +315,7 @@ def test_heading_read_keeps_undo_off_when_it_was_off_uno(ctx):
         um = doc.getUndoManager()
         assert um.isLocked() is True
 
-        bookmark_map = BookmarkService().ensure_heading_bookmarks(doc, [0])
+        bookmark_map = bookmark_service().ensure_heading_bookmarks(doc, [0])
         assert 0 in bookmark_map
         assert doc.getBookmarks().hasByName(bookmark_map[0])
         assert um.isLocked() is True

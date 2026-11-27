@@ -19,8 +19,9 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Dict, Iterator
+from typing import TYPE_CHECKING, Any, Iterator
 
+from plugin.framework.doc_type import is_impress
 from plugin.framework.errors import WriterAgentException, is_disposal, uno_read, uno_write
 from plugin.framework.tool_schema import page_index_param
 from plugin.framework.uno_context import supports_service
@@ -31,7 +32,7 @@ if TYPE_CHECKING:
 from plugin.draw.base import ToolDrawHeaderFooterBase
 from plugin.draw.bridge import DrawBridge
 
-log = logging.getLogger("writeragent.draw.headers_footers")
+log = logging.getLogger(__name__)
 
 
 def _get_page(ctx: ToolContext, page_index: int, is_master_page: bool) -> Any:
@@ -81,7 +82,7 @@ _MISSING: Any = object()
 
 
 def _impress_master_hf_use_shapes(doc: Any, is_master_page: bool) -> bool:
-    return uno_read(lambda: bool(doc.supportsService("com.sun.star.presentation.PresentationDocument")), False) and is_master_page
+    return is_master_page and is_impress(doc)
 
 
 def _iter_shapes_on_page(page: Any) -> Iterator[Any]:
@@ -115,7 +116,7 @@ def _hf_shape_hit(shape: Any, svc: str, base: str, *, strict: bool) -> bool:
 
 def _collect_hf_shapes(page: Any) -> dict[str, Any]:
     services = (_SVC_HEADER, _SVC_FOOTER, _SVC_DATETIME, _SVC_SLIDENO)
-    found: dict[str, Any] = {s: None for s in services}
+    found: dict[str, Any] = dict.fromkeys(services)
     shapes = list(_iter_shapes_on_page(page))
     bases = {svc: svc.rsplit(".", 1)[-1] for svc in services}
     for strict in (True, False):
@@ -177,27 +178,29 @@ def _get_bool(shape: Any, name: str, *, fallback_attr: bool = False) -> bool:
         return False
 
 
-def _read_impress_master_hf_shapes(page: Any, out: Dict[str, Any]) -> None:
+def _read_impress_master_hf_shapes(page: Any, out: dict[str, Any]) -> None:
     shapes = _collect_hf_shapes(page)
     for _schema_key, uno_prop, svc, kind in _FIELDS:
-        if kind == "text" and svc:
-            out[uno_prop] = _get_text(shapes.get(svc))
-        elif kind == "visible" and svc:
-            out[uno_prop] = _get_bool(shapes.get(svc), "Visible", fallback_attr=False)
+        if kind == "text":
+            assert svc is not None
+            out[uno_prop] = _get_text(shapes[svc])
+        elif kind == "visible":
+            assert svc is not None
+            out[uno_prop] = _get_bool(shapes[svc], "Visible", fallback_attr=False)
         elif kind == "fixed":
-            dt_shape = shapes.get(_SVC_DATETIME)
+            dt_shape = shapes[_SVC_DATETIME]
             out[uno_prop] = _get_bool(dt_shape, "IsFixed", fallback_attr=True)
     out["DateTimeFormat"] = uno_read(lambda: page.getPropertyValue("DateTimeFormat"), 0)
 
 
-def _write_impress_master_hf_shapes(page: Any, kwargs: Dict[str, Any]) -> tuple[int, list[str]]:
+def _write_impress_master_hf_shapes(page: Any, kwargs: dict[str, Any]) -> tuple[int, list[str]]:
     shapes = _collect_hf_shapes(page)
     updated = 0
     failed: list[str] = []
     for schema_key, _uno_prop, svc, kind in _FIELDS:
         if schema_key not in kwargs or not svc:
             continue
-        shape = shapes.get(svc)
+        shape = shapes[svc]
         ok = _set_text(shape, str(kwargs[schema_key])) if kind == "text" else _set_visible(shape, kwargs[schema_key])
         if ok:
             updated += 1
@@ -226,10 +229,10 @@ class GetHeadersFooters(ToolDrawHeaderFooterBase):
         "required": ["page"],
     }
 
-    def execute(self, ctx: ToolContext, **kwargs: Any) -> Dict[str, Any]:
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         page_index, is_master_page, page = _resolve_hf_page(ctx, kwargs)
 
-        result: Dict[str, Any] = {"status": "ok", "page": page_index, "is_master_page": is_master_page, "properties": {}}
+        result: dict[str, Any] = {"status": "ok", "page": page_index, "is_master_page": is_master_page, "properties": {}}
 
         props = result["properties"]
         if _impress_master_hf_use_shapes(ctx.doc, is_master_page):
@@ -269,7 +272,7 @@ class SetHeadersFooters(ToolDrawHeaderFooterBase):
         "required": ["page"],
     }
 
-    def execute(self, ctx: ToolContext, **kwargs: Any) -> Dict[str, Any]:
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         page_index, is_master_page, page = _resolve_hf_page(ctx, kwargs)
         use_shapes = _impress_master_hf_use_shapes(ctx.doc, is_master_page)
 

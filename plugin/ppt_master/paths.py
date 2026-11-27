@@ -45,7 +45,7 @@ def _resolve_user_path(raw: Path) -> Path | None:
     return _search_tree(raw.expanduser())
 
 
-def _user_venv_site_package_roots(ctx: Any | None = None) -> list[Path]:
+def _user_venv_site_package_roots() -> list[Path]:
     from plugin.framework.config import get_config
 
     venv_dir = str(get_config("scripting.python_venv_path") or "").strip()
@@ -63,10 +63,10 @@ def _dev_clone_data_root() -> Path | None:
     return _search_tree(repo / "ppt-master")
 
 
-def find_data_root_in_site_packages(ctx: Any | None = None) -> Path | None:
+def find_data_root_in_site_packages() -> Path | None:
     """Locate skills/ppt-master under user venv site-packages or LO sys.path."""
     search_roots: list[Path] = []
-    search_roots.extend(_user_venv_site_package_roots(ctx))
+    search_roots.extend(_user_venv_site_package_roots())
     for entry in sys.path:
         if entry:
             search_roots.append(Path(entry))
@@ -95,8 +95,9 @@ def _configured_data_root() -> Path | None:
     return None
 
 
-def resolve_data_root(ctx: Any | None = None) -> Path:
+def resolve_data_root(_ctx: Any | None = None) -> Path:
     """Config override → env → venv discovery → dev clone."""
+    # contrib/ppt_master/skill_paths.py passes a UNO ctx; nothing reads it.
     configured = _configured_data_root()
     if configured is not None:
         return configured
@@ -107,7 +108,7 @@ def resolve_data_root(ctx: Any | None = None) -> Path:
         if resolved is not None:
             return resolved
 
-    found = find_data_root_in_site_packages(ctx)
+    found = find_data_root_in_site_packages()
     if found is not None:
         return found
 
@@ -115,12 +116,12 @@ def resolve_data_root(ctx: Any | None = None) -> Path:
     return Path("skills/ppt-master")
 
 
-def apply_data_root_env(ctx: Any | None = None) -> Path:
-    """Set PPT_MASTER_DATA_ROOT for upstream ppt-master scripts."""
-    root = resolve_data_root(ctx)
+def apply_data_root_env() -> dict[str, Any]:
+    """Set PPT_MASTER_DATA_ROOT for upstream ppt-master scripts and return status."""
+    root = resolve_data_root()
     if _looks_like_data_root(root):
         os.environ["PPT_MASTER_DATA_ROOT"] = str(root)
-    return root
+    return _status_for_root(root)
 
 
 def _status_for_root(root: Path) -> dict[str, Any]:
@@ -139,8 +140,8 @@ def _status_for_root(root: Path) -> dict[str, Any]:
     }
 
 
-def data_root_status(ctx: Any | None = None) -> dict[str, Any]:
-    return _status_for_root(resolve_data_root(ctx))
+def data_root_status() -> dict[str, Any]:
+    return _status_for_root(resolve_data_root())
 
 
 def data_root_status_for_path(raw_path: str | None) -> dict[str, Any]:
