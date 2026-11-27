@@ -18,11 +18,13 @@ from plugin.tests.testing_utils import DisposedException
 
 
 class _FakeShape:
-    def __init__(self, class_name=None, name="", text=""):
-        if class_name is not None:
-            self.ClassName = class_name
+    def __init__(self, shape_type=None, name="", text=""):
+        self._shape_type = shape_type or ""
         self.Name = name
         self._text = text
+
+    def getShapeType(self):
+        return self._shape_type
 
     def getString(self):
         return self._text
@@ -50,18 +52,18 @@ def test_role_from_label_priority_title_not_body():
 
 
 @pytest.mark.parametrize(
-    "class_name, text, class_name_2, text_2, expected, expected_2",
+    "shape_type, text, shape_type_2, text_2, expected, expected_2",
     [
         # 'text' is a substring of 'titletextshape'; a substring match would return the title as body.
         pytest.param("TitleTextShape", "Title", "OutlinerShape", "Body", 0, 1, id="test_body_does_not_match_title_text_shape"),
         pytest.param("OutlinerShape", "Body", "TitleTextShape", "Title", 1, 0, id="test_role_match_independent_of_shape_order"),
     ],
 )
-def test_body_does_not_match_title_text_shape(class_name, text, class_name_2, text_2, expected, expected_2):
+def test_body_does_not_match_title_text_shape(shape_type, text, shape_type_2, text_2, expected, expected_2):
     page = _FakePage(
         [
-            _FakeShape(class_name=class_name, text=text),
-            _FakeShape(class_name=class_name_2, text=text_2),
+            _FakeShape(shape_type=shape_type, text=text),
+            _FakeShape(shape_type=shape_type_2, text=text_2),
         ]
     )
     _unused_shape, title_idx = find_placeholder(page, "title")
@@ -73,8 +75,8 @@ def test_subtitle_not_classified_as_title():
     """'title' is a substring of 'subtitle'; SubTitle must win."""
     page = _FakePage(
         [
-            _FakeShape(class_name="SubTitleShape", text="Sub"),
-            _FakeShape(class_name="TitleTextShape", text="Title"),
+            _FakeShape(shape_type="SubTitleShape", text="Sub"),
+            _FakeShape(shape_type="TitleTextShape", text="Title"),
         ]
     )
     _unused_sub, sub_idx = find_placeholder(page, "subtitle")
@@ -85,15 +87,15 @@ def test_subtitle_not_classified_as_title():
 
 
 def test_body_on_title_only_slide_is_not_the_title():
-    page = _FakePage([_FakeShape(class_name="TitleTextShape", text="Only title")])
+    page = _FakePage([_FakeShape(shape_type="TitleTextShape", text="Only title")])
     assert find_placeholder(page, "body") == (None, None)
 
 
 def test_list_placeholders_roles_from_class_map():
     page = _FakePage(
         [
-            _FakeShape(class_name="TitleTextShape", text="T"),
-            _FakeShape(class_name="OutlinerShape", text="B"),
+            _FakeShape(shape_type="TitleTextShape", text="T"),
+            _FakeShape(shape_type="OutlinerShape", text="B"),
         ]
     )
     listed = _list_placeholders(_scan_shapes(page))
@@ -153,7 +155,7 @@ def test_role_miss_empty_available_is_actionable():
 
 
 def test_role_miss_nonempty_available_stays_simple():
-    page = _FakePage([_FakeShape(class_name="TitleTextShape", text="T")])
+    page = _FakePage([_FakeShape(shape_type="TitleTextShape", text="T")])
     extra = _role_miss_error_kwargs(_scan_shapes(page))
     assert extra["available"]
     assert "suggest_layout" not in extra
@@ -165,8 +167,10 @@ def test_role_miss_fallback_indices_for_class_only_shapes():
 
     class _ClassOnly:
         def __init__(self):
-            self.ClassName = "TitleTextShape"
             self.Name = "Title"
+
+        def getShapeType(self):
+            return "TitleTextShape"
 
     extra = _role_miss_error_kwargs(_scan_shapes(_FakePage([_ClassOnly()])))
     assert extra["available"] == []
@@ -177,8 +181,8 @@ def test_role_miss_fallback_indices_for_class_only_shapes():
 
 def test_get_placeholder_text_by_role_returns_index():
     page = _FakePage([
-        _FakeShape(class_name="TitleTextShape", text="Title"),
-        _FakeShape(class_name="OutlinerShape", text="Body")
+        _FakeShape(shape_type="TitleTextShape", text="Title"),
+        _FakeShape(shape_type="OutlinerShape", text="Body")
     ])
 
     with patch("plugin.draw.placeholders.DrawBridge") as bridge_cls:
@@ -195,8 +199,8 @@ def test_get_placeholder_text_by_role_returns_index():
             self._text = text
 
     page2 = _FakePage([
-        _MockShapeWithSetString(class_name="TitleTextShape", text="Title"),
-        _MockShapeWithSetString(class_name="OutlinerShape", text="Body")
+        _MockShapeWithSetString(shape_type="TitleTextShape", text="Title"),
+        _MockShapeWithSetString(shape_type="OutlinerShape", text="Body")
     ])
     with patch("plugin.draw.placeholders.DrawBridge") as bridge_cls:
         bridge_cls.return_value.resolve_page.return_value = (page2, 0)
@@ -229,14 +233,14 @@ def test_name_only_match():
 def test_class_on_later_shape_beats_name_on_earlier():
     page = _FakePage([
         _FakeShape(name="TitleBox", text="Named Title"),
-        _FakeShape(class_name="TitleTextShape", text="Real Title"),
+        _FakeShape(shape_type="TitleTextShape", text="Real Title"),
     ])
     shape, idx = find_placeholder(page, "title")
     assert idx == 1
 
 
 def test_get_placeholder_miss_has_available_no_details():
-    page = _FakePage([_FakeShape(class_name="TitleTextShape", text="T")])
+    page = _FakePage([_FakeShape(shape_type="TitleTextShape", text="T")])
     with patch("plugin.draw.placeholders.DrawBridge") as bridge_cls:
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
         res = GetPlaceholderText().execute(SimpleNamespace(doc=object(), active_page_index=None), role="body")
@@ -274,7 +278,7 @@ def test_scan_skips_shape_whose_property_raises():
         def getString(self):
             return "bad"
 
-    page = _FakePage([_BadName(), _FakeShape(class_name="TitleTextShape", text="T")])
+    page = _FakePage([_BadName(), _FakeShape(shape_type="TitleTextShape", text="T")])
     listed = _list_placeholders(_scan_shapes(page))
     # The bad Name only loses the name; the shape is still listed, next to the good one.
     assert [entry["text"] for entry in listed] == ["bad", "T"]
@@ -286,7 +290,7 @@ def test_scan_skips_shape_whose_get_string_raises():
         def getString(self):
             raise RuntimeError("boom")
 
-    page = _FakePage([_BadText(class_name="TitleTextShape"), _FakeShape(class_name="OutlinerShape", text="B")])
+    page = _FakePage([_BadText(shape_type="TitleTextShape"), _FakeShape(shape_type="OutlinerShape", text="B")])
     assert [entry["role"] for entry in _list_placeholders(_scan_shapes(page))] == ["body"]
 
 

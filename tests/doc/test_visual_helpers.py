@@ -590,14 +590,8 @@ def test_apply_character_properties_italic_is_not_oblique() -> None:
 
 def test_apply_character_properties_italic_uses_named_font_slant(monkeypatch) -> None:
     """italic=True must pass FontSlant.ITALIC, the same named constant calc uses."""
-    import sys
-    import types
-
-    slant = types.ModuleType("com.sun.star.awt.FontSlant")
-    slant.NONE = "none-sentinel"
-    slant.OBLIQUE = "oblique-sentinel"
-    slant.ITALIC = "italic-sentinel"
-    monkeypatch.setitem(sys.modules, "com.sun.star.awt.FontSlant", slant)
+    monkeypatch.setattr(visual_helpers, "NONE", "none-sentinel")
+    monkeypatch.setattr(visual_helpers, "ITALIC", "italic-sentinel")
 
     target = FakePropertyObject({"CharPosture": 0})
     visual_helpers.apply_character_properties(target, italic=True)
