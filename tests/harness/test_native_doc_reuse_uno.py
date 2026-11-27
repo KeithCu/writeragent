@@ -11,6 +11,7 @@ from plugin.tests.testing_utils import with_native_doc
 # *same* doc, so the emptiness checks prove reset-on-reuse rather than a fresh document.
 _calc_uids: list = []
 _writer_uids: list = []
+_writer_shape_uids: list = []
 
 
 def _runtime_uid(doc) -> str:
@@ -71,6 +72,30 @@ def test_writer_reuse_next_test_sees_empty_text(ctx, doc):
     assert weight < 135.0, f"empty para leaked bold CharWeight={weight!r}"
     para = str(cursor.getPropertyValue("ParaStyleName") or "")
     assert para in ("", "Standard"), f"empty para leaked style {para!r}"
+
+
+@native_test
+@with_native_doc("writer")
+def test_writer_reuse_leaves_free_shape_on_draw_page(ctx, doc):
+    from com.sun.star.awt import Size
+    from com.sun.star.text.TextContentAnchorType import AT_PAGE
+
+    shape = doc.createInstance("com.sun.star.drawing.CustomShape")
+    shape.setSize(Size(2000, 2000))
+    doc.getDrawPage().add(shape)
+    # A page-anchored shape is not anchored in the body text, so wiping the text leaves it.
+    shape.setPropertyValue("AnchorType", AT_PAGE)
+    shape.setString("leftover shape text")
+    assert doc.getDrawPage().getCount() == 1
+    _writer_shape_uids.append(_runtime_uid(doc))
+
+
+@native_test
+@with_native_doc("writer")
+def test_writer_reuse_next_test_sees_empty_draw_page(ctx, doc):
+    assert _writer_shape_uids, "run test_writer_reuse_leaves_free_shape_on_draw_page first (pairs share the pooled doc)"
+    assert _runtime_uid(doc) == _writer_shape_uids[0], "expected reused Writer doc, got a different RuntimeUID"
+    assert doc.getDrawPage().getCount() == 0, "free shape leaked across the pooled Writer wipe"
 
 
 @native_test

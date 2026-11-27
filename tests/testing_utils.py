@@ -918,8 +918,28 @@ def _reset_writer_page_regions(doc) -> None:
         pass
 
 
+def _reset_writer_draw_page(doc) -> None:
+    """Remove shapes left on the draw page after the wipe.
+
+    Free shapes (custom, drawing, and control shapes, for example one anchored to the page) are
+    not in the text-content collections the wipe walks, and deleting the body text does not
+    remove a shape that is not anchored in it. One left behind changes the draw-page count and
+    index 0 for every later suite, and shape text joins the chat context.
+    """
+    try:
+        page = doc.getDrawPage()
+        count = int(page.getCount())
+    except Exception:
+        return
+    for index in range(count - 1, -1, -1):
+        try:
+            page.remove(page.getByIndex(index))
+        except Exception:
+            pass
+
+
 def _writer_pool_is_clean(doc) -> bool:
-    """False if wipe left text, bold, or graphics — caller should factory-load."""
+    """False if wipe left text, bold, graphics, or draw-page shapes — caller should factory-load."""
     try:
         if (doc.getText().getString() or "").strip():
             return False
@@ -928,6 +948,8 @@ def _writer_pool_is_clean(doc) -> bool:
         if float(cursor.getPropertyValue("CharWeight") or 100) >= 135.0:
             return False
         if hasattr(doc, "getGraphicObjects") and doc.getGraphicObjects().getCount() > 0:
+            return False
+        if hasattr(doc, "getDrawPage") and doc.getDrawPage().getCount() > 0:
             return False
     except Exception:
         return False
@@ -1005,6 +1027,7 @@ def _reset_writer_doc(doc, ctx) -> None:
         except Exception:
             pass
     _reset_writer_page_regions(doc)
+    _reset_writer_draw_page(doc)
     _reset_writer_style_families(doc)
     _clear_undo(doc)
 
