@@ -126,10 +126,7 @@ def rewrap_output(results: list[Any], inspected: InspectedInput) -> Any:
     # M x N grid
     nrows = inspected.nrows
     ncols = inspected.ncols
-    padded_results = list(results)
-    if len(padded_results) < nrows * ncols:
-        padded_results.extend([""] * (nrows * ncols - len(padded_results)))
-    return [padded_results[i * ncols : (i + 1) * ncols] for i in range(nrows)]
+    return [results[i * ncols : (i + 1) * ncols] for i in range(nrows)]
 
 
 def broadcast_args(

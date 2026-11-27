@@ -1011,6 +1011,7 @@ def _close_open_figures() -> None:
         if plt_mod.get_fignums():
             plt_mod.close("all")
     except Exception:
+        # Swallowed: called from finally blocks, where a close failure must not replace the payload or the render error.
         log.debug("failed to close pyplot figures", exc_info=True)
 
 

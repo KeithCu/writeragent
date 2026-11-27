@@ -347,7 +347,7 @@ class MonacoEditorApi:
 
     def _run_completion(self, code: str, line: int, column: int, gen: int) -> dict[str, Any] | None:
         # Jedi completions run on a daemon thread so a hung worker does not block later requests or keep the editor process alive at exit.
-        if self._jedi is None and jedi is None:
+        if jedi is None:
             return {"items": []}
 
         with self._jedi_lock:

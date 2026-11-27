@@ -289,7 +289,7 @@ def main() -> None:
         # ends the loop.
         lpe: Any = sys.modules.get(_LPE_MODULE)
         if lpe is not None:
-            setattr(lpe, "abandoned_timeout", False)
+            lpe.abandoned_timeout = False
 
         try:
             defer_token = DEFER_TIMEOUT_FINALIZE.set(True)

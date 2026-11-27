@@ -108,10 +108,6 @@ def execute_popup_under_button(popup: Any, button_ctrl: Any) -> int:
         return 0
 
     ps = button_ctrl.getPosSize()
-    if ps is None:
-        log.warning("execute_popup_under_button: button has no position; not showing the popup")
-        return 0
-
     rect = Rectangle()
     rect.X = int(ps.X)
     rect.Y = int(ps.Y + ps.Height)

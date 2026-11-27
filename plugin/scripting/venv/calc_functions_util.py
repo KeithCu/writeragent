@@ -763,7 +763,7 @@ def criterion_error(crits: Iterable[Any]) -> float | str | None:
 
 
 def _lookup_number(val: Any) -> float | None:
-    """Numeric LOOKUP key. A bool is 0 or 1. Text and blanks are not numbers."""
+    """The number in a numeric cell (a bool is 0 or 1); text, blanks and an over-range int are None."""
     # a NaN key compares false and is already a miss (#N/A)
     return _to_float_or_none(val) if isinstance(val, _NUMERIC_TYPES) else None
 

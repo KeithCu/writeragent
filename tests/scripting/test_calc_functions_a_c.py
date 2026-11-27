@@ -347,6 +347,7 @@ def test_bessel_returns_nan_when_scipy_missing(monkeypatch):
     monkeypatch.setitem(sys.modules, "scipy.special", None)
     assert math.isnan(calc.besseli(1.5, 1))
     assert math.isnan(calc.besselj(1.5, 1))
+    assert math.isnan(calc.besselk(1.5, 1))
 
 
 def test_code_empty_string_is_zero():

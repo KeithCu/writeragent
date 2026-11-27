@@ -47,7 +47,7 @@ def test_run_languagetool_check_prefixes_rule_identifier() -> None:
 
 
 def test_empty_matched_text_is_not_replaced_by_lenient_slice() -> None:
-    """``matched_text=""`` must not fall through to an out-of-range context slice."""
+    """``matched_text=""`` reaches the error as ``""`` and is not replaced."""
     matches = [
         SimpleNamespace(
             matched_text="",
