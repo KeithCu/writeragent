@@ -31,7 +31,7 @@ import plugin.mcp_server.mcp_session as mcp_session
 from plugin.mcp_server.cors import reload_cors_policy_from_config
 from plugin.mcp_server.routes import json_route
 from plugin.mcp_server.server import mcp_endpoint_url
-from plugin.mcp_server.tunnel import DEFAULT_PROVIDER, TunnelManager, provider_label, provider_uses_token, tunnel_status_line
+from plugin.mcp_server.tunnel import DEFAULT_PROVIDER, TunnelManager, normalize_provider, provider_label, provider_uses_token, tunnel_status_line
 from plugin.version import EXTENSION_VERSION
 
 log = logging.getLogger("writeragent.http")
@@ -111,10 +111,9 @@ def _remove_debug_token_file() -> None:
 
 
 class McpModule(ModuleBase):
-    """Manages the shared HTTP server and route registry.
+    """Owns the HTTP server, the route registry and the public tunnel.
 
-    Route registrations are managed by McpModule (the MCP JSON-RPC routes,
-    SSE streams, and debug endpoints). This module starts the server in
+    Registers the MCP routes when mcp.mcp_enabled is set and starts the server in
     start_background().
     """
 
@@ -319,7 +318,7 @@ class McpModule(ModuleBase):
         if port_i is None:
             log.warning("tunnel_enabled but no usable MCP port (%r)", port)
             return
-        provider = str(get_config("mcp.tunnel_provider") or DEFAULT_PROVIDER)
+        provider = normalize_provider(get_config("mcp.tunnel_provider"))
         # Armed before the thread is queued. stop() clears it, so a disable
         # that lands while this start is still waiting to run cannot lose.
         start_token = object()
@@ -455,7 +454,7 @@ class McpModule(ModuleBase):
         routes = status.get("routes", 0)
         tunnel = self.tunnel
         public_url = tunnel.mcp_public_url() if tunnel else None
-        provider = get_config("mcp.tunnel_provider") or DEFAULT_PROVIDER
+        provider = normalize_provider(get_config("mcp.tunnel_provider"))
         pname = provider_label(provider)
         tunnel_enabled = bool(get_config("mcp.tunnel_enabled"))
 
@@ -496,7 +495,7 @@ class McpModule(ModuleBase):
                 set_ctl("TunnelUrlField", text=public_url or "", visible=True)
                 if public_url:
                     tstatus = _("Status: Active (connected)")
-                elif tunnel and getattr(tunnel, "is_reconnecting", False):
+                elif tunnel and tunnel.is_reconnecting:
                     tstatus = _("Status: Reconnecting — {0}").format(tunnel.last_error or _("retrying…"))
                 elif tunnel and tunnel.is_running:
                     tstatus = _("Status: Starting tunnel…")

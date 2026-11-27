@@ -11,10 +11,13 @@ from __future__ import annotations
 
 import csv
 import logging
+import posixpath
 import re
 import zipfile
 from pathlib import Path
+from typing import Any
 
+import defusedxml
 import defusedxml.ElementTree as ET
 
 log = logging.getLogger(__name__)
@@ -29,6 +32,19 @@ __all__ = [
 ]
 
 _DRAWML_NS = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
+_PRESENTATIONML_NS = "{http://schemas.openxmlformats.org/presentationml/2006/main}"
+_OFFICE_RELS_NS = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
+_PKG_RELS_NS = "{http://schemas.openxmlformats.org/package/2006/relationships}"
+
+
+def frames_to_rows(sheets: dict[Any, Any], pd_mod: Any) -> list[str]:
+    rows: list[str] = []
+    for sheet_name, frame in sheets.items():
+        for _unused, row in frame.iterrows():
+            cells = [str(value).strip() for value in row if pd_mod.notna(value) and str(value).strip()]
+            if cells:
+                rows.append(f"[Sheet: {sheet_name}]\t" + "\t".join(cells))
+    return rows
 
 
 def extract_docx_paragraphs(path: str) -> list[str]:
@@ -76,13 +92,7 @@ def extract_spreadsheet_rows(path: str) -> list[str] | None:
         log.debug("extract_spreadsheet_rows failed for %s", path, exc_info=True)
         return None
 
-    rows: list[str] = []
-    for sheet_name, frame in sheets.items():
-        for _unused, row in frame.iterrows():
-            cells = [str(value).strip() for value in row if pd.notna(value) and str(value).strip()]
-            if cells:
-                rows.append(f"[Sheet: {sheet_name}]\t" + "\t".join(cells))
-    return rows
+    return frames_to_rows(sheets, pd)
 
 
 def extract_csv_rows(path: str) -> list[str]:
@@ -91,7 +101,7 @@ def extract_csv_rows(path: str) -> list[str]:
     try:
         with open(path, newline="", encoding="utf-8", errors="replace") as handle:
             for row in csv.reader(handle):
-                cells = [cell.strip() for cell in row if str(cell).strip()]
+                cells = [cell.strip() for cell in row if cell.strip()]
                 if cells:
                     rows.append("\t".join(cells))
     except OSError as exc:
@@ -112,9 +122,7 @@ def extract_plaintext_paragraphs(path: str) -> list[str]:
         return parts
     if len(parts) == 1 and "\n" in parts[0]:
         return [line.strip() for line in parts[0].splitlines() if line.strip()]
-    if parts:
-        return parts
-    return [line.strip() for line in text.splitlines() if line.strip()]
+    return parts
 
 
 _RTF_CONTROL = re.compile(r"\\([a-z]+-?\d* ?|[{}])")
@@ -136,7 +144,7 @@ def extract_rtf_paragraphs(path: str) -> list[str]:
 def _texts_from_ooxml_slide_xml(xml_bytes: bytes) -> str:
     try:
         root = ET.fromstring(xml_bytes)
-    except Exception:
+    except (ET.ParseError, defusedxml.DefusedXmlException):
         return ""
     paras: list[str] = []
     for p_node in root.iter(f"{_DRAWML_NS}p"):
@@ -152,7 +160,6 @@ def _texts_from_ooxml_slide_xml(xml_bytes: bytes) -> str:
 
 def extract_pptx_passages(path: str) -> list[str]:
     """Slide body + speaker notes from .pptx (stdlib zip + DrawingML text nodes)."""
-    import posixpath
     passages: list[str] = []
     try:
         with zipfile.ZipFile(path) as zf:
@@ -163,11 +170,11 @@ def extract_pptx_passages(path: str) -> list[str]:
                 try:
                     pres_xml = zf.read("ppt/presentation.xml")
                     root = ET.fromstring(pres_xml)
-                    for sldId in root.findall(".//{http://schemas.openxmlformats.org/presentationml/2006/main}sldId"):
-                        rid = sldId.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id")
+                    for sldId in root.findall(f".//{_PRESENTATIONML_NS}sldId"):
+                        rid = sldId.get(f"{_OFFICE_RELS_NS}id")
                         if rid:
                             slide_seq.append(rid)
-                except Exception:
+                except (ET.ParseError, defusedxml.DefusedXmlException, KeyError, zipfile.BadZipFile):
                     pass
 
             rid_to_slide = {}
@@ -175,7 +182,7 @@ def extract_pptx_passages(path: str) -> list[str]:
                 try:
                     rels_xml = zf.read("ppt/_rels/presentation.xml.rels")
                     root = ET.fromstring(rels_xml)
-                    for rel in root.findall(".//{http://schemas.openxmlformats.org/package/2006/relationships}Relationship"):
+                    for rel in root.findall(f".//{_PKG_RELS_NS}Relationship"):
                         if rel.get("Type", "").endswith("/slide"):
                             target = rel.get("Target")
                             if target:
@@ -184,7 +191,7 @@ def extract_pptx_passages(path: str) -> list[str]:
                                 elif not target.startswith("ppt/"):
                                     target = "ppt/" + target
                                 rid_to_slide[rel.get("Id")] = target
-                except Exception:
+                except (ET.ParseError, defusedxml.DefusedXmlException, KeyError, zipfile.BadZipFile):
                     pass
 
             slide_names = []
@@ -213,7 +220,7 @@ def extract_pptx_passages(path: str) -> list[str]:
                     try:
                         slide_rels_xml = zf.read(slide_rel_path)
                         sroot = ET.fromstring(slide_rels_xml)
-                        for rel in sroot.findall(".//{http://schemas.openxmlformats.org/package/2006/relationships}Relationship"):
+                        for rel in sroot.findall(f".//{_PKG_RELS_NS}Relationship"):
                             if rel.get("Type", "").endswith("/notesSlide"):
                                 ntarget = rel.get("Target")
                                 if ntarget:
@@ -225,7 +232,7 @@ def extract_pptx_passages(path: str) -> list[str]:
                                         notes = _texts_from_ooxml_slide_xml(zf.read(notes_path))
                                         if notes:
                                             passages.append(f"[Notes: Slide{index}]\t{notes}")
-                    except Exception:
+                    except (ET.ParseError, defusedxml.DefusedXmlException, KeyError, zipfile.BadZipFile):
                         pass
     except (OSError, zipfile.BadZipFile, ET.ParseError) as exc:
         log.debug("extract_pptx_passages failed for %s", path, exc_info=True)

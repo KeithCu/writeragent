@@ -4,25 +4,26 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Trusted venv LlamaIndex search/indexing backend.
 
-Uses idiomatic LlamaIndex retrieval (QueryFusionRetriever + optional SentenceTransformerRerank)
+Uses idiomatic LlamaIndex retrieval (QueryFusionRetriever + optional cross-encoder rerank)
 over the existing SQLite corpus.db. Storage and ODF extraction stay WriterAgent-owned; this
 module only orchestrates retrieve → rerank → tool hits.
 """
 from __future__ import annotations
 
+import importlib
 import logging
+import time
 from typing import Any, Sequence
 
-from plugin.embeddings.venv.embeddings_retrieval_pool import _MIN_FETCH_K, hybrid_retrieval_pool
+from plugin.embeddings.venv.embeddings_cross_encoder_rerank import DEFAULT_RERANK_MODEL, resolve_rerank_model
+from plugin.embeddings.venv.embeddings_retrieval_pool import MIN_FETCH_K, hybrid_retrieval_pool
+from plugin.embeddings.venv.embeddings_sqlite import DEFAULT_NEAR_SLOP
 from plugin.framework.constants import EMBEDDINGS_SCHEMA_VERSION as SCHEMA_VERSION
 
 log = logging.getLogger(__name__)
 
-_DEFAULT_RERANK_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"  # English only; see Settings folder_rerank_model
 _FTS_LEG = "fts"
 _VECTOR_LEG = "vec"
-
-import importlib
 
 
 def llama_index_installed() -> bool:
@@ -33,14 +34,9 @@ def llama_index_installed() -> bool:
         return False
 
 
-def _llama_index_retrieval_pool(k: int) -> tuple[int, int]:
-    """Return (final_k, fetch_k) for over-retrieval before cross-encoder rerank."""
-    return hybrid_retrieval_pool(k)
-
-
-def _resolve_rerank_model(rerank_model: str | None) -> str:
-    model = str(rerank_model or "").strip()
-    return model or _DEFAULT_RERANK_MODEL
+def _require_llama_index() -> None:
+    if not llama_index_installed():
+        raise ImportError("llama-index-core is not installed in the configured Python venv.")
 
 
 def _nodes_to_tool_hits(nodes: list[Any]) -> list[dict[str, Any]]:
@@ -139,20 +135,19 @@ def _rerank_candidates_to_nodes(candidates: list[dict[str, Any]]) -> list[Any]:
 
 def _apply_llama_index_postprocessors(
     nodes: list[Any],
-    query_bundle: Any,
+    query_text: str,
     *,
     final_k: int,
     use_rerank: bool,
-    rerank_model: str = _DEFAULT_RERANK_MODEL,
+    rerank_model: str = DEFAULT_RERANK_MODEL,
 ) -> list[Any]:
     """Rerank fused nodes with shared cross-encoder loader; fall back to RRF top-k."""
     if not nodes:
         return []
-    if use_rerank and final_k > 1 and llama_index_installed():
+    if use_rerank and final_k > 1:
         try:
             from plugin.embeddings.venv.embeddings_cross_encoder_rerank import cross_encoder_rerank_candidates
 
-            query_text = str(getattr(query_bundle, "query_str", None) or "")
             candidates = _nodes_to_rerank_candidates(nodes)
             reranked = cross_encoder_rerank_candidates(
                 query_text,
@@ -278,13 +273,13 @@ if llama_index_installed():
             return [node.node_id for node in nodes]
 
         def delete(self, ref_doc_id: str, **delete_kwargs: Any) -> None:
-            from plugin.embeddings.venv.embeddings_sqlite import _delete_chunk_ids, connect_corpus_db
+            from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, delete_chunk_ids
 
             conn = connect_corpus_db(self._db_path)
             try:
                 rows = conn.execute("SELECT chunk_id FROM chunks WHERE doc_url = ?", (ref_doc_id,)).fetchall()
                 chunk_ids = [int(row["chunk_id"]) for row in rows]
-                _delete_chunk_ids(conn, chunk_ids, with_fts=self._build_fts, with_vec=self._build_vectors)
+                delete_chunk_ids(conn, chunk_ids, with_fts=self._build_fts, with_vec=self._build_vectors)
                 conn.commit()
             finally:
                 conn.close()
@@ -338,9 +333,9 @@ if llama_index_installed():
         def __init__(
             self,
             db_path: str,
-            near_slop: int = 10,
+            near_slop: int = DEFAULT_NEAR_SLOP,
             *,
-            similarity_top_k: int = _MIN_FETCH_K,
+            similarity_top_k: int = MIN_FETCH_K,
             **kwargs: Any,
         ) -> None:
             super().__init__(**kwargs)
@@ -364,39 +359,67 @@ if llama_index_installed():
                 conn.close()
 
 
-def build_writer_agent_hybrid_retriever(
+def _vector_retriever(
     db_path: str,
     model_name: str,
-    *,
     fetch_k: int,
-    near_slop: int = 10,
-    doc_url_filter: str | None = None,
+    doc_url_filter: str | None,
+    *,
+    build_fts: bool,
 ) -> Any:
-    """Standard LlamaIndex QueryFusionRetriever over sqlite-vec + FTS5 legs."""
-    if not llama_index_installed():
-        raise ImportError("llama-index-core is not installed in the configured Python venv.")
-
     from llama_index.core import VectorStoreIndex  # type: ignore
-    from llama_index.core.llms.mock import MockLLM  # type: ignore
-    from llama_index.core.retrievers import QueryFusionRetriever  # type: ignore
-    from llama_index.core.retrievers.fusion_retriever import FUSION_MODES  # type: ignore
 
     vector_store = WriterAgentVectorStore(
         db_path=db_path,
         embedding_model=model_name,
-        build_fts=True,
+        build_fts=build_fts,
         build_vectors=True,
     )
     embed_model = WriterAgentEmbedding(model_name=model_name)
     index = VectorStoreIndex.from_vector_store(vector_store, embed_model=embed_model)
-
     filters = None
     if doc_url_filter:
         from llama_index.core.vector_stores.types import MetadataFilter, MetadataFilters  # type: ignore
 
         filters = MetadataFilters(filters=[MetadataFilter(key="doc_url", value=doc_url_filter)])
+    return index.as_retriever(similarity_top_k=fetch_k, filters=filters)
 
-    vector_retriever = index.as_retriever(similarity_top_k=fetch_k, filters=filters)
+
+def _write_meta(db_path: str, meta_path: str, model_name: str, dim: int) -> None:
+    from plugin.embeddings.embeddings_cache import CorpusMeta
+    from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, corpus_chunk_count
+
+    conn = connect_corpus_db(db_path)
+    try:
+        count = corpus_chunk_count(conn)
+    finally:
+        conn.close()
+    CorpusMeta.load(meta_path).update(
+        schema_version=SCHEMA_VERSION,
+        storage_backend="llama_index",
+        embedding_model=model_name,
+        dim=dim,
+        chunk_count=count,
+        updated_at=str(time.time()),
+    ).save(meta_path)
+
+
+def build_writer_agent_hybrid_retriever(
+    db_path: str,
+    model_name: str,
+    *,
+    fetch_k: int,
+    near_slop: int = DEFAULT_NEAR_SLOP,
+    doc_url_filter: str | None = None,
+) -> Any:
+    """Standard LlamaIndex QueryFusionRetriever over sqlite-vec + FTS5 legs."""
+    _require_llama_index()
+
+    from llama_index.core.llms.mock import MockLLM  # type: ignore
+    from llama_index.core.retrievers import QueryFusionRetriever  # type: ignore
+    from llama_index.core.retrievers.fusion_retriever import FUSION_MODES  # type: ignore
+
+    vector_retriever = _vector_retriever(db_path, model_name, fetch_k, doc_url_filter, build_fts=True)
     fts_retriever = WriterAgentFTSRetriever(
         db_path=db_path,
         near_slop=near_slop,
@@ -420,22 +443,18 @@ def run_hybrid_retrieval_pipeline(
     k: int,
     *,
     model_name: str,
-    near_slop: int = 10,
+    near_slop: int = DEFAULT_NEAR_SLOP,
     doc_url_filter: str | None = None,
     use_mmr: bool = True,
     rerank_model: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Retrieve with RRF fusion, then optional SentenceTransformerRerank (use_mmr=True)."""
-    if not llama_index_installed():
-        raise ImportError("llama-index-core is not installed in the configured Python venv.")
-
-    from llama_index.core import QueryBundle  # type: ignore
-
+    """Retrieve with RRF fusion, then optional cross-encoder rerank (use_mmr=True)."""
+    _require_llama_index()
     query = str(query_text or "").strip()
     if not query:
         return []
 
-    final_k, fetch_k = _llama_index_retrieval_pool(k)
+    final_k, fetch_k = hybrid_retrieval_pool(k)
     fusion_retriever = build_writer_agent_hybrid_retriever(
         db_path,
         model_name,
@@ -455,10 +474,10 @@ def run_hybrid_retrieval_pipeline(
 
     nodes = _apply_llama_index_postprocessors(
         nodes,
-        QueryBundle(query_str=query),
+        query,
         final_k=final_k,
         use_rerank=use_mmr,
-        rerank_model=_resolve_rerank_model(rerank_model),
+        rerank_model=resolve_rerank_model(rerank_model),
     )
     return _nodes_to_tool_hits(nodes)
 
@@ -475,10 +494,7 @@ def llama_index_ingest(
     heartbeat_fn: Any | None = None,
 ) -> dict[str, Any]:
     """Index paragraphs/chunks using LlamaIndex VectorStoreIndex."""
-    if not llama_index_installed():
-        raise ImportError("llama-index-core is not installed in the configured Python venv.")
-
-    import time
+    _require_llama_index()
 
     from llama_index.core import VectorStoreIndex  # type: ignore
     from llama_index.core.schema import TextNode  # type: ignore
@@ -486,7 +502,6 @@ def llama_index_ingest(
     from plugin.embeddings.embeddings_cache import CorpusMeta
     from plugin.embeddings.venv.embeddings_sqlite import (
         connect_corpus_db,
-        corpus_chunk_count,
         delete_by_chunk_locator,
         delete_paragraph_keys,
         ensure_schema,
@@ -516,22 +531,7 @@ def llama_index_ingest(
         conn.close()
 
     if not rows:
-        conn = connect_corpus_db(db_path)
-        try:
-            count = corpus_chunk_count(conn)
-        finally:
-            conn.close()
-
-        from plugin.embeddings.embeddings_cache import CorpusMeta
-
-        CorpusMeta.load(meta_path).update(
-            schema_version=SCHEMA_VERSION,
-            storage_backend="llama_index",
-            embedding_model=model_name,
-            dim=dim or 0,
-            chunk_count=count,
-            updated_at=str(time.time()),
-        ).save(meta_path)
+        _write_meta(db_path, meta_path, model_name, dim or 0)
         return {"indexed": 0, "dim": dim or 0, "storage_backend": "llama_index"}
 
     nodes = []
@@ -573,24 +573,8 @@ def llama_index_ingest(
         if heartbeat_fn:
             heartbeat_fn({"phase": "embed", "progress": min(i + EMBEDDINGS_INGEST_BATCH_SIZE, len(nodes)), "total": len(nodes)})
 
-    conn = connect_corpus_db(db_path)
-    try:
-        count = corpus_chunk_count(conn)
-    finally:
-        conn.close()
-
     final_dim = len(nodes[0].embedding) if nodes and nodes[0].embedding else (dim or 0)
-
-    from plugin.embeddings.embeddings_cache import CorpusMeta
-
-    CorpusMeta.load(meta_path).update(
-        schema_version=SCHEMA_VERSION,
-        storage_backend="llama_index",
-        embedding_model=model_name,
-        dim=final_dim,
-        chunk_count=count,
-        updated_at=str(time.time()),
-    ).save(meta_path)
+    _write_meta(db_path, meta_path, model_name, final_dim)
 
     return {"indexed": len(nodes), "dim": final_dim, "storage_backend": "llama_index"}
 
@@ -606,42 +590,24 @@ def llama_index_knn_search(
     rerank_model: str | None = None,
 ) -> dict[str, Any]:
     """Semantic search: over-retrieve from VectorStoreIndex, then cross-encoder rerank."""
-    if not llama_index_installed():
-        raise ImportError("llama-index-core is not installed in the configured Python venv.")
-
-    from llama_index.core import QueryBundle, VectorStoreIndex  # type: ignore
+    _require_llama_index()
 
     query = str(query_text or "").strip()
     if not query:
         return {"hits": []}
 
-    vector_store = WriterAgentVectorStore(
-        db_path=db_path,
-        embedding_model=model_name,
-        build_fts=False,
-        build_vectors=True,
-    )
-    embed_model = WriterAgentEmbedding(model_name=model_name)
-    index = VectorStoreIndex.from_vector_store(vector_store, embed_model=embed_model)
-
-    filters = None
-    if doc_url_filter:
-        from llama_index.core.vector_stores.types import MetadataFilter, MetadataFilters  # type: ignore
-
-        filters = MetadataFilters(filters=[MetadataFilter(key="doc_url", value=doc_url_filter)])
-
-    final_k, fetch_k = _llama_index_retrieval_pool(k)
-    retriever = index.as_retriever(similarity_top_k=fetch_k, filters=filters)
+    final_k, fetch_k = hybrid_retrieval_pool(k)
+    retriever = _vector_retriever(db_path, model_name, fetch_k, doc_url_filter, build_fts=False)
     nodes = retriever.retrieve(query)
     from plugin.embeddings.venv.embeddings_parent_hits import expand_nodes_to_parent_paragraphs
 
     nodes = expand_nodes_to_parent_paragraphs(db_path, nodes)
     nodes = _apply_llama_index_postprocessors(
         nodes,
-        QueryBundle(query_str=query),
+        query,
         final_k=final_k,
         use_rerank=use_mmr,
-        rerank_model=_resolve_rerank_model(rerank_model),
+        rerank_model=resolve_rerank_model(rerank_model),
     )
     return {"hits": _nodes_to_tool_hits(nodes)}
 
@@ -652,12 +618,12 @@ def llama_index_hybrid_search(
     k: int,
     *,
     model_name: str,
-    near_slop: int = 10,
+    near_slop: int = DEFAULT_NEAR_SLOP,
     doc_url_filter: str | None = None,
     use_mmr: bool = True,
     rerank_model: str | None = None,
 ) -> dict[str, Any]:
-    """Hybrid FTS + vector: QueryFusionRetriever RRF, then SentenceTransformerRerank when use_mmr."""
+    """Hybrid FTS + vector: QueryFusionRetriever RRF, then cross-encoder rerank when use_mmr."""
     hits = run_hybrid_retrieval_pipeline(
         db_path,
         query_text,
@@ -673,12 +639,6 @@ def llama_index_hybrid_search(
 
 __all__ = [
     "llama_index_installed",
-    "WriterAgentEmbedding",
-    "WriterAgentFTSRetriever",
-    "WriterAgentVectorStore",
-    "_DEFAULT_RERANK_MODEL",
-    "_llama_index_retrieval_pool",
-    "_nodes_to_tool_hits",
     "build_writer_agent_hybrid_retriever",
     "llama_index_hybrid_search",
     "llama_index_ingest",

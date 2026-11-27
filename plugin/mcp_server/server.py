@@ -16,7 +16,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Generic threaded HTTP server with route dispatch.
 
-Extracted from the MCP module so any module can register HTTP endpoints.
+Any module can register HTTP endpoints through HttpRouteRegistry.
 The server handles CORS, JSON encode/decode, and main-thread dispatch.
 Route handlers are looked up from an HttpRouteRegistry instance.
 
@@ -66,6 +66,7 @@ from plugin.mcp_server.cors import reject_forbidden_host, reject_forbidden_origi
 from plugin.mcp_server.http_trace import log_cors_preflight, log_http_request, log_no_route
 
 if TYPE_CHECKING:
+    from plugin.framework.worker_pool import BackgroundHandle
     from plugin.mcp_server.routes import HttpRouteRegistry
 
 log = logging.getLogger("writeragent.mcp.server")
@@ -86,7 +87,7 @@ def write_http_json(handler: Any, status: int, data: Any, extra_headers: Any = N
     ``test_post_unsupported_protocol_version``).
     """
     body = json.dumps(data, ensure_ascii=False, default=str, indent=indent).encode("utf-8")
-    handler._response_started = True
+    handler.mark_response_started()
     handler.send_response(status)
     (extra_headers or send_cors_headers)(handler)
     handler.send_header("Content-Type", "application/json")
@@ -121,9 +122,8 @@ def read_json_body(handler: Any, reply: Callable[..., Any] = write_http_json) ->
 
     raw_te = handler.headers.get("Transfer-Encoding", "")
     if isinstance(raw_te, str) and "chunked" in raw_te.lower():
-        # Chunked bodies must not be treated as empty {}; refuse invalid length/TE with 400 before read.
-        # _reject_chunked. close_connection stops keep-alive from parsing
-        # the leftover bytes as the next request. No chunk parser.
+        # A chunked body is refused with 400 and not read (there is no chunk parser).
+        # close_connection stops keep-alive from parsing the unread bytes as the next request.
         handler.close_connection = True
         log.warning("Rejecting chunked Transfer-Encoding")
         return _fail(
@@ -171,7 +171,7 @@ def read_json_body(handler: Any, reply: Callable[..., Any] = write_http_json) ->
 
 def write_http_empty(handler: Any, status: int, extra_headers: Any = None) -> None:
     """Status-only response (204/202) with Content-Length: 0 so the client is not left reading to EOF."""
-    handler._response_started = True
+    handler.mark_response_started()
     handler.send_response(status)
     if extra_headers is not None:
         extra_headers(handler)
@@ -266,7 +266,6 @@ class _ThreadedHTTPServer(DualStackThreadPoolHTTPServer):
         self.sse_registry = SseRegistry()
 
 
-
 class GenericRequestHandler(BaseHTTPRequestHandler):
     """HTTP request handler that dispatches to registered routes."""
 
@@ -275,6 +274,10 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
     # attribute (a bare annotation is treated as an instance variable).
     timeout: ClassVar[float | None] = MCP_HTTP_SOCKET_TIMEOUT_SEC
     _response_started: bool = False
+    close_connection: bool
+
+    def mark_response_started(self) -> None:
+        self._response_started = True
 
     def handle_one_request(self) -> None:
         """A client that goes away while the response is written is a closed request.
@@ -285,7 +288,7 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
         try:
             super().handle_one_request()
         except ConnectionError:
-            self.close_connection: bool = True
+            self.close_connection = True
 
     def _guard(self) -> bool:
         """False when Host or Origin was rejected and the 403 is already written."""
@@ -349,15 +352,15 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
 class HttpServer:
     """Generic threaded HTTP server with optional TLS."""
 
-    def __init__(self, route_registry: Any, port: int, host: str = "localhost", use_ssl: bool = False, ssl_cert: str = "", ssl_key: str = "") -> None:
-        self.route_registry: Any = route_registry
+    def __init__(self, route_registry: HttpRouteRegistry, port: int, host: str = "localhost", use_ssl: bool = False, ssl_cert: str = "", ssl_key: str = "") -> None:
+        self.route_registry: HttpRouteRegistry = route_registry
         self.port: int = port
         self.host: str = host
         self.use_ssl: bool = use_ssl
         self.ssl_cert: str = ssl_cert
         self.ssl_key: str = ssl_key
-        self._server: Any = None
-        self._thread: Any = None
+        self._server: _ThreadedHTTPServer | None = None
+        self._thread: BackgroundHandle | None = None
         self._running: bool = False
 
     def start(self) -> None:
@@ -365,12 +368,9 @@ class HttpServer:
             log.warning("HTTP server is already running")
             return
 
-        # Certs are loaded before bind. A missing file or use_ssl without
-        # Load TLS certs before bind so a cert failure does not bind-then-close the port.
+        # Load TLS certs before bind, so a missing file or use_ssl without certificates fails before the port is taken.
         ssl_ctx = None
         if self.use_ssl:
-            # TLS server mode requires explicit certificates.
-            # Local generation of certificates has been removed from ssl_helpers.
             if not (self.ssl_cert and self.ssl_key):
                 raise ValueError("use_ssl is True but no certificates provided.")
             log.info("TLS using custom certs: %s", self.ssl_cert)
@@ -414,11 +414,12 @@ class HttpServer:
             if self._server:
                 self._server.sse_registry.stop_all()
             # Do not join SSE threads here: stop() can run on the UI thread, and the
-            # threads are daemon (http_server.py:268) with their sockets already closed by stop_all().
+            # threads are daemon (DualStackThreadPoolHTTPServer.daemon_threads in framework/http_server.py) with their sockets already closed by stop_all().
 
     @background
     def _run(self) -> None:
         server = self._server
+        assert server is not None  # start() sets _server before queuing _run
         try:
             server.serve_forever()
         except Exception:

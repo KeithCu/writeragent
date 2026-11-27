@@ -10,13 +10,13 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
-_DEFAULT_RERANK_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+DEFAULT_RERANK_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 _CROSS_ENCODER_CACHE: dict[str, Any] = {}
 
 
-def _resolve_rerank_model(rerank_model: str | None) -> str:
+def resolve_rerank_model(rerank_model: str | None) -> str:
     model = str(rerank_model or "").strip()
-    return model or _DEFAULT_RERANK_MODEL
+    return model or DEFAULT_RERANK_MODEL
 
 
 def _get_cross_encoder(model_name: str) -> Any:
@@ -57,7 +57,7 @@ def cross_encoder_rerank_candidates(
     if not query_text:
         return candidates[:final_n]
 
-    model_name = _resolve_rerank_model(model)
+    model_name = resolve_rerank_model(model)
     pairs: list[tuple[str, str]] = []
     indexed: list[dict[str, Any]] = []
     for cand in candidates:
@@ -86,4 +86,4 @@ def cross_encoder_rerank_candidates(
     return reranked[:final_n]
 
 
-__all__ = ["cross_encoder_rerank_candidates"]
+__all__ = ["DEFAULT_RERANK_MODEL", "cross_encoder_rerank_candidates", "resolve_rerank_model"]
