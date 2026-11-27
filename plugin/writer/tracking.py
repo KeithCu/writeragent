@@ -34,7 +34,7 @@ from plugin.writer.edit_review import get_agent_edit_review_mode
 from plugin.writer.inline_review import agent_self_resolution_block_reason
 from plugin.writer.review_scan import is_agent_token, redline_identity_key, redline_is_agent_change
 from plugin.writer.search import LocationLabeler
-from .specialized_base import WriterAgentSpecialTracking, enum_param
+from .specialized_base import ToolWriterTrackingBase, enum_param
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -63,6 +63,14 @@ def _identity_keys(objs: list[Any]) -> list[tuple[Any, ...]] | None:
     return keys
 
 
+def _overlap_bounds_error(index: int, err: Exception) -> str:
+    return (
+        "Failed to read bounds of tracked change at index %d during overlap check. "
+        "Please resolve tracked changes manually in LibreOffice. Error: %s"
+        % (index, err)
+    )
+
+
 def _overlap_refusal(target_index: int, objs: list[Any], start: Any, end: Any) -> str | None:
     # compareRegionStarts requires both ranges in the same XText; redlines in another text
     # (table, footnote, header) are skipped instead of aborting the overlap check.
@@ -71,11 +79,7 @@ def _overlap_refusal(target_index: int, objs: list[Any], start: Any, end: Any) -
         if target_text is None:
             raise ValueError("Target range has no XText")
     except Exception as rb_err:
-        return (
-            "Failed to read bounds of tracked change at index %d during overlap check. "
-            "Please resolve tracked changes manually in LibreOffice. Error: %s"
-            % (target_index, rb_err)
-        )
+        return _overlap_bounds_error(target_index, rb_err)
 
     for i, r in enumerate(objs):
         if i == target_index:
@@ -88,9 +92,7 @@ def _overlap_refusal(target_index: int, objs: list[Any], start: Any, end: Any) -
                 raise ValueError("Other range has no XText")
             if not uno_same(target_text, other_text):
                 continue
-            if target_text.compareRegionStarts(end, r_start) in (1, 0) or target_text.compareRegionStarts(r_end, start) in (1, 0):
-                pass  # No overlap
-            else:
+            if not (target_text.compareRegionStarts(end, r_start) in (1, 0) or target_text.compareRegionStarts(r_end, start) in (1, 0)):
                 return (
                     "Tracked change at index %d overlaps with another change. "
                     "Resolving it via the agent may clobber adjacent changes. "
@@ -98,11 +100,7 @@ def _overlap_refusal(target_index: int, objs: list[Any], start: Any, end: Any) -
                     % target_index
                 )
         except Exception as rb_err:
-            return (
-                "Failed to read bounds of tracked change at index %d during overlap check. "
-                "Please resolve tracked changes manually in LibreOffice. Error: %s"
-                % (i, rb_err)
-            )
+            return _overlap_bounds_error(i, rb_err)
     return None
 
 
@@ -152,21 +150,19 @@ def redline_text(redline: Any, start: Any = None) -> str:
             stext = start.getText()
             cur = stext.createTextCursorByRange(start)
             cur.gotoRange(end, True)
-            txt = cur.getString() or ""
+            txt = cur.getString()
         except Exception:
             log.debug(_REDLINE_FIELD_UNREADABLE, exc_info=True)
     if not txt:
         try:
             rt = redline.getPropertyValue("RedlineText")
-            txt = (rt.getString() if hasattr(rt, "getString") else str(rt)) if rt is not None else ""
+            txt = rt.getString() if rt is not None else ""
         except Exception:
             log.debug(_REDLINE_FIELD_UNREADABLE, exc_info=True)
-    if txt:
-        return txt if len(txt) <= 300 else txt[:299] + "…"
-    return ""
+    return (txt if len(txt) <= 300 else txt[:299] + "…") if txt else ""
 
 
-def _describe_redline(redline: Any, index: int, doc: Any, labeler: LocationLabeler | None = None) -> dict[str, Any]:
+def _describe_redline(redline: Any, index: int, labeler: LocationLabeler) -> dict[str, Any]:
     entry: dict[str, Any] = {"index": index}
     for prop in ("RedlineType", "RedlineAuthor", "RedlineComment", "RedlineIdentifier"):
         try:
@@ -190,7 +186,7 @@ def _describe_redline(redline: Any, index: int, doc: Any, labeler: LocationLabel
         log.debug(_REDLINE_FIELD_UNREADABLE, exc_info=True)
     if start is not None:
         try:
-            entry["location"] = (labeler or LocationLabeler(doc)).describe(start)
+            entry["location"] = labeler.describe(start)
         except Exception:
             log.debug(_REDLINE_FIELD_UNREADABLE, exc_info=True)
     txt = redline_text(redline, start=start)
@@ -199,7 +195,7 @@ def _describe_redline(redline: Any, index: int, doc: Any, labeler: LocationLabel
     return entry
 
 
-class TrackChangesStart(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # type: ignore[misc]
+class TrackChangesStart(ToolWriterTrackingBase, ToolCalcSpecialTracking):  # type: ignore[misc]
     """Start recording changes."""
 
     uno_services: list[str] | None = _TRACK_CHANGES_UNO_SERVICES  # type: ignore[assignment]
@@ -212,7 +208,7 @@ class TrackChangesStart(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  #
         return _set_recording(ctx.doc, True)
 
 
-class TrackChangesStop(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # type: ignore[misc]
+class TrackChangesStop(ToolWriterTrackingBase, ToolCalcSpecialTracking):  # type: ignore[misc]
     """Stop recording changes."""
 
     uno_services: list[str] | None = _TRACK_CHANGES_UNO_SERVICES  # type: ignore[assignment]
@@ -235,7 +231,7 @@ def _agent_review_mode() -> Any | None:
         return None
 
 
-class TrackChangesList(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # type: ignore[misc]
+class TrackChangesList(ToolWriterTrackingBase, ToolCalcSpecialTracking):  # type: ignore[misc]
     """List all tracked changes (redlines) in the document."""
 
     uno_services: list[str] | None = _TRACK_CHANGES_UNO_SERVICES  # type: ignore[assignment]
@@ -292,13 +288,13 @@ class TrackChangesList(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
         start_index = kwargs["start_index"]
         max_changes = kwargs["max_changes"]
         # The model can send 0 or a negative number; clamp instead of failing.
-        start_index = max(0, int(start_index))
-        max_changes = max(1, int(max_changes))
+        start_index = max(0, start_index)
+        max_changes = max(1, max_changes)
         labeler = LocationLabeler(doc)
 
         window = redline_objs[start_index:start_index + max_changes]
         changes = [
-            _describe_redline(redline, start_index + offset, doc, labeler)
+            _describe_redline(redline, start_index + offset, labeler)
             for offset, redline in enumerate(window)
         ]
         end = start_index + len(changes)
@@ -316,7 +312,7 @@ class TrackChangesList(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
         return result
 
 
-class TrackChangesShow(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # type: ignore[misc]
+class TrackChangesShow(ToolWriterTrackingBase, ToolCalcSpecialTracking):  # type: ignore[misc]
     """Show or hide change markup."""
 
     uno_services: list[str] | None = _TRACK_CHANGES_UNO_SERVICES  # type: ignore[assignment]
@@ -359,11 +355,11 @@ class TrackChangesShow(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
         }
 
 
-class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # type: ignore[misc]
+class ManageTrackedChanges(ToolWriterTrackingBase, ToolCalcSpecialTracking):  # type: ignore[misc]
     """Accept or reject tracked changes: one by index, or all.
 
-    Charts-style fat tool: the four former skinny accept/reject tools shared the same
-    UNO dispatch / redline-select path and only differed by verb + optional index.
+    One tool for the four verbs: they share the redline-select and dispatch path
+    and differ only by verb and index.
     """
 
     uno_services: list[str] | None = _TRACK_CHANGES_UNO_SERVICES  # type: ignore[assignment]

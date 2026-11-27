@@ -17,6 +17,7 @@ class TestInsertImageIntoHeaderFooter:
     def test_enables_region_auto_height_and_embeds(self):
         model = MagicMock()
         style = MagicMock()
+        style.getName.return_value = "Standard"
         region_text = MagicMock()
         cursor = MagicMock()
         graphic = MagicMock()
@@ -56,6 +57,7 @@ class TestInsertImageIntoHeaderFooter:
         # header_first must resolve HeaderTextFirst (same map as page_get/set).
         model = MagicMock()
         style = MagicMock()
+        style.getName.return_value = "Standard"
         first_text = MagicMock(name="HeaderTextFirst")
         shared_text = MagicMock(name="HeaderText")
         cursor = MagicMock()
@@ -90,6 +92,7 @@ class TestInsertImageIntoHeaderFooter:
     def test_first_page_footer_uses_footer_text_first(self):
         model = MagicMock()
         style = MagicMock()
+        style.getName.return_value = "Standard"
         first_text = MagicMock(name="FooterTextFirst")
         cursor = MagicMock()
         graphic = MagicMock()

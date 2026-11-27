@@ -875,7 +875,7 @@ def test_indexes_refresh_toc_entry_collapses_newlines():
     doc.getDocumentIndexes.return_value.getByIndex.return_value = idx
 
     with patch("plugin.writer.specialized.indexes.toc_match", return_value=(MagicMock(), None)), \
-         patch("plugin.writer.specialized.indexes.IndexesRefreshTocEntry._preview", return_value=({"status": "ok"}, None)) as mock_preview:
+         patch("plugin.writer.specialized.indexes.IndexesRefreshTocEntry._preview", return_value={"status": "ok"}) as mock_preview:
         res = tool.execute(ctx, old_content="term", content="with\nnewlines\r", hyperlink_url="http://\nurl\r", dry_run=True)
         assert res["status"] == "ok"
         _, passed_content, passed_override = mock_preview.call_args.args

@@ -21,6 +21,7 @@ import logging
 import threading
 import time
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -58,6 +59,11 @@ _GRAMMAR_CHAT_EXTRA = {"reasoning": {"effort": "minimal"}}
 _grammar_worker_tls = threading.local()
 
 
+def _client_module(name: str) -> Any:
+    # llm_client / model_fetcher are not shipped in LibreHarper (empty client package); resolve at call time.
+    return importlib.import_module(name)
+
+
 def _get_or_create_thread_llm_client(api_cfg: dict[str, Any], ctx: Any) -> Any:
     """Return a thread-local LlmClient, reused across batches unless endpoint/key/timeout change or client stopped."""
     cache_key = (
@@ -78,8 +84,7 @@ def _get_or_create_thread_llm_client(api_cfg: dict[str, Any], ctx: Any) -> Any:
     if cached_client is not None:
         best_effort(cached_client.stop, "grammar LLM client stop failed")
 
-    # llm_client / model_fetcher are not shipped in LibreHarper (empty client package); resolve at call time.
-    llm_client_mod = importlib.import_module("plugin.framework.client.llm_client")
+    llm_client_mod = _client_module("plugin.framework.client.llm_client")
     new_client = llm_client_mod.LlmClient(api_cfg, ctx, register_with_send=False)
     _grammar_worker_tls.client = new_client
     _grammar_worker_tls.cache_key = cache_key
@@ -138,7 +143,7 @@ def _item_is_complete(item: GrammarWorkItem, text: str) -> bool:
 class _ProviderSpec:
     name: str
     obs_event: str
-    run: Any
+    run: Callable[[Any, str, str, str], dict[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -150,8 +155,8 @@ class GrammarWorkerContext:
     model: str
     grammar_bcp47: str
     max_tok: int
-    detect_lang_mode: str = "off"
-    spec: _ProviderSpec | None = None
+    detect_lang_mode: str
+    spec: _ProviderSpec | None
 
 
 def process_grammar_results(
@@ -212,7 +217,7 @@ def run_single_sentence_provider(
             res = spec.run(ec.ctx, text, bcp47, cfg_dir)
             elapsed_ms = int((time.monotonic() - request_start) * 1000)
 
-            errors = res.get("errors", []) if isinstance(res, dict) else []
+            errors = res.get("errors", [])
             process_grammar_results([(item, text)], [errors], bcp47, original_bcp47, elapsed_ms, ec)
             grammar_obs(spec.obs_event, chunk_len=1, results_len=len(errors), elapsed_ms=elapsed_ms, bcp47=bcp47)
         except Exception as ex:
@@ -240,14 +245,11 @@ _SINGLE_SENTENCE_PROVIDERS: dict[str, _ProviderSpec] = {
 }
 
 
-def _get_paragraph_text_for_range(model: Any, rng: Any) -> str | None:
+def _get_paragraph_text_for_range(rng: Any) -> str | None:
     """Return the entire paragraph string containing rng, or None."""
     try:
-        # A Writer range always has a parent text (SwXTextRange::getText); the
-        # body text covers the case where LibreOffice returns none.
+        # A Writer range always has a parent text (SwXTextRange::getText).
         text_obj = rng.getText()
-        if text_obj is None:
-            text_obj = model.getText()
         tc = text_obj.createTextCursorByRange(rng)
         tc.gotoStartOfParagraph(False)
         tc.gotoEndOfParagraph(True)
@@ -278,7 +280,7 @@ def apply_language_change(
         new_locale = uno.createUnoStruct("com.sun.star.lang.Locale", Language=lang, Country=country)
 
         def _paragraph_ok(rng: Any) -> bool:
-            return not paragraph_text or _get_paragraph_text_for_range(model, rng) == paragraph_text
+            return not paragraph_text or _get_paragraph_text_for_range(rng) == paragraph_text
 
         ctrl = model.getCurrentController()
         view_cursor = ctrl.getViewCursor() if ctrl is not None else None
@@ -383,7 +385,7 @@ def run_grammar_check(
                 log.warning(
                     "[grammar] LLM returned no parseable results for chunk of %s (model=%s)",
                     len(chunk),
-                    ec.model or "",
+                    ec.model,
                 )
                 get_grammar_status().failed("Grammar check", result="Empty LLM response")
                 return
@@ -463,7 +465,7 @@ def language_detect_llm_sync(ec: GrammarWorkerContext, messages: list[dict[str, 
             response_format={"type": "json_object"},
             prepend_dev_build_system_prefix=False,
         )
-        if (content or "").strip():
+        if content.strip():
             return content
         if idx == 0:
             grammar_obs("lang_detect_empty_response", model=model or "", max_tokens=cap)
@@ -475,7 +477,7 @@ def language_detect_llm_sync(ec: GrammarWorkerContext, messages: list[dict[str, 
         else:
             grammar_obs("lang_detect_empty_response", model=model or "", max_tokens=cap, retry=True)
             log.warning("[grammar] language detect still empty after retry (max_tokens=%s)", cap)
-    return content or ""
+    return content
 
 
 def call_grammar_llm(
@@ -513,11 +515,11 @@ def call_grammar_llm(
             prepend_dev_build_system_prefix=False,
             chat_extra=_GRAMMAR_CHAT_EXTRA,
         )
-        if not (content or "").strip():
-            # Some reasoning models (e.g. Inception Mercury) return content: null with stop — treated as clean in call_grammar_llm.
+        if not content.strip():
+            # Some reasoning models (e.g. Inception Mercury) return content: null with stop;
+            # parse_grammar_json reads the empty reply as a clean sentence.
             grammar_obs("grammar_llm_empty_response", model=model or "", max_tokens=max_tokens)
             log.debug("[grammar] grammar LLM returned empty content (max_tokens=%s model=%s)", max_tokens, model)
-        content = content or ""
     elapsed_ms = int((time.monotonic() - request_start) * 1000)
 
     if batch:
@@ -556,7 +558,7 @@ def _fill_from_cache_and_persistence(
             detected_langs.append(canon)
             _obs_lang_detect_item(idx, "cache", cached, canon, text)
         elif persisted_grammar_skip_lang_detect(item.doc_id, text, ec.grammar_bcp47):
-            grammar_obs("lang_detect_skip", reason="persisted_grammar_heuristic", doc_id=item.doc_id[:32] if item.doc_id else "")
+            grammar_obs("lang_detect_skip", reason="persisted_grammar_heuristic", doc_id=item.doc_id[:32])
             canon = _remember_language(text, ec.grammar_bcp47)
             detected_langs.append(canon)
             _obs_lang_detect_item(idx, "persisted", ec.grammar_bcp47, canon, text)
@@ -615,7 +617,7 @@ def _detect_via_llm_batch(
     with llm_lanes.grammar_llm_request_gate(grammar_proofread_locale.grammar_max_in_flight()):
         detect_content = language_detect_llm_sync(ec, detect_messages, detect_max_tok)
 
-    parsed_langs = grammar_proofread_json.parse_language_detect_batch_json(detect_content or "")
+    parsed_langs = grammar_proofread_json.parse_language_detect_batch_json(detect_content)
     ok = len(parsed_langs) == len(texts)
     grammar_obs("lang_detect_batch_parse", chunk_len=len(texts), parsed_len=len(parsed_langs), ok=ok)
 
@@ -653,7 +655,7 @@ def _detect_via_llm_single(
             grammar_proofread_locale.GRAMMAR_LANGUAGE_DETECT_MAX_TOKENS_SINGLE,
         )
 
-    parsed_lang = grammar_proofread_json.parse_language_detect_json(detect_content or "")
+    parsed_lang = grammar_proofread_json.parse_language_detect_json(detect_content)
     grammar_obs("lang_detect_single_parse", parsed=bool(parsed_lang), text_preview=slice_preview_debug(text, 48))
     if parsed_lang:
         canon = _remember_language(text, parsed_lang)
@@ -720,7 +722,7 @@ def requeue_individual_item(
 
 def _worker_batch_gates(items: list[GrammarWorkItem], provider_name: str) -> bool:
     """Return False when the batch should not run (grammar off or agent pause)."""
-    item_provider = items[0].provider or ""
+    item_provider = items[0].provider
     if not item_provider and provider_name == "off":
         grammar_obs("worker_batch_skip", reason="grammar_disabled", item_count=len(items))
         return False
@@ -852,12 +854,11 @@ def run_llm_and_cache_batch(
         model = ""
         client: Any = None
         if not local_provider:
-            ident = item0.checker_identity or ""
+            ident = item0.checker_identity
             if ident.startswith("llm:"):
                 model = ident[4:]
             if not model:
-                # llm_client / model_fetcher are not shipped in LibreHarper (empty client package); resolve at call time.
-                model_fetcher = importlib.import_module("plugin.framework.client.model_fetcher")
+                model_fetcher = _client_module("plugin.framework.client.model_fetcher")
                 model = model_fetcher.get_grammar_model()
             client = _get_or_create_thread_llm_client(config.get_api_config(), ctx)
 
@@ -877,8 +878,7 @@ def run_llm_and_cache_batch(
         )
 
         def _chunkify(items_list: list[tuple[GrammarWorkItem, str]]) -> list[list[tuple[GrammarWorkItem, str]]]:
-            step = max(1, batch_size)
-            return [items_list[i : i + step] for i in range(0, len(items_list), step)]
+            return [items_list[i : i + batch_size] for i in range(0, len(items_list), batch_size)]
 
         plain_items: list[tuple[GrammarWorkItem, str]] = []
         detect_items: list[tuple[GrammarWorkItem, str]] = []

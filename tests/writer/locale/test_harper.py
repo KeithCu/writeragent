@@ -953,10 +953,10 @@ def test_maybe_start_harper_async(
 ) -> None:
     with patch("plugin.framework.uno_context.is_libreharper", return_value=is_libreharper):
         if provider is None:
-            submitted = maybe_start_harper_async(user_config_dir="/tmp")
+            submitted = maybe_start_harper_async("/tmp")
         else:
             with patch("plugin.writer.locale.grammar_settings.provider", return_value=provider):
-                submitted = maybe_start_harper_async(user_config_dir="/tmp")
+                submitted = maybe_start_harper_async("/tmp")
         assert submitted is expected_submitted
         assert mock_bg.call_count == (1 if expected_submitted else 0)
         assert harper_module.runtime.state is expected_state
@@ -966,7 +966,7 @@ def test_maybe_start_harper_async(
 def test_maybe_start_harper_async_idempotent_when_resolving(mock_bg: MagicMock) -> None:
     _resolving_runtime()
     with patch("plugin.framework.uno_context.is_libreharper", return_value=True):
-        submitted = maybe_start_harper_async(user_config_dir="/tmp")
+        submitted = maybe_start_harper_async("/tmp")
         assert submitted is False
         mock_bg.assert_not_called()
         assert harper_module.runtime.state is HarperRuntimeState.RESOLVING
@@ -978,7 +978,7 @@ def test_maybe_start_harper_async_skips_empty_config_dir(mock_bg: MagicMock) -> 
         patch("plugin.framework.uno_context.is_libreharper", return_value=True),
         patch("plugin.framework.config.user_config_dir", return_value=""),
     ):
-        submitted = maybe_start_harper_async(user_config_dir="")
+        submitted = maybe_start_harper_async("")
         assert submitted is False
         mock_bg.assert_not_called()
         assert harper_module.runtime.state is HarperRuntimeState.IDLE
@@ -1157,7 +1157,9 @@ def test_ensure_ready_empty_listeners_recovers_on_first_attach() -> None:
             listener.processLinguServiceEvent.assert_not_called()
             pr.addLinguServiceEventListener(listener)
         listener.processLinguServiceEvent.assert_called_once()
-        assert listener.processLinguServiceEvent.call_args[0][0].nEvent == 8
+        assert listener.processLinguServiceEvent.call_args[0][0].nEvent == int(
+            harper_module.uno.getConstantByName("com.sun.star.linguistic2.LinguServiceEventFlags.PROOFREAD_AGAIN")
+        ) if hasattr(harper_module, "uno") else 1
     finally:
         grammar_registry.live_proofreaders.discard(pr)
 

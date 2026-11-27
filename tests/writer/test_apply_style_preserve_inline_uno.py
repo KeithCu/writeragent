@@ -48,7 +48,9 @@ def test_apply_paragraph_style_preserves_direct_char_format_uno(ctx, doc):
     # 3) apply a PARAGRAPH style via the tool (target = whole document)
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     res = ApplyStyle().execute(
-        tool_ctx, style="Standard", family="ParagraphStyles", target="full_document"
+        tool_ctx, style="Standard", family="ParagraphStyles", target="full_document",
+        all_matches=False,
+        clear_direct='style_props',
     )
     assert res.get("status") == "ok", f"apply_style failed: {res}"
 
@@ -84,6 +86,8 @@ def test_apply_paragraph_style_via_search_preserves_whole_paragraph_uno(ctx, doc
     res = ApplyStyle().execute(
         tool_ctx, style="Quotations", family="ParagraphStyles",
         target="search", old_content="by a judge",
+        all_matches=False,
+        clear_direct='style_props',
     )
     assert res.get("status") == "ok", f"apply_style failed: {res}"
 
@@ -112,7 +116,9 @@ def test_apply_paragraph_style_preserves_char_back_color_uno(ctx, doc):
 
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     res = ApplyStyle().execute(
-        tool_ctx, style="Quotations", family="ParagraphStyles", target="full_document"
+        tool_ctx, style="Quotations", family="ParagraphStyles", target="full_document",
+        all_matches=False,
+        clear_direct='style_props',
     )
     assert res.get("status") == "ok", f"apply_style failed: {res}"
 
@@ -137,7 +143,9 @@ def test_apply_paragraph_style_preserves_applied_character_style_uno(ctx, doc):
 
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     res = ApplyStyle().execute(
-        tool_ctx, style="Heading 2", family="ParagraphStyles", target="full_document"
+        tool_ctx, style="Heading 2", family="ParagraphStyles", target="full_document",
+        all_matches=False,
+        clear_direct='style_props',
     )
     assert res.get("status") == "ok", f"apply_style failed: {res}"
 
@@ -173,7 +181,9 @@ def test_apply_paragraph_style_multi_paragraph_selection_uno(ctx, doc):
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     # Simulate selection spanning both paragraphs via full_document (same capture path).
     res = ApplyStyle().execute(
-        tool_ctx, style="Text body", family="ParagraphStyles", target="full_document"
+        tool_ctx, style="Text body", family="ParagraphStyles", target="full_document",
+        all_matches=False,
+        clear_direct='style_props',
     )
     assert res.get("status") == "ok", f"apply_style failed: {res}"
 
@@ -218,6 +228,8 @@ def test_apply_style_default_shows_house_font_keeps_bold_uno(ctx, doc):
     res = ApplyStyle().execute(
         tool_ctx, style="Standard", family="ParagraphStyles",
         target="search", old_content="Lawyer clause in Times.",
+        all_matches=False,
+        clear_direct='style_props',
     )
     assert res.get("status") == "ok", f"apply_style failed: {res}"
     assert "hint" not in res
@@ -257,6 +269,7 @@ def test_apply_style_explicit_none_keeps_direct_font_uno(ctx, doc):
         tool_ctx, style="Standard", family="ParagraphStyles",
         target="search", old_content="Keep Times on this clause.",
         clear_direct="none",
+        all_matches=False,
     )
     assert res.get("status") == "ok", f"apply_style failed: {res}"
     assert "hint" not in res
@@ -279,13 +292,13 @@ def test_apply_style_returns_structured_fields_uno(ctx, doc):
     text.insertString(cur, "Mark this clause.", False)
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
 
-    res = ApplyStyle().execute(tool_ctx, style="Standard", family="ParagraphStyles", target="full_document")
+    res = ApplyStyle().execute(tool_ctx, style="Standard", family="ParagraphStyles", target="full_document", all_matches=False, clear_direct='style_props')
     assert res.get("status") == "ok", res
     assert res.get("applied") is True, res
     assert res.get("target") == "full_document", res
     assert "matched" not in res, res  # full_document is not a search
 
-    res2 = ApplyStyle().execute(tool_ctx, style="Standard", family="ParagraphStyles", target="search", old_content="Mark this clause.")
+    res2 = ApplyStyle().execute(tool_ctx, style="Standard", family="ParagraphStyles", target="search", old_content="Mark this clause.", all_matches=False, clear_direct='style_props')
     assert res2.get("status") == "ok", res2
     assert res2.get("target") == "search", res2
     assert res2.get("matched") is True, res2
@@ -304,6 +317,8 @@ def test_apply_style_search_miss_reports_not_matched_uno(ctx, doc):
     res = ApplyStyle().execute(
         tool_ctx, style="Standard", family="ParagraphStyles",
         target="search", old_content="NOT-PRESENT-XYZ",
+        all_matches=False,
+        clear_direct='style_props',
     )
     assert res.get("status") == "error", res
     assert res.get("matched") is False, res
@@ -329,6 +344,7 @@ def test_apply_style_preserve_italic_char_posture_uno(ctx, doc):
         tool_ctx, style="Standard", family="ParagraphStyles",
         target="search", old_content="Italic contract clause.",
         clear_direct="none",
+        all_matches=False,
     )
     assert res.get("status") == "ok", f"apply_style failed: {res}"
     assert res.get("preserved_char_overrides", {}).get("CharPosture") == 2
@@ -371,6 +387,7 @@ def test_apply_style_full_document_keeps_cell_formatting_uno(ctx, doc):
     res_none = ApplyStyle().execute(
         tool_ctx, style="Quotations", family="ParagraphStyles",
         target="full_document", clear_direct="none",
+        all_matches=False,
     )
     assert res_none.get("status") == "ok", res_none
     assert res_none.get("preserved_char_overrides"), res_none
@@ -386,6 +403,7 @@ def test_apply_style_full_document_keeps_cell_formatting_uno(ctx, doc):
     res_default = ApplyStyle().execute(
         tool_ctx, style="Standard", family="ParagraphStyles",
         target="full_document", clear_direct="style_props",
+        all_matches=False,
     )
     assert res_default.get("status") == "ok", res_default
     style_font = doc.getStyleFamilies().getByName("ParagraphStyles").getByName("Standard").getPropertyValue("CharFontName")
@@ -416,6 +434,8 @@ def test_apply_style_over_emphasis_char_style_no_capture_incomplete_uno(ctx, doc
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     res = ApplyStyle().execute(
         tool_ctx, style="Text body", family="ParagraphStyles", target="full_document",
+        all_matches=False,
+        clear_direct='style_props',
     )
     assert res.get("status") == "ok", res
     assert not res.get("capture_incomplete"), res

@@ -30,6 +30,7 @@ import logging
 from typing import Any, Callable, cast
 
 import uno
+from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK  # type: ignore
 
 from plugin.doc.text_helpers import TrackedDeletions, iter_elements, iter_portions
 from plugin.doc.undo import commit_or_rollback_mutation
@@ -96,10 +97,11 @@ _INDEX_IMPL_TO_KIND = {
     "SwXUserIndex": "user",
 }
 
+_EMPTY_PARAMETERS: dict[str, Any] = {"type": "object", "properties": {}, "required": []}
+
 # Live LO (sw/source/core/fields/authfld.cxx aFieldNames). PropertyValue.Name is
 # the pretty string, not IDENTIFIER. Type is BibiliographicType (IDL typo
 # BIBILIOGRAPHIC_TYPE — one L missing, "Bibi…" not "Biblio…").
-_EMPTY_PARAMETERS: dict[str, Any] = {"type": "object", "properties": {}, "required": []}
 _BIB_FIELD_NAMES = (
     "Identifier",
     "BibiliographicType",
@@ -147,6 +149,7 @@ _BIB_FIELD_FOLDED = {
     "bibilographictype": "BibiliographicType",
 }
 
+# BibliographyDataType constants (book=1 matches Insert → Bibliographic Entry).
 _BIB_TYPE_NAMES = {
     "article": 0,
     "book": 1,
@@ -172,11 +175,9 @@ _BIB_TYPE_NAMES = {
     "custom5": 21,
 }
 
-# BibliographyDataType constants (book=1 matches Insert → Bibliographic Entry).
 _BIB_TYPE_MAX = max(_BIB_TYPE_NAMES.values())
 
 _BIB_CITE_SERVICE = "com.sun.star.text.textfield.Bibliography"
-_BIB_CITE_SERVICE_ALT = "com.sun.star.text.TextField.Bibliography"
 
 
 def canonicalize_bibliography_field_name(name: str) -> str | None:
@@ -261,13 +262,17 @@ def index_kind_from_uno(idx: Any) -> str:
     return _INDEX_IMPL_TO_KIND.get(impl) or impl or service or "unknown"
 
 
+def _index_name(idx: Any, i: int) -> str:
+    return uno_read(idx.getName, f"index_{i}")
+
+
 def is_bibliography_text_field(field: Any) -> bool:
-    """True for native Writer bibliography cite fields (not the index table)."""
-    for service in (_BIB_CITE_SERVICE, _BIB_CITE_SERVICE_ALT):
-        # supportsService does not throw on a live field.
-        if field.supportsService(service):
-            return True
-    return False
+    """True for native Writer bibliography cite fields (not the index table).
+
+    ``SwXTextField::getSupportedServiceNames`` returns both ``...TextField.Bibliography``
+    and ``...textfield.Bibliography`` (via ``OldNameToNewName_Impl``).
+    """
+    return field.supportsService(_BIB_CITE_SERVICE)
 
 
 def set_bibliography_field_values(field: Any, pairs: dict[str, Any]) -> None:
@@ -302,11 +307,14 @@ class IndexesUpdateAll(ToolWriterIndexBase):
         count = indexes.getCount()
         # sw/source/core/doc/doctxm.cxx:SwTOXBaseSection::Update calls DeleteRedline on
         # the whole index section whether or not Track Changes is recording.
-        dirty: list[str] = []
+        entries = []
         for i in range(count):
             idx = indexes.getByIndex(i)
-            if range_has_tracked_insert_or_delete(doc, idx.getAnchor()):
-                dirty.append(uno_read(idx.getName, "index_%d" % i))
+            entries.append((idx, _index_name(idx, i)))
+        dirty = [
+            name for idx, name in entries
+            if range_has_tracked_insert_or_delete(doc, idx.getAnchor())
+        ]
         if dirty:
             return self._tool_error(
                 "Cannot update indexes while %s contain(s) pending tracked insertions or deletions, "
@@ -315,10 +323,8 @@ class IndexesUpdateAll(ToolWriterIndexBase):
                 code="INDEX_HAS_TRACKED_CHANGES",
             )
         refreshed = []
-        for i in range(count):
-            idx = indexes.getByIndex(i)
+        for idx, name in entries:
             idx.update()
-            name = uno_read(idx.getName, "index_%d" % i)
             refreshed.append(name)
         result: dict[str, Any] = {"status": "ok", "refreshed": refreshed, "count": count}
         if count > 0:
@@ -354,11 +360,11 @@ def _entry_before(found: Any, content: str) -> tuple[str, str]:
         origin.gotoStartOfParagraph(False)
         prefix = text.createTextCursorByRange(origin.getStart())
         prefix.gotoRange(found.getStart(), True)
-        offset = len(prefix.getString() or "")
+        offset = len(prefix.getString())
         para = text.createTextCursorByRange(origin.getStart())
         para.gotoEndOfParagraph(True)
-        entry = para.getString() or ""
-        matched = found.getString() or ""
+        entry = para.getString()
+        matched = found.getString()
     except Exception:
         return "", ""
     end = offset + len(matched)
@@ -430,7 +436,7 @@ def toc_match(
 def _locate_toc_entry(
     tool: Any,
     doc: Any,
-    old_content: Any,
+    old_content: str,
     index: Any,
     occurrence: Any,
     *,
@@ -443,7 +449,7 @@ def _locate_toc_entry(
     if err is not None:
         return None, None, None, err
     found, find_error = toc_match(
-        doc, anchor, str(old_content).strip(), occ, case_sensitive=case_sensitive
+        doc, anchor, old_content.strip(), occ, case_sensitive=case_sensitive
     )
     if find_error:
         return None, None, None, tool._tool_error(find_error, code="NOT_FOUND")
@@ -551,7 +557,6 @@ def _paragraph_style_exists(doc: Any, name: str) -> bool:
 def _paragraphs_in_anchor(anchor: Any) -> list[Any]:
     """Paragraphs of the document text that lie inside the TOC anchor."""
     text = anchor.getText()
-    # createEnumeration does not fail on a live text. A failure is not an empty TOC.
     enum = text.createEnumeration()
     # Elements are in document order, so nothing after the anchor end can be contained.
     # compareRegionStarts(a, b) is 1 when a starts before b and -1 when after.
@@ -579,12 +584,6 @@ def _paragraph_element(found: Any) -> Any | None:
     return None
 
 
-def _entry_text(para: Any) -> str:
-    # getString on a live paragraph does not fail. A failure must not look like a blank row.
-    value = para.getString() or ""
-    return value if isinstance(value, str) else ""
-
-
 def _paragraph_hyperlink(para: Any) -> str:
     """Internal hyperlink on this TOC row.
 
@@ -597,25 +596,24 @@ def _paragraph_hyperlink(para: Any) -> str:
     internal = ""
     other = ""
     portions = uno_read(lambda: para.createEnumeration(), None)
-    if portions is not None:
-        for portion, _kind in iter_portions(portions):
-            if portion is None:
-                continue
-            # Some portion types have no HyperLinkURL. Disposal is not that case.
-            url = uno_read(lambda: portion.getPropertyValue("HyperLinkURL") or "", "")
-            if not isinstance(url, str) or not url:
-                continue
-            if "|outline" in url:
-                outline = url
-                break
-            if url.startswith("#") and not internal:
-                internal = url
-            elif not other:
-                other = url
-    if outline or internal or other:
-        return outline or internal or other
-    url = uno_read(lambda: para.getPropertyValue("HyperLinkURL") or "", "")
-    return url if isinstance(url, str) else ""
+    for portion, _kind in iter_portions(portions):
+        if portion is None:
+            continue
+        # Some portion types have no HyperLinkURL. Disposal is not that case.
+        url = uno_read(lambda: portion.getPropertyValue("HyperLinkURL") or "", "")
+        if not url:
+            continue
+        if "|outline" in url:
+            outline = url
+            break
+        if url.startswith("#") and not internal:
+            internal = url
+        elif not other:
+            other = url
+    found_url = outline or internal or other
+    if found_url:
+        return found_url
+    return uno_read(lambda: para.getPropertyValue("HyperLinkURL") or "", "")
 
 
 def toc_entry_rows(anchor: Any, *, include_links: bool = False) -> list[dict[str, Any]]:
@@ -633,7 +631,7 @@ def toc_entry_rows(anchor: Any, *, include_links: bool = False) -> list[dict[str
         style = _para_style_name(para)
         if style == "Contents Heading":
             continue
-        text = _entry_text(para)
+        text = para.getString()
         if not text.strip():
             continue
         row: dict[str, Any] = {
@@ -696,8 +694,8 @@ def _char_props(para: Any, with_link: bool) -> dict[str, Any]:
         if portion is None:
             continue
         # A non-Text portion and an unreadable one both read as "" and are skipped.
-        chunk = uno_read(lambda: (portion.getString() or "") if kind == "Text" else "", "")
-        if not isinstance(chunk, str) or not chunk:
+        chunk = uno_read(lambda: portion.getString() if kind == "Text" else "", "")
+        if not chunk:
             continue
         props = read_link_look(portion, _CLONED_CHAR_PROPS)
         if not with_link:
@@ -759,17 +757,16 @@ def _insert_toc_paragraph(
     so the neighbor's text is not prefixed. A break at the end already leaves
     the cursor in the new paragraph (probed on LibreOffice).
     """
-    # 0 is ControlCharacter.PARAGRAPH_BREAK.
     if position == "before":
         cursor = text.createTextCursorByRange(ref_para.getStart())
         cursor.gotoStartOfParagraph(False)
-        text.insertControlCharacter(cursor, 0, False)
+        text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
         if cursor.gotoPreviousParagraph(False) is not True:
             raise RuntimeError("could not reach the inserted TOC paragraph")
     else:
         cursor = text.createTextCursorByRange(ref_para.getEnd())
         cursor.gotoEndOfParagraph(False)
-        text.insertControlCharacter(cursor, 0, False)
+        text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
     text.insertString(cursor, new_text, False)
     para = _select_paragraph(cursor)
     para.setPropertyValue("ParaStyleName", style_name)
@@ -783,8 +780,7 @@ def _insert_toc_paragraph(
     if url:
         para.setPropertyValue("HyperLinkURL", url)
     write_link_look(para, char_props)
-    lived = para.getString() or ""
-    return lived if isinstance(lived, str) else new_text
+    return para.getString()
 
 
 def _remove_paragraph(text: Any, para: Any, anchor: Any) -> None:
@@ -875,10 +871,9 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
         crossing_err = crossing_match_error(doc, found, recorded=edit_is_recorded(doc))
         if crossing_err is not None:
             return crossing_err
-        preview, preview_error = self._preview(found, content, override)
-        if preview_error or preview is None:
-            return preview_error or self._tool_error(
-                "Could not preview the TOC entry.", code="TOOL_EXECUTION_ERROR")
+        preview = self._preview(found, content, override)
+        if preview.get("status") == "error":
+            return preview
         return self._write(
             ctx, doc, idx, found, content, override, preview, bool(kwargs.get("dry_run"))
         )
@@ -890,18 +885,17 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
                 code="INVALID_PARAM")
         return None
 
-    def _preview(self, found: Any, content: str, override: Any) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-        # capture_outline_hyperlinks returns a snapshot and does not raise.
+    def _preview(self, found: Any, content: str, override: Any) -> dict[str, Any]:
         snapshot = capture_outline_hyperlinks(found)
         err = self._override_error(override, snapshot)
         if err is not None:
-            return None, err
+            return err
         plans = plan_outline_updates(snapshot.links, snapshot.matched, content, override)
         reports = public_hyperlink_reports(plans)
         before, after = _entry_before(found, content)
         preview: dict[str, Any] = {"text": before, "text_after": after}
         preview.update(hyperlink_fields(reports))
-        return preview, None
+        return preview
 
     def _write(
         self,
@@ -915,7 +909,6 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
         dry_run: bool,
     ) -> dict[str, Any]:
         def mutate() -> dict[str, Any] | None:
-            # capture_outline_hyperlinks returns a snapshot and does not raise.
             snapshot = capture_outline_hyperlinks(found)
             err = self._override_error(override, snapshot)
             if err is not None:
@@ -992,7 +985,7 @@ class IndexesDeleteTocEntry(ToolWriterIndexBase):
         para = _paragraph_element(found)
         if para is None:
             return self._tool_error("Could not read the TOC entry.", code="TOOL_EXECUTION_ERROR")
-        entry = _entry_text(para)[:160]
+        entry = para.getString()[:160]
         preview: dict[str, Any] = {"text": entry, "text_after": ""}
 
         def mutate() -> dict[str, Any] | None:
@@ -1021,7 +1014,7 @@ def _page_text(raw: str | None) -> tuple[str | None, str | None]:
     return page, None
 
 
-def _outline_url(raw: Any) -> tuple[str | None, str | None]:
+def _outline_url(raw: str | None) -> tuple[str | None, str | None]:
     if raw is None:
         return None, None
     if not raw.strip():
@@ -1096,7 +1089,7 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
         if url_error:
             return self._tool_error(url_error, code="INVALID_PARAM")
         position = kwargs["position"]
-        old_content = kwargs.get("old_content")
+        old_content: str | None = kwargs.get("old_content")
         occurrence, occurrence_error = parse_non_negative_int(kwargs.get("occurrence"))
         if position == "end":
             if old_content not in (None, ""):
@@ -1107,8 +1100,9 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
                 return self._tool_error(
                     "occurrence is only used when position is before or after.",
                     code="INVALID_PARAM")
+            needle = ""
         else:
-            if not (old_content or "").strip():
+            if not old_content or not old_content.strip():
                 return self._tool_error(
                     "old_content is required when position is before or after.",
                     code="INVALID_PARAM")
@@ -1116,6 +1110,7 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
                 return self._tool_error(
                     "old_content must be plain text.",
                     code="INVALID_PARAM")
+            needle = old_content.strip()
         if occurrence_error:
             return self._tool_error(occurrence_error, code="INVALID_PARAM")
         level = kwargs.get("level")
@@ -1135,7 +1130,7 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
             found, find_error = toc_match(
                 doc,
                 anchor,
-                str(old_content).strip(),
+                needle,
                 occurrence,
                 case_sensitive=kwargs.get("case_sensitive"),
             )
@@ -1150,7 +1145,7 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
         if style_error:
             return self._tool_error(style_error, code="INVALID_PARAM")
         assert style_name is not None
-        sibling_text = _entry_text(ref)
+        sibling_text = ref.getString()
         line, page_used, page_from_sibling = _compose_toc_line(content, page, sibling_text)
         ref_is_contents = _outline_level(_para_style_name(ref)) is not None
         copy_tabs = level is None and ref_is_contents
@@ -1220,7 +1215,7 @@ class IndexesList(ToolWriterIndexBase):
         result = []
         for i in range(count):
             idx = indexes.getByIndex(i)
-            name = uno_read(lambda: idx.getName(), f"index_{i}")
+            name = _index_name(idx, i)
             title = uno_read(lambda: idx.Title, "")
             result.append({
                 "index": i,
@@ -1466,7 +1461,6 @@ class IndexesAddMark(ToolWriterIndexBase):
         primary_key = kwargs.get("primary_key")
         secondary_key = kwargs.get("secondary_key")
 
-        # schema enum.
         if index_kind == "bibliography":
             return self._insert_bibliography_cite(ctx, kwargs)
 
@@ -1475,12 +1469,9 @@ class IndexesAddMark(ToolWriterIndexBase):
             service_name = "com.sun.star.text.UserIndexMark"
 
         mark = doc.createInstance(service_name)
-
-        # A mark without its text is useless.
         mark.setPropertyValue("AlternativeText", mark_text)
 
         if index_kind == "alphabetical":
-            # One write. The attribute assignment duplicated these two calls.
             mark.setPropertyValue("PrimaryKey", primary_key or "")
             mark.setPropertyValue("SecondaryKey", secondary_key or "")
 
@@ -1532,8 +1523,6 @@ class IndexesAddMark(ToolWriterIndexBase):
 
         doc = ctx.doc
         field = doc.createInstance(_BIB_CITE_SERVICE)
-        if not field:
-            return self._tool_error("Failed to create textfield.Bibliography")
         # Fields must be set on the descriptor before insert. A plain tuple is
         # dropped; set_bibliography_field_values uses a typed Any via uno.invoke.
         set_bibliography_field_values(field, pairs)
@@ -1547,6 +1536,6 @@ class IndexesAddMark(ToolWriterIndexBase):
                 "message": "Added bibliography cite '%s'" % identifier,
                 "kind": "bibliography",
                 "identifier": identifier,
-                "fields": dict(pairs),
+                "fields": pairs,
             },
         )

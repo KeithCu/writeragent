@@ -29,8 +29,7 @@ __all__ = [
 
 def set_cell_string(cell: Any, text: str) -> None:
     """Set text on a Writer or Draw cell."""
-    # Write errors and disposal must propagate instead of being swallowed by a probe,
-    # and availability is determined by hasattr rather than trial write.
+    # Writer and Draw cells differ in which setter they offer; a failed write raises.
     if hasattr(cell, "getText"):
         cell.getText().setString(text)
         return
@@ -89,7 +88,7 @@ def check_table_band(band: Any, action: str, idx: int, axis_label: str) -> None:
         if count <= 1:
             raise ValueError(
                 "Cannot remove the last %s of a table; to remove the whole table, use table_delete."
-                % axis[:-1]
+                % axis_label
             )
 
 

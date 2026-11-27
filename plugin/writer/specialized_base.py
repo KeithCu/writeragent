@@ -214,7 +214,7 @@ class ToolWriterCommentBase(ToolWriterSpecialBase):
     specialized_domain_description: ClassVar[str | None] = "List, edit, resolve, and delete document comments, and run comment task workflows."
 
 
-class WriterAgentSpecialTracking(ToolWriterSpecialBase):
+class ToolWriterTrackingBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "tracking"
     specialized_domain_description: ClassVar[str | None] = "Manage and review tracked changes (redlines) in the document."
 
@@ -315,9 +315,9 @@ class SpecializedWorkflowFinished(ToolBase):
         "required": ["answer"],
     }
     tier: str = "specialized_control"
-    # Name-based detection treated this as a document write, so a read-only
-    # document_research target rejected the exit tool. It only clears the
-    # active domain. Sibling control tools already set this flag.
+    # Not a document write: it only clears the active domain. Without the flag,
+    # name-based detection counts it as a mutation and a read-only
+    # document_research target refuses the exit tool.
     is_mutation: bool | None = False
     is_final_answer_tool: bool = True
 

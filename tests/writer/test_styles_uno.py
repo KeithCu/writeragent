@@ -311,7 +311,7 @@ def test_style_format_text_full_document_reaches_tables_keeps_other_formatting_u
     nested.getCellByName("A1").getText().insertString(c_n, "Nested", False)
 
     before = dict(_portion_fonts(text))
-    res = StyleFormatText().execute(tool_ctx, properties={"CharFontName": "Arial"}, target="full_document")
+    res = StyleFormatText().execute(tool_ctx, properties={"CharFontName": "Arial"}, target="full_document", all_matches=False)
     assert res["status"] == "ok", res
     after = dict(_portion_fonts(text))
     for label in ("Body text", "Cell A1", "Nested"):
@@ -333,7 +333,8 @@ def test_style_format_text_asian_and_complex_slots_uno(ctx, doc):
     text.insertString(cur, "Latin 日本語 عربي", False)
 
     res_asian = StyleFormatText().execute(
-        tool_ctx, properties={"CharFontNameAsian": "Noto Sans CJK JP"}, target="full_document"
+        tool_ctx, properties={"CharFontNameAsian": "Noto Sans CJK JP"}, target="full_document",
+        all_matches=False,
     )
     assert res_asian["status"] == "ok", res_asian
     fonts = _portion_fonts(text)[0][1]
@@ -341,7 +342,8 @@ def test_style_format_text_asian_and_complex_slots_uno(ctx, doc):
     assert fonts["CharFontNameAsian"] == "Noto Sans CJK JP"
 
     res_complex = StyleFormatText().execute(
-        tool_ctx, properties={"CharFontNameComplex": "Noto Sans Arabic"}, target="full_document"
+        tool_ctx, properties={"CharFontNameComplex": "Noto Sans Arabic"}, target="full_document",
+        all_matches=False,
     )
     assert res_complex["status"] == "ok", res_complex
     fonts = _portion_fonts(text)[0][1]
@@ -357,6 +359,7 @@ def test_style_format_text_asian_and_complex_slots_uno(ctx, doc):
             "CharFontNameComplex": "Arial",
         },
         target="full_document",
+        all_matches=False,
     )
     assert res_all["status"] == "ok", res_all
     fonts = _portion_fonts(text)[0][1]
@@ -386,7 +389,7 @@ def test_style_format_text_reset_shows_style_font_uno(ctx, doc):
     )
     assert su["status"] == "ok", su
 
-    res = StyleFormatText().execute(tool_ctx, reset=["CharFontName"], target="full_document")
+    res = StyleFormatText().execute(tool_ctx, reset=["CharFontName"], target="full_document", all_matches=False)
     assert res["status"] == "ok", res
     assert res["after"]["CharFontName"] == "DejaVu Sans"
     after = dict(_portion_fonts(text))
@@ -437,7 +440,7 @@ def test_style_format_text_record_mode_format_redlines_reject_restores_uno(ctx, 
 
     doc.setPropertyValue("RecordChanges", True)
     try:
-        res = StyleFormatText().execute(tool_ctx, properties={"CharFontName": "Arial"}, target="full_document")
+        res = StyleFormatText().execute(tool_ctx, properties={"CharFontName": "Arial"}, target="full_document", all_matches=False)
         assert res["status"] == "ok", res
         assert res["tracked"] is True
 
@@ -455,7 +458,7 @@ def test_style_format_text_record_mode_format_redlines_reject_restores_uno(ctx, 
         assert restored["Cell"]["CharFontName"] == "Liberation Mono"
 
         count_before_reset = doc.getRedlines().getCount()
-        res_reset = StyleFormatText().execute(tool_ctx, reset=["CharFontName"], target="full_document")
+        res_reset = StyleFormatText().execute(tool_ctx, reset=["CharFontName"], target="full_document", all_matches=False)
         assert res_reset["status"] == "ok", res_reset
         assert res_reset["tracked"] is True
         assert "style_unreviewed" not in res_reset
@@ -492,7 +495,7 @@ def test_style_format_text_selection_in_table_cell_uno(ctx, doc):
     a1_cur.gotoEnd(True)
     doc.getCurrentController().select(a1_cur)
 
-    res = StyleFormatText().execute(tool_ctx, properties={"CharFontName": "Arial"}, target="selection")
+    res = StyleFormatText().execute(tool_ctx, properties={"CharFontName": "Arial"}, target="selection", all_matches=False)
     assert res["status"] == "ok", res
     after = dict(_portion_fonts(text))
     assert after["CellOne"]["CharFontName"] == "Arial"
@@ -523,6 +526,7 @@ def test_style_format_text_paragraph_props_cover_paragraph_and_reset_in_one_undo
         properties={"ParaAdjust": "center", "ParaLeftMargin": 1000, "CharWeight": 150.0},
         target="search",
         old_content="target",
+        all_matches=False,
     )
     assert res["status"] == "ok", res
     assert paras[0].getPropertyValue("ParaAdjust") == 3
@@ -543,6 +547,7 @@ def test_style_format_text_paragraph_props_cover_paragraph_and_reset_in_one_undo
         reset=["ParaAdjust", "ParaLeftMargin", "CharWeight"],
         target="search",
         old_content="target",
+        all_matches=False,
     )
     assert res_reset["status"] == "ok", res_reset
     assert len(undo_mgr.getAllUndoActionTitles()) == undo_before + 1
@@ -560,7 +565,8 @@ def test_style_format_text_unknown_name_leaves_document_unchanged_uno(ctx, doc):
     text.insertString(cur, "Keep plain", False)
 
     res = StyleFormatText().execute(
-        tool_ctx, properties={"CharWeight": 150.0, "Bogus": 1}, target="full_document"
+        tool_ctx, properties={"CharWeight": 150.0, "Bogus": 1}, target="full_document",
+        all_matches=False,
     )
     assert res["status"] == "error"
     assert res["code"] == "UNKNOWN_PROPERTY"
@@ -608,6 +614,7 @@ def test_style_format_text_mixed_set_and_reset_including_unrecordable_uno(ctx, d
             properties={"CharWeight": 150.0, "BreakType": PAGE_BEFORE},
             reset=["CharFontName", "CharStyleName"],
             target="full_document",
+            all_matches=False,
         )
         assert res["status"] == "ok", res
         assert res["tracked"] is True
@@ -638,7 +645,7 @@ def test_style_format_text_reset_accept_leaves_style_font_also_after_style_edit_
 
     doc.setPropertyValue("RecordChanges", True)
     try:
-        res = StyleFormatText().execute(tool_ctx, reset=["CharFontName"], target="full_document")
+        res = StyleFormatText().execute(tool_ctx, reset=["CharFontName"], target="full_document", all_matches=False)
         assert res["status"] == "ok", res
         assert res["tracked"] is True
         accept_all_changes(doc, ctx)
@@ -669,7 +676,7 @@ def test_style_format_text_para_reset_is_tracked_and_rejectable_uno(ctx, doc):
     doc.setPropertyValue("RecordChanges", True)
     try:
         before = doc.getRedlines().getCount()
-        res = StyleFormatText().execute(tool_ctx, reset=["ParaLeftMargin"], target="full_document")
+        res = StyleFormatText().execute(tool_ctx, reset=["ParaLeftMargin"], target="full_document", all_matches=False)
         assert res["status"] == "ok", res
         assert res["tracked"] is True
         assert "style_unreviewed" not in res
@@ -699,7 +706,7 @@ def test_style_format_text_reset_para_adjust_uno(ctx, doc):
     para_cur.gotoEndOfParagraph(True)
     para_cur.setPropertyValue("ParaAdjust", 3)
 
-    res = StyleFormatText().execute(tool_ctx, reset=["ParaAdjust"], target="full_document")
+    res = StyleFormatText().execute(tool_ctx, reset=["ParaAdjust"], target="full_document", all_matches=False)
     assert res["status"] == "ok", res
     para = text.createEnumeration().nextElement()
     raw = int(para.getPropertyValue("ParaAdjust"))
@@ -735,6 +742,8 @@ def test_apply_no_character_style_clears_visible_style_uno(ctx, doc):
         family="CharacterStyles",
         target="search",
         old_content="beta",
+        all_matches=False,
+        clear_direct='style_props',
     )
     assert res["status"] == "ok", res
 
@@ -767,6 +776,8 @@ def test_apply_no_character_style_clears_visible_style_uno(ctx, doc):
             family="CharacterStyles",
             target="search",
             old_content="beta",
+            all_matches=False,
+            clear_direct='style_props',
         )
         assert rec_res["status"] == "ok", rec_res
         redlines = doc.getRedlines()
@@ -828,7 +839,7 @@ def test_style_format_text_reset_char_style_name_is_rejectable_uno(ctx, doc):
 
     doc.setPropertyValue("RecordChanges", True)
     try:
-        res = StyleFormatText().execute(tool_ctx, reset=["CharStyleName"], target="full_document")
+        res = StyleFormatText().execute(tool_ctx, reset=["CharStyleName"], target="full_document", all_matches=False)
         assert res["status"] == "ok", res
         assert res["tracked"] is True
         assert "style_unreviewed" not in res
@@ -867,7 +878,7 @@ def test_apply_style_single_target_is_one_undo_step_uno(ctx, doc):
 
     undo = doc.getUndoManager()
     undo.clear()
-    res = ApplyStyle().execute(tool_ctx, style="Heading 1", target="full_document", clear_direct="style_props")
+    res = ApplyStyle().execute(tool_ctx, style="Heading 1", target="full_document", clear_direct="style_props", family='ParagraphStyles', all_matches=False)
     assert res["status"] == "ok", res
     assert len(list(undo.getAllUndoActionTitles())) == 1
 
@@ -893,7 +904,7 @@ def test_style_format_text_para_adjust_start_uno(ctx, doc):
     cur.setPropertyValue("ParaAdjust", 3)
 
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
-    res = StyleFormatText().execute(tool_ctx, properties={"ParaAdjust": "start"}, target="full_document")
+    res = StyleFormatText().execute(tool_ctx, properties={"ParaAdjust": "start"}, target="full_document", all_matches=False)
 
     para = text.createEnumeration().nextElement()
     effective = para.getPropertyValue("ParaAdjust")
@@ -934,6 +945,7 @@ def test_tab_stop_words_reach_the_document_uno(ctx, doc):
         tool_ctx,
         target="full_document",
         properties={"ParaTabStops": [{"Position": 3000, "Alignment": "center", "FillChar": "_"}]},
+        all_matches=False,
     )
     assert res_fmt["status"] == "ok", res_fmt
     para = text.createEnumeration().nextElement()
@@ -986,14 +998,14 @@ def test_style_import_loads_template_styles_uno(ctx, doc):
             para.setPropertyValue("ParaStyleName", "Heading 1")
             before = int(para.getPropertyValue("CharColor"))
 
-            res_merge = StyleImport().execute(tool_ctx, path=path, overwrite=False)
+            res_merge = StyleImport().execute(tool_ctx, path=path, overwrite=False, load_paragraph_styles=True, load_page_styles=False, load_frame_styles=False, load_numbering_styles=False)
             assert res_merge["status"] == "ok", res_merge
             dst_para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
             assert dst_para_styles.hasByName("AgentImported")
             assert dst_para_styles.getByName("AgentImported").getPropertyValue("CharWeight") == 150.0
             assert int(para.getPropertyValue("CharColor")) == before
 
-            res_overwrite = StyleImport().execute(tool_ctx, path=path, overwrite=True)
+            res_overwrite = StyleImport().execute(tool_ctx, path=path, overwrite=True, load_paragraph_styles=True, load_page_styles=False, load_frame_styles=False, load_numbering_styles=False)
             assert res_overwrite["status"] == "ok", res_overwrite
             assert int(para.getPropertyValue("CharColor")) == 0x00AA00
         finally:
@@ -1045,7 +1057,8 @@ def test_style_format_text_para_back_color_reaches_tables_persists_and_resets_un
     assert body_items[2].getString() == ""
 
     res_set = StyleFormatText().execute(
-        tool_ctx, properties={"ParaBackColor": "#FFE4C4"}, target="full_document"
+        tool_ctx, properties={"ParaBackColor": "#FFE4C4"}, target="full_document",
+        all_matches=False,
     )
     assert res_set["status"] == "ok", res_set
     assert res_set["after"]["ParaBackColor"] == 0xFFE4C4
@@ -1069,7 +1082,8 @@ def test_style_format_text_para_back_color_reaches_tables_persists_and_resets_un
             reloaded.close(True)
 
     res_reset = StyleFormatText().execute(
-        tool_ctx, reset=["ParaBackColor"], target="full_document"
+        tool_ctx, reset=["ParaBackColor"], target="full_document",
+        all_matches=False,
     )
     assert res_reset["status"] == "ok", res_reset
     assert res_reset["after"]["ParaBackColor"] == 0x00FF00
@@ -1077,7 +1091,8 @@ def test_style_format_text_para_back_color_reaches_tables_persists_and_resets_un
         assert int(p.getPropertyValue("ParaBackColor")) == 0x00FF00
 
     res_trans = StyleFormatText().execute(
-        tool_ctx, properties={"ParaBackColor": "transparent"}, target="full_document"
+        tool_ctx, properties={"ParaBackColor": "transparent"}, target="full_document",
+        all_matches=False,
     )
     assert res_trans["status"] == "ok", res_trans
     assert res_trans["after"]["ParaBackColor"] == -1
@@ -1093,6 +1108,7 @@ def test_style_format_text_para_back_color_reaches_tables_persists_and_resets_un
         properties={"ParaBackColor": "#123456"},
         target="search",
         old_content="Outer cell",
+        all_matches=False,
     )
     assert res_search["status"] == "ok", res_search
     paras_after = _all_paras(doc)
@@ -1125,7 +1141,9 @@ def test_apply_char_style_crossing_deletion_recording_vs_off_uno(ctx, doc):
     doc.setPropertyValue("RecordChanges", True)
     try:
         refused = ApplyStyle().execute(
-            tool_ctx, style="Emphasis", family="CharacterStyles", target="search", old_content="Word here"
+            tool_ctx, style="Emphasis", family="CharacterStyles", target="search", old_content="Word here",
+            all_matches=False,
+            clear_direct='style_props',
         )
     finally:
         doc.setPropertyValue("RecordChanges", False)
@@ -1137,7 +1155,9 @@ def test_apply_char_style_crossing_deletion_recording_vs_off_uno(ctx, doc):
     doc.setPropertyValue("RecordChanges", True)
     try:
         para_ok = ApplyStyle().execute(
-            tool_ctx, style="Heading 1", family="ParagraphStyles", target="search", old_content="Word here"
+            tool_ctx, style="Heading 1", family="ParagraphStyles", target="search", old_content="Word here",
+            all_matches=False,
+            clear_direct='style_props',
         )
     finally:
         doc.setPropertyValue("RecordChanges", False)
@@ -1149,7 +1169,9 @@ def test_apply_char_style_crossing_deletion_recording_vs_off_uno(ctx, doc):
     )
 
     applied = ApplyStyle().execute(
-        tool_ctx, style="Emphasis", family="CharacterStyles", target="search", old_content="Word here"
+        tool_ctx, style="Emphasis", family="CharacterStyles", target="search", old_content="Word here",
+        all_matches=False,
+        clear_direct='style_props',
     )
     assert applied["status"] == "ok", applied
     assert visible_range_text(doc, text) == "Word here"
@@ -1163,7 +1185,9 @@ def test_apply_char_style_crossing_deletion_recording_vs_off_uno(ctx, doc):
     doc.setPropertyValue("RecordChanges", True)
     try:
         multi_refused = ApplyStyle().execute(
-            tool_ctx, style="Emphasis", family="CharacterStyles", target="search", old_content="First\nSecond"
+            tool_ctx, style="Emphasis", family="CharacterStyles", target="search", old_content="First\nSecond",
+            all_matches=False,
+            clear_direct='style_props',
         )
     finally:
         doc.setPropertyValue("RecordChanges", False)
@@ -1219,9 +1243,9 @@ def test_style_tools_refuse_while_undo_is_locked_uno(ctx):
     prev_review = get_config("doc.agent_edit_review_mode")
     save({"doc.agent_edit_review_mode": "off"})
     cases = [
-        ("apply_para", lambda tc: ApplyStyle().execute(tc, style="Heading 2", target="search", old_content="rest of clause")),
-        ("apply_char", lambda tc: ApplyStyle().execute(tc, style="Source Text", family="CharacterStyles", target="search", old_content="rest of clause")),
-        ("format_text", lambda tc: StyleFormatText().execute(tc, properties={"CharHeight": 20.0}, target="search", old_content="rest of clause")),
+        ("apply_para", lambda tc: ApplyStyle().execute(tc, style="Heading 2", target="search", old_content="rest of clause", family='ParagraphStyles', all_matches=False, clear_direct='style_props')),
+        ("apply_char", lambda tc: ApplyStyle().execute(tc, style="Source Text", family="CharacterStyles", target="search", old_content="rest of clause", all_matches=False, clear_direct='style_props')),
+        ("format_text", lambda tc: StyleFormatText().execute(tc, properties={"CharHeight": 20.0}, target="search", old_content="rest of clause", all_matches=False)),
     ]
     try:
         for recording in (False, True):
@@ -1361,7 +1385,10 @@ def test_apply_style_word_contract_one_undo_keeps_redlines_uno(ctx):
 
                     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
                     res = ApplyStyle().execute(
-                        tool_ctx, style="Heading 1", target="search", old_content="Clause two target."
+                        tool_ctx, style="Heading 1", target="search", old_content="Clause two target.",
+                        family='ParagraphStyles',
+                        all_matches=False,
+                        clear_direct='style_props',
                     )
                     assert res["status"] == "ok", res
                     assert len(um.getAllUndoActionTitles() or ()) == len(titles_before) + 1
@@ -1410,6 +1437,7 @@ def test_style_format_text_nested_failure_does_not_claim_nothing_changed_uno(ctx
             tool_ctx,
             properties={"CharWeight": 150.0, "ParaBackColor": "#FFE4C4"},
             target="full_document",
+            all_matches=False,
         )
         assert res_alone["status"] == "error", res_alone
         assert "Nothing was changed" in res_alone["message"]
@@ -1425,6 +1453,7 @@ def test_style_format_text_nested_failure_does_not_claim_nothing_changed_uno(ctx
                 tool_ctx,
                 properties={"CharWeight": 150.0, "ParaBackColor": "#FFE4C4"},
                 target="full_document",
+                all_matches=False,
             )
         finally:
             outer.close()
@@ -1473,6 +1502,7 @@ def test_style_format_text_full_document_covers_leading_tables_uno(ctx, doc):
         tool_ctx,
         properties={"CharFontName": "Arial", "ParaLeftMargin": 400},
         target="full_document",
+        all_matches=False,
     )
     assert res["status"] == "ok", res
     assert len(undo_mgr.getAllUndoActionTitles()) == undo_before + 1
@@ -1494,12 +1524,14 @@ def test_style_format_text_full_document_covers_leading_tables_uno(ctx, doc):
         tool_ctx,
         properties={"CharFontName": "Arial"},
         target="full_document",
+        all_matches=False,
     )
     assert res_set["status"] == "ok", res_set
     res_reset = StyleFormatText().execute(
         tool_ctx,
         reset=["CharFontName"],
         target="full_document",
+        all_matches=False,
     )
     assert res_reset["status"] == "ok", res_reset
     assert {s: p["CharFontName"] for s, p in _portion_fonts(text)} == before_fonts
@@ -1523,6 +1555,7 @@ def test_style_format_text_full_document_leading_table_tracked_uno(ctx, doc):
             tool_ctx,
             properties={"CharFontName": "Arial", "ParaLeftMargin": 400},
             target="full_document",
+            all_matches=False,
         )
         assert res["status"] == "ok" and res.get("tracked") is True, res
         assert "style_unreviewed" not in res, res
@@ -1558,6 +1591,7 @@ def test_style_format_text_full_document_table_in_leading_section_uno(ctx, doc):
         tool_ctx,
         properties={"CharFontName": "Arial"},
         target="full_document",
+        all_matches=False,
     )
     assert res["status"] == "ok", res
     portions = _portion_fonts(text)

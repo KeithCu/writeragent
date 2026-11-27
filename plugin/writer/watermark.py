@@ -79,8 +79,6 @@ def read_watermark(uno_ctx: Any, doc: Any) -> dict[str, Any] | None:
     or ``None`` when the document has no controller/frame/dispatch, the command is disabled
     (e.g. read-only document), or ``State`` is not a ``PropertyValue`` tuple.
     """
-    if uno_ctx is None or doc is None:
-        return None
     controller = doc.getCurrentController()
     if controller is None:
         return None
@@ -92,8 +90,6 @@ def read_watermark(uno_ctx: Any, doc: Any) -> dict[str, Any] | None:
     url.Complete = WATERMARK_COMMAND
     smgr = uno_ctx.getServiceManager()
     transformer = smgr.createInstanceWithContext("com.sun.star.util.URLTransformer", uno_ctx)
-    if transformer is None:
-        return None
     # SfxBaseController::queryDispatch matches on aURL.Protocol == ".uno:", which requires parseStrict.
     parsed, url = transformer.parseStrict(url)
     if not parsed:
@@ -141,7 +137,7 @@ def _watermark_shapes(doc: Any, prefix: str) -> list[Any]:
     result: list[Any] = []
     for shape in iter_draw_shapes(draw_page):
         name = uno_read(shape.getName, "")
-        if isinstance(name, str) and name.startswith(prefix):
+        if name.startswith(prefix):
             result.append(shape)
     return result
 
@@ -186,12 +182,11 @@ def _update_inactive_watermarks(doc: Any, text: str) -> None:
             model = shape
     if not inactive:
         return
-    active_model = cast("Any", model)
     with UndoLock(doc):
         for shape in inactive:
             shape.setString(text)
             for name in _WATERMARK_LOOK_PROPS:
-                shape.setPropertyValue(name, active_model.getPropertyValue(name))
+                shape.setPropertyValue(name, cast("Any", model).getPropertyValue(name))
 
 
 def _public_watermark(state: dict[str, Any]) -> dict[str, Any] | None:
@@ -212,13 +207,13 @@ _UNSUPPORTED_MSG = (
 )
 
 
-def _optional_int_in_range(kwargs: dict[str, Any], name: str, lo: int, hi: int) -> int | None | str:
+def _optional_int_in_range(kwargs: dict[str, Any], name: str, lo: int, hi: int) -> tuple[int | None, str | None]:
     val = kwargs.get(name)
     if val is None:
-        return None
-    if isinstance(val, bool) or not isinstance(val, int) or not (lo <= val <= hi):
-        return f"{name} must be an integer between {lo} and {hi}."
-    return val
+        return None, None
+    if not (lo <= val <= hi):
+        return None, f"{name} must be an integer between {lo} and {hi}."
+    return val, None
 
 
 class PageGetWatermark(ToolWriterPageBase):
@@ -294,22 +289,20 @@ class PageSetWatermark(ToolWriterPageBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         text = kwargs["text"]
-        if not isinstance(text, str):
-            return self._tool_error("text must be a string.")
 
         font_val: str | None = None
         if (raw_font := kwargs.get("font")) is not None:
-            if not isinstance(raw_font, str) or not raw_font.strip():
+            if not raw_font.strip():
                 return self._tool_error("font must be a non-empty string.")
             font_val = raw_font.strip()
 
-        angle_val = _optional_int_in_range(kwargs, "angle", 0, 359)
-        if isinstance(angle_val, str):
-            return self._tool_error(angle_val)
+        angle_val, angle_err = _optional_int_in_range(kwargs, "angle", 0, 359)
+        if angle_err is not None:
+            return self._tool_error(angle_err)
 
-        tr_val = _optional_int_in_range(kwargs, "transparency", 0, 100)
-        if isinstance(tr_val, str):
-            return self._tool_error(tr_val)
+        tr_val, tr_err = _optional_int_in_range(kwargs, "transparency", 0, 100)
+        if tr_err is not None:
+            return self._tool_error(tr_err)
 
         color_val: int | None = None
         if (raw_color := kwargs.get("color")) is not None:
@@ -348,14 +341,9 @@ class PageSetWatermark(ToolWriterPageBase):
         execute_dispatch(uno_ctx, ctx.doc.getCurrentController(), WATERMARK_COMMAND, args)
 
         after = read_watermark(uno_ctx, ctx.doc)
-        if after is None:
-            return self._tool_error("LibreOffice did not apply the watermark.")
         # On removal (text == ""), SwEditShell::GetWatermark returns the default SfxWatermarkItem
         # once no shape exists, so only text is verifiable.
-        if text == "":
-            if after["text"] != "":
-                return self._tool_error("LibreOffice did not apply the watermark.")
-        elif after != expected:
+        if after is None or (after["text"] != "" if text == "" else after != expected):
             return self._tool_error("LibreOffice did not apply the watermark.")
 
         # Word files can carry first-page and even-page headers that are switched off.

@@ -576,6 +576,7 @@ def test_apply_style_records_in_review_mode_on_non_recording_doc_uno(ctx, doc):
                 family="ParagraphStyles",
                 target="full_document",
                 clear_direct="none",
+                all_matches=False,
             )
             assert res.get("status") == "ok", res
             assert res.get("tracked") is True, res
@@ -628,9 +629,9 @@ def test_whole_paragraph_char_change_over_para_redline_is_flagged_uno(ctx, doc):
         # 1. Para then whole Char: flagged, margin lost on Reject All (LibreOffice ResetAttrs).
         cur = _setup("Alpha beta.")
         _select_all(cur)
-        r1 = ApplyStyle().execute(native_writer_tool_context(doc, ctx), style="Heading 2", clear_direct="none")
+        r1 = ApplyStyle().execute(native_writer_tool_context(doc, ctx), style="Heading 2", clear_direct="none", family='ParagraphStyles', all_matches=False)
         assert r1.get("status") == "ok", r1
-        r2 = StyleFormatText().execute(native_writer_tool_context(doc, ctx), properties={"CharWeight": 150})
+        r2 = StyleFormatText().execute(native_writer_tool_context(doc, ctx), properties={"CharWeight": 150}, target='selection', all_matches=False)
         assert r2.get("status") == "ok", r2
         assert r2.get("style_unreviewed") is True, r2
         assert "direct paragraph formatting" in r2.get("warning", ""), r2
@@ -640,8 +641,8 @@ def test_whole_paragraph_char_change_over_para_redline_is_flagged_uno(ctx, doc):
         # 2. Para then character apply_style: flagged.
         cur = _setup("Alpha beta.")
         _select_all(cur)
-        ApplyStyle().execute(native_writer_tool_context(doc, ctx), style="Heading 2", clear_direct="none")
-        r_char = ApplyStyle().execute(native_writer_tool_context(doc, ctx), style="Emphasis", family="CharacterStyles")
+        ApplyStyle().execute(native_writer_tool_context(doc, ctx), style="Heading 2", clear_direct="none", family='ParagraphStyles', all_matches=False)
+        r_char = ApplyStyle().execute(native_writer_tool_context(doc, ctx), style="Emphasis", family="CharacterStyles", all_matches=False, clear_direct='style_props')
         assert r_char.get("status") == "ok", r_char
         assert r_char.get("style_unreviewed") is True, r_char
         assert "direct paragraph formatting" in r_char.get("warning", ""), r_char
@@ -651,8 +652,8 @@ def test_whole_paragraph_char_change_over_para_redline_is_flagged_uno(ctx, doc):
         # 3. Char then Para: not flagged, margin kept.
         cur = _setup("Alpha beta.")
         _select_all(cur)
-        StyleFormatText().execute(native_writer_tool_context(doc, ctx), properties={"CharWeight": 150})
-        r_para = ApplyStyle().execute(native_writer_tool_context(doc, ctx), style="Heading 2", clear_direct="none")
+        StyleFormatText().execute(native_writer_tool_context(doc, ctx), properties={"CharWeight": 150}, target='selection', all_matches=False)
+        r_para = ApplyStyle().execute(native_writer_tool_context(doc, ctx), style="Heading 2", clear_direct="none", family='ParagraphStyles', all_matches=False)
         assert r_para.get("status") == "ok", r_para
         assert "style_unreviewed" not in r_para, r_para
         reject_all_changes(doc, ctx)
@@ -661,9 +662,9 @@ def test_whole_paragraph_char_change_over_para_redline_is_flagged_uno(ctx, doc):
         # 4. Para then one word: not flagged, margin kept.
         cur = _setup("Alpha beta.")
         _select_all(cur)
-        ApplyStyle().execute(native_writer_tool_context(doc, ctx), style="Heading 2", clear_direct="none")
+        ApplyStyle().execute(native_writer_tool_context(doc, ctx), style="Heading 2", clear_direct="none", family='ParagraphStyles', all_matches=False)
         _select_first_word(cur, 5)
-        r_word = StyleFormatText().execute(native_writer_tool_context(doc, ctx), properties={"CharWeight": 150})
+        r_word = StyleFormatText().execute(native_writer_tool_context(doc, ctx), properties={"CharWeight": 150}, target='selection', all_matches=False)
         assert r_word.get("status") == "ok", r_word
         assert "style_unreviewed" not in r_word, r_word
         reject_all_changes(doc, ctx)
@@ -672,8 +673,8 @@ def test_whole_paragraph_char_change_over_para_redline_is_flagged_uno(ctx, doc):
         # 5. Para then whole Char on a paragraph with one bold word: not flagged, margin kept.
         cur = _setup("Alpha beta.", bold_first_word=True)
         _select_all(cur)
-        ApplyStyle().execute(native_writer_tool_context(doc, ctx), style="Heading 2", clear_direct="none")
-        r_two = StyleFormatText().execute(native_writer_tool_context(doc, ctx), properties={"CharPosture": 2})
+        ApplyStyle().execute(native_writer_tool_context(doc, ctx), style="Heading 2", clear_direct="none", family='ParagraphStyles', all_matches=False)
+        r_two = StyleFormatText().execute(native_writer_tool_context(doc, ctx), properties={"CharPosture": 2}, target='selection', all_matches=False)
         assert r_two.get("status") == "ok", r_two
         assert "style_unreviewed" not in r_two, r_two
         reject_all_changes(doc, ctx)
@@ -691,7 +692,7 @@ def test_apply_style_no_unreviewed_flag_when_review_off_uno(ctx, doc):
     prev = get_config(_FLAG)
     save({_FLAG: "off"})
     try:
-        res = ApplyStyle().execute(native_writer_tool_context(doc, ctx), style="Heading 2", family="ParagraphStyles", target="full_document")
+        res = ApplyStyle().execute(native_writer_tool_context(doc, ctx), style="Heading 2", family="ParagraphStyles", target="full_document", all_matches=False, clear_direct='style_props')
         assert res.get("status") == "ok", res
         assert "style_unreviewed" not in res, "no unreviewed flag when review mode off: %r" % res
     finally:
@@ -1292,7 +1293,9 @@ def test_recording_doc_with_review_off_records_styles_and_flags_header_uno(ctx, 
         tool_ctx = native_writer_tool_context(doc, ctx)
         assert len(doc.getRedlines()) == 0
         char_res = ApplyStyle().execute(
-            tool_ctx, style="Emphasis", family="CharacterStyles", target="full_document"
+            tool_ctx, style="Emphasis", family="CharacterStyles", target="full_document",
+            all_matches=False,
+            clear_direct='style_props',
         )
         assert char_res["status"] == "ok", char_res
         assert "style_unreviewed" not in char_res
@@ -1313,7 +1316,8 @@ def test_recording_doc_with_review_off_records_styles_and_flags_header_uno(ctx, 
         assert "style_unreviewed" not in hdr_res2
 
         para_res = ApplyStyle().execute(
-            tool_ctx, style="Heading 1", family="ParagraphStyles", target="full_document", clear_direct="none"
+            tool_ctx, style="Heading 1", family="ParagraphStyles", target="full_document", clear_direct="none",
+            all_matches=False,
         )
         assert para_res["status"] == "ok", para_res
         assert para_res.get("tracked") is True
@@ -1406,6 +1410,7 @@ def test_format_of_agent_insertion_rejects_to_original_uno(ctx, doc):
             target="search",
             old_content="quick brown",
             properties={"CharWeight": 150.0},
+            all_matches=False,
         )
         assert fmt_res["status"] == "ok", fmt_res
 
@@ -1432,6 +1437,8 @@ def test_format_of_agent_insertion_rejects_to_original_uno(ctx, doc):
                 family="CharacterStyles",
                 target="search",
                 old_content="quick brown",
+                all_matches=False,
+                clear_direct='style_props',
             )
             assert sty_res["status"] == "ok", sty_res
         finally:
@@ -1467,6 +1474,7 @@ def test_format_of_user_insertion_keeps_it_rejectable_uno(ctx, doc):
             target="search",
             old_content="NEWTEXT",
             properties={"CharWeight": 150.0},
+            all_matches=False,
         )
         assert res["status"] == "ok", res
 
@@ -1504,6 +1512,7 @@ def test_format_redline_author_uno(ctx, doc):
             target="search",
             old_content="Plain",
             properties={"CharWeight": 150.0},
+            all_matches=False,
         )
         assert res_rec["status"] == "ok", res_rec
         assert doc.getRedlines().getCount() == 1
@@ -1519,6 +1528,7 @@ def test_format_redline_author_uno(ctx, doc):
             target="search",
             old_content="Plain",
             properties={"CharWeight": 150.0},
+            all_matches=False,
         )
         assert res_off["status"] == "ok", res_off
         assert doc.getRedlines().getCount() == 1
@@ -1648,6 +1658,7 @@ def test_apply_para_style_recording_reject_and_accept_uno(ctx, doc):
         res = ApplyStyle().execute(
             native_writer_tool_context(doc, ctx), style="Heading 1", family="ParagraphStyles",
             target="full_document", clear_direct="none",
+            all_matches=False,
         )
         assert res["status"] == "ok", res
         assert res["tracked"] is True
@@ -1673,6 +1684,7 @@ def test_apply_para_style_recording_reject_and_accept_uno(ctx, doc):
         res2 = ApplyStyle().execute(
             native_writer_tool_context(doc, ctx), style="Heading 1", family="ParagraphStyles",
             target="full_document", clear_direct="none",
+            all_matches=False,
         )
         assert res2["tracked"] is True
         accept_all_changes(doc, ctx)
@@ -1748,7 +1760,9 @@ def test_apply_para_style_recording_table_cell_and_body_uno(ctx, doc):
     doc.setPropertyValue("RecordChanges", True)
     try:
         res = ApplyStyle().execute(
-            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
+            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document", clear_direct="none",
+            family='ParagraphStyles',
+            all_matches=False,
         )
         assert res["tracked"] is True
         reject_all_changes(doc, ctx)
@@ -1784,7 +1798,9 @@ def test_apply_para_style_recording_over_insert_and_delete_redlines_uno(ctx, doc
         doc.getText().insertString(cur, " added", False)  # tracked Insert
 
         res = ApplyStyle().execute(
-            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
+            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document", clear_direct="none",
+            family='ParagraphStyles',
+            all_matches=False,
         )
         assert res["tracked"] is True
         assert "ParagraphFormat" in list_redline_types(doc)
@@ -1815,7 +1831,9 @@ def test_apply_para_style_recording_numbered_paragraph_uno(ctx, doc):
     doc.setPropertyValue("RecordChanges", True)
     try:
         res = ApplyStyle().execute(
-            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
+            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document", clear_direct="none",
+            family='ParagraphStyles',
+            all_matches=False,
         )
         assert res["tracked"] is True
         assert res.get("style_unreviewed") is True
@@ -1858,7 +1876,9 @@ def test_apply_para_style_recording_fill_tabstop_border_survive_reject_uno(ctx, 
     doc.setPropertyValue("RecordChanges", True)
     try:
         res = ApplyStyle().execute(
-            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
+            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document", clear_direct="none",
+            family='ParagraphStyles',
+            all_matches=False,
         )
         assert res["tracked"] is True
         reject_all_changes(doc, ctx)
@@ -1891,7 +1911,10 @@ def test_apply_para_style_recording_clear_direct_warns_without_format_redline_un
     doc.setPropertyValue("RecordChanges", True)
     try:
         res = ApplyStyle().execute(
-            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document"
+            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document",
+            family='ParagraphStyles',
+            all_matches=False,
+            clear_direct='style_props',
         )
         assert res["status"] == "ok", res
         assert res["tracked"] is True
@@ -1922,7 +1945,9 @@ def test_apply_para_style_recording_uses_office_author_uno(ctx, doc):
         cur.gotoEnd(False)
         doc.getText().insertString(cur, " typed", False)
         res = ApplyStyle().execute(
-            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
+            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document", clear_direct="none",
+            family='ParagraphStyles',
+            all_matches=False,
         )
         assert res["tracked"] is True
         authors = {r["RedlineAuthor"] for r in list_redlines(doc)}
@@ -1946,7 +1971,9 @@ def test_apply_para_style_recording_empty_paragraph_uno(ctx, doc):
     doc.setPropertyValue("RecordChanges", True)
     try:
         res = ApplyStyle().execute(
-            native_writer_tool_context(doc, ctx), style="Heading 1", target="selection", clear_direct="none"
+            native_writer_tool_context(doc, ctx), style="Heading 1", target="selection", clear_direct="none",
+            family='ParagraphStyles',
+            all_matches=False,
         )
         assert res["status"] == "ok", res
         assert res["tracked"] is False
@@ -1976,7 +2003,9 @@ def test_apply_para_style_recording_docx_roundtrip_uno(ctx, doc):
     reloaded = None
     try:
         res = ApplyStyle().execute(
-            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
+            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document", clear_direct="none",
+            family='ParagraphStyles',
+            all_matches=False,
         )
         assert res["tracked"] is True
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2027,6 +2056,7 @@ def test_style_format_text_para_and_char_reject_and_accept_uno(ctx, doc):
             native_writer_tool_context(doc, ctx),
             properties={"ParaLeftMargin": 1200, "ParaAdjust": "center", "CharWeight": 150.0},
             target="full_document",
+            all_matches=False,
         )
         assert res["status"] == "ok", res
         assert res["tracked"] is True
@@ -2045,6 +2075,7 @@ def test_style_format_text_para_and_char_reject_and_accept_uno(ctx, doc):
             native_writer_tool_context(doc, ctx),
             properties={"ParaLeftMargin": 1200, "ParaAdjust": "center", "CharWeight": 150.0},
             target="full_document",
+            all_matches=False,
         )
         assert res2["status"] == "ok", res2
         accept_all_changes(doc, ctx)
@@ -2070,6 +2101,7 @@ def test_style_format_text_numbering_style_set_and_reject_uno(ctx, doc):
             native_writer_tool_context(doc, ctx),
             properties={"NumberingStyleName": "List 1"},
             target="full_document",
+            all_matches=False,
         )
         assert res["status"] == "ok", res
         assert res["tracked"] is True
@@ -2124,6 +2156,7 @@ def test_style_format_text_skips_list_item_and_heading_para_redline_uno(ctx, doc
             properties={"ParaLeftMargin": 900},
             target="search",
             old_content="Heading two",
+            all_matches=False,
         )
         assert res_h2["tracked"] is False
         assert res_h2.get("style_unreviewed") is True
@@ -2134,6 +2167,7 @@ def test_style_format_text_skips_list_item_and_heading_para_redline_uno(ctx, doc
             properties={"ParaLeftMargin": 900},
             target="search",
             old_content="List item",
+            all_matches=False,
         )
         assert res_list["tracked"] is False
         assert res_list.get("style_unreviewed") is True
@@ -2144,6 +2178,7 @@ def test_style_format_text_skips_list_item_and_heading_para_redline_uno(ctx, doc
             properties={"ParaLeftMargin": 900},
             target="search",
             old_content="Plain body",
+            all_matches=False,
         )
         assert res_plain["tracked"] is True
         assert "ParagraphFormat" in list_redline_types(doc)
@@ -2175,7 +2210,9 @@ def test_apply_para_style_recording_uses_agent_author_in_review_mode_uno(ctx, do
         cur.gotoEnd(False)
         doc.getText().insertString(cur, " typed", False)
         res = ApplyStyle().execute(
-            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
+            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document", clear_direct="none",
+            family='ParagraphStyles',
+            all_matches=False,
         )
         assert res["tracked"] is True
         para_authors = {
@@ -2203,12 +2240,16 @@ def test_apply_para_style_undo_then_reapply_stale_redline_limitation_uno(ctx, do
     doc.setPropertyValue("RecordChanges", True)
     try:
         ApplyStyle().execute(
-            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
+            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document", clear_direct="none",
+            family='ParagraphStyles',
+            all_matches=False,
         )
         doc.getUndoManager().undo()
         body_paragraphs(doc.getText())[0].setPropertyValue("ParaLeftMargin", 1300)
         ApplyStyle().execute(
-            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
+            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document", clear_direct="none",
+            family='ParagraphStyles',
+            all_matches=False,
         )
         reject_all_changes(doc, ctx)
         assert abs(body_paragraphs(doc.getText())[0].getPropertyValue("ParaLeftMargin") - 500) <= 2
@@ -2234,7 +2275,9 @@ def test_apply_char_style_records_in_review_mode_on_non_recording_doc_uno(ctx, d
     doc.setPropertyValue("RecordChanges", False)
     try:
         res = ApplyStyle().execute(
-            native_writer_tool_context(doc, ctx), style="Source Text", family="CharacterStyles", target="full_document"
+            native_writer_tool_context(doc, ctx), style="Source Text", family="CharacterStyles", target="full_document",
+            all_matches=False,
+            clear_direct='style_props',
         )
         assert res["status"] == "ok", res
         assert res["tracked"] is True
@@ -2334,7 +2377,9 @@ def test_para_format_reject_restores_wide_direct_properties_uno(ctx, doc):
     save({_FLAG: "record"})
     try:
         res_style = ApplyStyle().execute(
-            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
+            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document", clear_direct="none",
+            family='ParagraphStyles',
+            all_matches=False,
         )
         assert res_style["status"] == "ok", res_style
         assert res_style["tracked"] is True
@@ -2343,7 +2388,8 @@ def test_para_format_reject_restores_wide_direct_properties_uno(ctx, doc):
         assert _snapshot(body_paragraphs(doc.getText())[0]) == before
 
         res_fmt = StyleFormatText().execute(
-            native_writer_tool_context(doc, ctx), properties={"ParaBottomMargin": 500}, target="full_document"
+            native_writer_tool_context(doc, ctx), properties={"ParaBottomMargin": 500}, target="full_document",
+            all_matches=False,
         )
         assert res_fmt["status"] == "ok", res_fmt
         assert res_fmt["tracked"] is True
@@ -2388,7 +2434,9 @@ def test_para_format_reject_restores_bitmap_fill_uno(ctx, doc):
     save({_FLAG: "record"})
     try:
         res = ApplyStyle().execute(
-            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
+            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document", clear_direct="none",
+            family='ParagraphStyles',
+            all_matches=False,
         )
         assert res["status"] == "ok", res
         assert res["tracked"] is True
@@ -2420,7 +2468,9 @@ def test_para_format_names_unrestorable_property_uno(ctx, doc):
     save({_FLAG: "record"})
     try:
         res_style = ApplyStyle().execute(
-            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
+            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document", clear_direct="none",
+            family='ParagraphStyles',
+            all_matches=False,
         )
         assert res_style.get("style_unreviewed") is True
         assert "DropCapCharStyleName" in res_style.get("warning", "")
@@ -2434,7 +2484,8 @@ def test_para_format_names_unrestorable_property_uno(ctx, doc):
         p0.setPropertyValue("DropCapCharStyleName", "Emphasis")
 
         res_fmt = StyleFormatText().execute(
-            native_writer_tool_context(doc, ctx), properties={"ParaBottomMargin": 400}, target="full_document"
+            native_writer_tool_context(doc, ctx), properties={"ParaBottomMargin": 400}, target="full_document",
+            all_matches=False,
         )
         assert res_fmt.get("style_unreviewed") is True
         assert "DropCapCharStyleName" in res_fmt.get("warning", "")
@@ -2443,7 +2494,9 @@ def test_para_format_names_unrestorable_property_uno(ctx, doc):
         _reset(doc, ctx, "Restorable only paragraph.")
         body_paragraphs(doc.getText())[0].setPropertyValue("ParaLeftMargin", 500)
         res_clean = ApplyStyle().execute(
-            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
+            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document", clear_direct="none",
+            family='ParagraphStyles',
+            all_matches=False,
         )
         assert "style_unreviewed" not in res_clean
     finally:
@@ -2513,7 +2566,9 @@ def test_para_format_character_unit_indent_is_tracked_uno(ctx, doc):
                 assert orig_left_unit is not None
 
             res = ApplyStyle().execute(
-                native_writer_tool_context(reloaded, ctx), style="Heading 1", target="full_document", clear_direct="none"
+                native_writer_tool_context(reloaded, ctx), style="Heading 1", target="full_document", clear_direct="none",
+                family='ParagraphStyles',
+                all_matches=False,
             )
             assert res["status"] == "ok", res
             assert res["tracked"] is True
@@ -2541,7 +2596,8 @@ def test_style_format_text_register_mode_tracked_writing_mode_flagged_uno(ctx, d
     save({_FLAG: "record"})
     try:
         res_reg = StyleFormatText().execute(
-            native_writer_tool_context(doc, ctx), properties={"ParaRegisterModeActive": True}, target="full_document"
+            native_writer_tool_context(doc, ctx), properties={"ParaRegisterModeActive": True}, target="full_document",
+            all_matches=False,
         )
         assert res_reg["status"] == "ok", res_reg
         assert res_reg["tracked"] is True
@@ -2550,7 +2606,8 @@ def test_style_format_text_register_mode_tracked_writing_mode_flagged_uno(ctx, d
         assert body_paragraphs(doc.getText())[0].getPropertyValue("ParaRegisterModeActive") is False
 
         res_wm = StyleFormatText().execute(
-            native_writer_tool_context(doc, ctx), properties={"WritingMode": 1}, target="full_document"
+            native_writer_tool_context(doc, ctx), properties={"WritingMode": 1}, target="full_document",
+            all_matches=False,
         )
         assert res_wm["status"] == "ok", res_wm
         assert res_wm["tracked"] is False
@@ -2575,7 +2632,8 @@ def test_style_format_text_para_back_color_tracked_reject_and_accept_uno(ctx, do
     save({_FLAG: "record"})
     try:
         res = StyleFormatText().execute(
-            native_writer_tool_context(doc, ctx), properties={"ParaBackColor": "#FFE4C4"}, target="full_document"
+            native_writer_tool_context(doc, ctx), properties={"ParaBackColor": "#FFE4C4"}, target="full_document",
+            all_matches=False,
         )
         assert res["status"] == "ok", res
         assert res["tracked"] is True
@@ -2586,7 +2644,8 @@ def test_style_format_text_para_back_color_tracked_reject_and_accept_uno(ctx, do
         assert int(body_paragraphs(doc.getText())[0].getPropertyValue("ParaBackColor")) == 0x112233
 
         res2 = StyleFormatText().execute(
-            native_writer_tool_context(doc, ctx), properties={"ParaBackColor": "#FFE4C4"}, target="full_document"
+            native_writer_tool_context(doc, ctx), properties={"ParaBackColor": "#FFE4C4"}, target="full_document",
+            all_matches=False,
         )
         assert res2["status"] == "ok", res2
         accept_all_changes(doc, ctx)
@@ -2610,7 +2669,8 @@ def test_style_format_text_writing_mode_automatic_tracked_and_rejectable_uno(ctx
     save({_FLAG: "record"})
     try:
         res = StyleFormatText().execute(
-            native_writer_tool_context(doc, ctx), properties={"WritingModeAutomatic": False}, target="full_document"
+            native_writer_tool_context(doc, ctx), properties={"WritingModeAutomatic": False}, target="full_document",
+            all_matches=False,
         )
         assert res["status"] == "ok", res
         assert res["tracked"] is True
@@ -2671,7 +2731,8 @@ def test_style_format_text_caret_records_nothing_uno(ctx, doc):
     save({_FLAG: "record"})
     try:
         res_caret = StyleFormatText().execute(
-            native_writer_tool_context(doc, ctx), properties={"CharWeight": 150}, target="end"
+            native_writer_tool_context(doc, ctx), properties={"CharWeight": 150}, target="end",
+            all_matches=False,
         )
         assert res_caret["status"] == "ok", res_caret
         assert res_caret["tracked"] is False
@@ -2679,7 +2740,8 @@ def test_style_format_text_caret_records_nothing_uno(ctx, doc):
         assert list_redlines(doc) == []
 
         res_reset_caret = StyleFormatText().execute(
-            native_writer_tool_context(doc, ctx), reset=["CharWeight"], target="end"
+            native_writer_tool_context(doc, ctx), reset=["CharWeight"], target="end",
+            all_matches=False,
         )
         assert res_reset_caret["status"] == "ok", res_reset_caret
         assert res_reset_caret["tracked"] is False
@@ -2691,6 +2753,7 @@ def test_style_format_text_caret_records_nothing_uno(ctx, doc):
             properties={"CharWeight": 150},
             target="search",
             old_content="format",
+            all_matches=False,
         )
         assert res_search["status"] == "ok", res_search
         assert res_search["pending_review"] is True
@@ -2715,6 +2778,7 @@ def test_user_recording_with_review_off_reports_pending_uno(ctx, doc):
             properties={"CharWeight": 150},
             target="search",
             old_content="recording",
+            all_matches=False,
         )
         assert res_fmt["status"] == "ok", res_fmt
         assert res_fmt["pending_review"] is True
@@ -2727,6 +2791,8 @@ def test_user_recording_with_review_off_reports_pending_uno(ctx, doc):
             family="ParagraphStyles",
             target="search",
             old_content="User",
+            all_matches=False,
+            clear_direct='style_props',
         )
         assert res_para["status"] == "ok", res_para
         assert res_para["pending_review"] is True

@@ -11,7 +11,7 @@ modules under plugin.writer.locale or plugin.framework.client at module level.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, cast
 
 from plugin.framework import config, uno_context
 
@@ -32,7 +32,7 @@ class GrammarProfile:
     always_enabled: bool
 
 
-def provider() -> str:
+def provider() -> GrammarProvider:
     """Return the active grammar provider name ('off', 'llm', 'languagetool', 'vale', or 'harper')."""
     if uno_context.is_libreharper():
         return "harper"
@@ -44,7 +44,7 @@ def provider() -> str:
     if val_str == "true":
         return "llm"
     if val_str in ("llm", "languagetool", "vale", "harper"):
-        return val_str
+        return cast("GrammarProvider", val_str)
 
     return "off"
 
@@ -87,7 +87,7 @@ def checker_identity(name: str | None = None) -> str:
         return "off"
     from plugin.framework.client.model_fetcher import get_grammar_model
 
-    return f"llm:{get_grammar_model() or ''}"
+    return f"llm:{get_grammar_model()}"
 
 
 def engine_settings_changed(keys: Collection[str]) -> bool:

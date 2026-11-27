@@ -47,9 +47,7 @@ def _to_file_url(path_or_url: str) -> str:
     if path_or_url.startswith("file:"):
         return normalize_file_url(path_or_url)
     try:
-        res = uno.systemPathToFileUrl(os.path.abspath(path_or_url))
-        if isinstance(res, str):
-            return res
+        return uno.systemPathToFileUrl(os.path.abspath(path_or_url))
     except Exception:
         log.debug("systemPathToFileUrl failed", exc_info=True)
     return path_to_file_url(path_or_url)
@@ -69,8 +67,8 @@ def _to_system_path(path_or_url: str) -> str:
     return unquote(urlparse(url).path)
 
 
-_COMMAND_TYPES = {"table": 0, "query": 1, "command": 2}  # default 0
-_OUTPUT_TYPES = {"printer": 1, "file": 2}      # default 2
+_COMMAND_TYPES = {"table": 0, "query": 1, "command": 2}
+_OUTPUT_TYPES = {"printer": 1, "file": 2}
 
 
 def _create_global_service(ctx: Any, service_name: str) -> Any:
@@ -85,9 +83,9 @@ def _create_global_service(ctx: Any, service_name: str) -> Any:
     """
     comp_ctx = resolve_uno_context(ctx)
     smgr = get_service_manager(comp_ctx)
-    if smgr:
-        return smgr.createInstanceWithContext(service_name, comp_ctx)
-    return None
+    if smgr is None:
+        raise RuntimeError("UNO service manager is unavailable.")
+    return smgr.createInstanceWithContext(service_name, comp_ctx)
 
 
 class ListDataSources(ToolWriterMailMergeBase):
@@ -115,12 +113,10 @@ class ListDataSources(ToolWriterMailMergeBase):
     }
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        include_tables = kwargs.get("include_tables", False)
+        include_tables = kwargs["include_tables"]
         target_ds_name = kwargs.get("data_source_name")
 
         db_ctx = _create_global_service(ctx, "com.sun.star.sdb.DatabaseContext")
-        if not db_ctx:
-            return self._tool_error("Failed to access LibreOffice DatabaseContext.")
 
         available_names = list(db_ctx.getElementNames())
 
@@ -146,7 +142,6 @@ class ListDataSources(ToolWriterMailMergeBase):
             if include_tables:
                 try:
                     ds = db_ctx.getByName(name)
-                    # Establish connection to inspect schema
                     conn = ds.getConnection("", "")
                     try:
                         tables_container = conn.getTables()
@@ -215,7 +210,7 @@ class RegisterDataSource(ToolWriterMailMergeBase):
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         name = kwargs["name"]
         file_path = kwargs.get("file_path")
-        action = kwargs.get("action", "register")
+        action = kwargs["action"]
 
         if not name:
             return self._tool_error("Data source name is required.")
@@ -223,8 +218,6 @@ class RegisterDataSource(ToolWriterMailMergeBase):
         # XDatabaseRegistrations methods registerDatabaseLocation / changeDatabaseLocation
         # manage named database locations by URL.
         db_ctx = _create_global_service(ctx, "com.sun.star.sdb.DatabaseContext")
-        if not db_ctx:
-            return self._tool_error("Failed to access LibreOffice DatabaseContext.")
 
         if action == "unregister":
             if db_ctx.hasByName(name):
@@ -326,8 +319,8 @@ class InsertField(ToolWriterMailMergeBase):
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         column_name = kwargs["column_name"]
         data_source_name = kwargs["data_source_name"]
-        table_name = kwargs.get("table_name", "")
-        command_type_str = kwargs.get("command_type", "table")
+        table_name = kwargs["table_name"]
+        command_type_str = kwargs["command_type"]
 
         if not column_name:
             return self._tool_error("column_name is required.")
@@ -336,31 +329,22 @@ class InsertField(ToolWriterMailMergeBase):
 
         cmd_type_val = _COMMAND_TYPES[command_type_str]
 
-        # 1. Create or retrieve Database FieldMaster
         master = None
         master_service_name = "com.sun.star.text.fieldmaster.Database"
         master_id = f"com.sun.star.text.fieldmaster.Database.{data_source_name}.{table_name}.{column_name}"
 
         masters = doc.getTextFieldMasters()
         if masters.hasByName(master_id):
-            try:
-                master = masters.getByName(master_id)
-            except Exception as exc:
-                reraise_if_disposed(exc)
+            master = masters.getByName(master_id)
 
         if master is None:
             master = doc.createInstance(master_service_name)
-            if not master:
-                return self._tool_error("Failed to create database field master service.")
             master.setPropertyValue("DataBaseName", data_source_name)
             master.setPropertyValue("DataTableName", table_name)
             master.setPropertyValue("DataColumnName", column_name)
             master.setPropertyValue("DataCommandType", cmd_type_val)
 
-        # 2. Create TextField.Database instance
         field = doc.createInstance("com.sun.star.text.textfield.Database")
-        if not field:
-            return self._tool_error("Failed to create database textfield service.")
         field.attachTextFieldMaster(master)
 
         recorded = False
@@ -415,7 +399,6 @@ class ListFields(ToolWriterMailMergeBase):
         for field in iter_elements(enum):
             field_idx += 1
 
-            # Check if this is a Database text field
             is_db_field = False
             try:
                 is_db_field = field.supportsService("com.sun.star.text.textfield.Database")
@@ -539,13 +522,13 @@ class RunMerge(ToolWriterMailMergeBase):
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         data_source_name = kwargs["data_source_name"]
         table_name = kwargs["table_name"]
-        command_type_str = kwargs.get("command_type", "table")
+        command_type_str = kwargs["command_type"]
         output_type_str = kwargs["output_type"]
         output_path = kwargs.get("output_path")
-        save_as_single_file = kwargs.get("save_as_single_file", False)
+        save_as_single_file = kwargs["save_as_single_file"]
         file_format = kwargs["file_format"]
-        file_name_prefix = kwargs.get("file_name_prefix", "MergedDocument")
-        file_name_from_column = kwargs.get("file_name_from_column", False)
+        file_name_prefix = kwargs["file_name_prefix"]
+        file_name_from_column = kwargs["file_name_from_column"]
         filter_clause = kwargs.get("filter")
         doc_url_arg = kwargs.get("document_url")
 
@@ -554,7 +537,6 @@ class RunMerge(ToolWriterMailMergeBase):
 
         doc = ctx.doc
 
-        # Resolve document URL
         doc_url = ""
         out_dir = ""
         if doc_url_arg:
@@ -589,14 +571,10 @@ class RunMerge(ToolWriterMailMergeBase):
         # service. doc.createInstance raises ServiceNotRegisteredException (same class of
         # bug as ShapeCollection / DatabaseContext).
         mail_merge = _create_global_service(ctx, "com.sun.star.text.MailMerge")
-        if not mail_merge:
-            return self._tool_error("Failed to instantiate com.sun.star.text.MailMerge service.")
 
-        # Map types
         cmd_type = _COMMAND_TYPES[command_type_str]
         out_type = _OUTPUT_TYPES[output_type_str]
 
-        # Configure MailMerge properties
         mail_merge.DocumentURL = doc_url
         mail_merge.DataSourceName = data_source_name
         mail_merge.CommandType = cmd_type
@@ -604,7 +582,7 @@ class RunMerge(ToolWriterMailMergeBase):
         mail_merge.OutputType = out_type
 
         output_url = None
-        if out_type == 2:  # File
+        if output_type_str == "file":
             # No output_path: leave OutputURL unset so LO writes next to the template (cwd may be /).
             if output_path:
                 out_dir = _to_system_path(output_path)
@@ -632,8 +610,7 @@ class RunMerge(ToolWriterMailMergeBase):
             mail_merge.FileNamePrefix = file_name_prefix
             mail_merge.FileNameFromColumn = file_name_from_column
 
-            # Set filter for PDF or ODT
-            if file_format.lower() == "pdf":
+            if file_format == "pdf":
                 mail_merge.SaveFilter = "writer_pdf_export"
             else:
                 mail_merge.SaveFilter = "writer8"
@@ -641,12 +618,11 @@ class RunMerge(ToolWriterMailMergeBase):
         if filter_clause:
             mail_merge.Filter = filter_clause
 
-        # Execute the merge
         mail_merge.execute([])
 
         dest_msg = (
             f"Output directory: {out_dir or output_url} ({file_format.upper()})."
-            if out_type == 2
+            if output_type_str == "file"
             else "Output destination: printer."
         )
 
@@ -659,7 +635,7 @@ class RunMerge(ToolWriterMailMergeBase):
             "output_type": output_type_str,
             "output_path": output_path,
             "output_url": output_url,
-            "output_directory": out_dir if out_type == 2 else None,
+            "output_directory": out_dir if output_type_str == "file" else None,
             "save_as_single_file": save_as_single_file,
             "file_format": file_format,
         }
