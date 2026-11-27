@@ -10,9 +10,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 import logging
-from typing import Any
+from typing import Any, Literal
 
 from plugin.chatbot.dialogs import set_combo_items
 from plugin.framework.deal_shim import DEAL_MAX_TOKEN, str_bounded, deal
@@ -52,9 +53,9 @@ def sidebar_mode_flags_for_doc_type(doc_type_label: str) -> SidebarModeFlags:
     Calc gets deep research only; unknown labels get shared modes only (Chat, Image, Web Research, Librarian).
     """
     if doc_type_label == "writer":
-        return SidebarModeFlags(include_brainstorming=True, include_writing_plan=True, include_ppt_master=False, include_deep_research=True)
+        return SidebarModeFlags(include_brainstorming=True, include_writing_plan=True, include_deep_research=True)
     if doc_type_label in ("draw", "impress"):
-        return SidebarModeFlags(include_brainstorming=False, include_writing_plan=False, include_ppt_master=True, include_deep_research=True)
+        return SidebarModeFlags(include_ppt_master=True, include_deep_research=True)
     if doc_type_label == "calc":
         return SidebarModeFlags(include_deep_research=True)
     return SidebarModeFlags()
@@ -63,12 +64,12 @@ def sidebar_mode_flags_for_doc_type(doc_type_label: str) -> SidebarModeFlags:
 @dataclass(frozen=True)
 class SidebarMode:
     key: str
-    kind: str = "session"  # "chat" | "image" | "session"
-    label_fn: Any = None
-    greeting_fn: Any = None
+    label_fn: Callable[[], str]
+    kind: Literal["chat", "image", "session"] = "session"
+    greeting_fn: Callable[[], str] | None = None
     flag_attr: str | None = None
     capture_topic: bool = False
-    topic_policy: str = ""  # "" | "switch" | "fill"
+    topic_policy: Literal["", "switch", "fill"] = ""
     allowed_docs: tuple[str, ...] | None = None
     dispatch_log: str = ""
     tool_name: str = ""
@@ -77,7 +78,7 @@ class SidebarMode:
     default_error: str = ""
     finish_msgid: str | None = None
     leave_flag: str | None = None
-    leave_status: str | None = None  # None | "finished" | "switch_mode"
+    leave_status: Literal["finished", "switch_mode"] | None = None
     tracks_spec_saved: bool = False
     reply_description: str = ""
     handoff_topic_prefix: str = ""
@@ -202,7 +203,6 @@ _MODES: tuple[SidebarMode, ...] = (
         error_tag="PPT-Master",
         default_error=_("Unknown PPT-Master error."),
         finish_msgid=N_("PPT-Master session complete."),
-        leave_flag=None,
         leave_status="finished",
         extra_kwarg="topic",
         extra_attr="_mode_topic",
@@ -260,7 +260,7 @@ def get_mode_labels(flags: SidebarModeFlags = SidebarModeFlags()) -> tuple[str, 
 def mode_from_label(label: str, flags: SidebarModeFlags = SidebarModeFlags()) -> str:
     """Map a combobox display label to a mode constant."""
     # crosshair: off
-    text = str(label or "").strip()
+    text = label.strip()
     for mode, item_label in zip(_modes_for(flags), get_mode_labels(flags)):
         if text == item_label:
             return mode
@@ -272,8 +272,8 @@ def mode_from_selector_with_flags(ctrl: Any, flags: SidebarModeFlags) -> str:
 
     Prefer ``getSelectedItemPos`` over ``getText``. The ChatPanel ComboBox is
     ``spin=true``; the edit field can keep the XDL default ``Chat`` while the
-    selected index is Librarian (last ``addItems`` entry). Send then ran the
-    librarian path despite the visible label.
+    selected index is Librarian (last ``addItems`` entry). Reading the text
+    would then disagree with the selected item.
     """
     # crosshair: off
     if not ctrl:
@@ -392,7 +392,8 @@ class SidebarModeController:
         if self._panel.chat_mode_selector:
             set_selector_mode_with_flags(self._panel.chat_mode_selector, mode, self._panel.sidebar_mode_flags)
         # Combo change does not reliably fire ChatModeListener; apply the mode here.
-        self._panel._apply_sidebar_mode_fn(mode)
+        if self._panel.apply_sidebar_mode is not None:
+            self._panel.apply_sidebar_mode(mode)
 
     def on_mode_finished(self, key: str, payload: dict[str, Any]) -> None:
         """Reset sidebar or transition to next mode when a specialized session finishes."""
@@ -401,7 +402,7 @@ class SidebarModeController:
             return
         topic = getattr(self._panel, "_mode_topic", "") or ""
         _clear_mode_session(self._panel, key)
-        if mode.tracks_spec_saved and bool(payload.get("spec_saved", False)) and mode.next_mode_if_spec_saved:
+        if mode.tracks_spec_saved and payload.get("spec_saved", False) and mode.next_mode_if_spec_saved:
             self._panel._active_mode = mode.next_mode_if_spec_saved
             self._panel._mode_topic = f"{mode.handoff_topic_prefix}{topic}"
             self._show_mode(mode.next_mode_if_spec_saved)

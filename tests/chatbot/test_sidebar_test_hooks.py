@@ -103,7 +103,7 @@ class _FakeAudioRecorder:
 class _FakeListener:
     session: Any
     slash_popup: Any
-    _apply_sidebar_mode_fn: Any
+    apply_sidebar_mode: Any
     _record_gesture: Any
     _auto_stop_path: Any
     _last_compact_reason: Any
@@ -112,6 +112,7 @@ class _FakeListener:
 
     def __init__(self, *, busy: bool = False, approval: object | None = None) -> None:
         self.events: list = []
+        self.frame_session = None
         self.query_control = _QueryControl()
         self.response_control = _QueryControl()
         self.send_control = _Btn("Send")
@@ -357,7 +358,7 @@ def test_handle_debug_sidebar_slash_ops(fake_listener: _FakeListener, monkeypatc
 
 def test_handle_debug_sidebar_text_and_mode_commands(fake_listener: _FakeListener, monkeypatch) -> None:
     applied_modes = []
-    fake_listener._apply_sidebar_mode_fn = lambda mode: applied_modes.append(mode)
+    fake_listener.apply_sidebar_mode = lambda mode: applied_modes.append(mode)
     monkeypatch.setattr("plugin.chatbot.sidebar_test_hooks.adopt_runtime_send_listeners", lambda: 0)
     monkeypatch.setattr("plugin.chatbot.sidebar_test_hooks.send_listener", lambda frame=None: fake_listener)
 

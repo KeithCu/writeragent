@@ -181,7 +181,7 @@ def test_inline_web_approval_lifecycle():
     panel._events = controller
 
     ev = threading.Event()
-    controller.begin_inline_web_approval("python tutorial", "web_search", ev)
+    controller.begin_inline_web_approval("python tutorial", ev)
 
     assert panel._approval_event is ev
     assert panel._approval_query_for_engine == "python tutorial"
@@ -212,7 +212,7 @@ def test_inline_approval_card_keeps_waiting_status_past_watchdog():
     try:
         shared["hung_shown"] = False
         logging_mod.update_activity_state("tool_execute", 1, "delegate_to_subagent", status_control=panel.status_control)
-        controller.begin_inline_web_approval("python tutorial", "web_search", ev)
+        controller.begin_inline_web_approval("python tutorial", ev)
         with shared["activity_lock"]:
             shared["activity"]["last_activity"] = time.monotonic() - 40
         with patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
@@ -246,7 +246,7 @@ def test_inline_approval_does_not_restore_hung_label():
         with patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
             logging_mod._watchdog_check(panel.status_control)
             assert panel.status_control.text.startswith("Hung:")
-            controller.begin_inline_web_approval("python tutorial", "web_search", ev)
+            controller.begin_inline_web_approval("python tutorial", ev)
             assert panel.status_control.text == "Waiting for approval…"
             controller._finish_inline_web_approval(True)
             assert panel.status_control.text == ""

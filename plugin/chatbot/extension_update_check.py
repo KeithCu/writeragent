@@ -69,7 +69,7 @@ UPDATE_CHECK_PROFILES: dict[str, UpdateCheckProfile] = {
 
 def version_tuple(s: str) -> tuple[int, ...] | None:
     """Parse a dotted numeric version into a tuple for ordering. Returns None if invalid."""
-    s = (s or "").strip()
+    s = s.strip()
     if not s:
         return None
     parts: list[int] = []
@@ -112,7 +112,14 @@ def schedule_extension_update_check_once(ctx: Any, extension_id: str) -> None:
     from plugin.framework.worker_pool import run_in_background
 
     log.debug("extension update check: scheduling background worker for %s", extension_id)
-    run_in_background(run_extension_update_check, ctx, name=f"extension_update_check_{profile.display_name}", extension_id=extension_id, dedicated=True)
+    run_in_background(
+        run_extension_update_check,
+        ctx,
+        profile,
+        extension_id,
+        name=f"extension_update_check_{profile.display_name}",
+        dedicated=True,
+    )
 
 
 def reset_extension_update_check_schedule_for_tests() -> None:
@@ -122,17 +129,12 @@ def reset_extension_update_check_schedule_for_tests() -> None:
 
 
 @background
-def run_extension_update_check(ctx: Any, extension_id: str) -> None:
+def run_extension_update_check(ctx: Any, profile: UpdateCheckProfile, extension_id: str) -> None:
     """Background worker: fetch update.xml, compare versions, optionally notify. Call after init_logging."""
     from plugin.framework.config import get_config, save
     from plugin.chatbot.dialogs import msgbox
     from plugin.framework.client.requests import sync_request
     from plugin.version import EXTENSION_VERSION
-
-    profile = UPDATE_CHECK_PROFILES.get(extension_id)
-    if profile is None:
-        log.info("extension update check: no profile for %r, not running", extension_id)
-        return
 
     retry_delay: float | None = None
     try:

@@ -29,7 +29,7 @@ SystemClipboard, or Ctrl+V step.
 The direct-copy path walks Writer body enumeration (paragraphs and TextTables) and inserts
 via insertString on the form TextField model. RichTextControl is EditEngine — no table grid —
 so TextTables are flattened to tab-separated rows with ParaTabStops at the max
-column width (EditEngine has no table grid). EditEngine paste does not preserve Writer
+column width. EditEngine paste does not preserve Writer
 NumberingRules, so list bullets and ordered numbers are reconstructed manually — see
 _list_prefix_for_paragraph.
 """
@@ -81,9 +81,6 @@ from plugin.framework.uno_context import focus_preserved, process_events_to_idle
 
 log = logging.getLogger(__name__)
 
-# Rich-sidebar formatted-insert fallback diagnostics use WARNING so release builds
-# (default log_level=WARN) capture direct-copy failures and clipboard fallbacks.
-
 _CELL_LINK_ANCHOR_RE = re.compile(
     r"""<a\s+[^>]*href\s*=\s*(["'])(?:cell://|writeragent-cell://)([^"']+)\1[^>]*>(.*?)</a>""",
     re.IGNORECASE | re.DOTALL,
@@ -107,8 +104,7 @@ def extract_cell_links_from_html(html: str) -> list[tuple[str, str]]:
 def cell_links_for_rows(rows: Sequence[tuple[str, str]]) -> list[tuple[str, str]]:
     links: list[tuple[str, str]] = []
     for _role, content in rows:
-        rendered = render_calc_cell_refs(content) if content else content
-        links.extend(extract_cell_links_from_html(rendered or ""))
+        links.extend(extract_cell_links_from_html(render_calc_cell_refs(content)))
     return links
 
 
@@ -177,7 +173,7 @@ def _text_table_cell_rows(table: Any) -> list[list[str]]:
     rows: list[list[str]] = []
     for row_idx in range(n_rows):
         cells: list[str] = [
-            uno_read(lambda: table.getCellByPosition(col_idx, row_idx).getString() or "", "")
+            uno_read(lambda: table.getCellByPosition(col_idx, row_idx).getString(), "")
             for col_idx in range(n_cols)
         ]
         rows.append(cells)
@@ -185,8 +181,8 @@ def _text_table_cell_rows(table: Any) -> list[list[str]]:
 
 
 # RichTextControl is EditEngine: ParaTabStops Position is twips (1/20 pt), not
-# Writer's 1/100 mm (EE_PARA_TABS has no CONVERT_TWIPS). Column width is the
-# longest cell in Liberation Sans ems (ASCII advances from the Regular TTF)
+# Writer's 1/100 mm (include/editeng/unotext.hxx, SVX_UNOEDIT_PARA_PROPERTIES:
+# ParaTabStops has no CONVERT_TWIPS). Column width is the longest cell in Liberation Sans ems (ASCII advances from the Regular TTF)
 # plus a 0.3em gap — font-relative, so HiDPI and 96dpi match. Header row is
 # bold (~1.07x). Fallback 0.55em for non-ASCII.
 _TWIPS_PER_PT = 20
@@ -206,6 +202,8 @@ _LIBERATION_SANS_EM = (
     0.5562, 0.5562, 0.3330, 0.5000, 0.2778, 0.5562, 0.5000, 0.7222, 0.5000, 0.5000,
     0.5000, 0.3340, 0.2598, 0.3340, 0.5840,
 )
+
+
 def _cell_width_em(text: str, *, bold: bool = False) -> float:
     adv = 0.0
     for ch in text:
@@ -263,13 +261,13 @@ _TABLE_V_PAD_MM100 = int(round(_TABLE_V_PAD_EM * CHAT_FONT_HEIGHT * _MM100_PER_P
 
 def _apply_table_row_vpad(cursor: Any, *, top: int = 0, bottom: int = 0) -> None:
     def _apply() -> None:
-        cursor.ParaTopMargin = int(top)
-        cursor.ParaBottomMargin = int(bottom)
+        cursor.ParaTopMargin = top
+        cursor.ParaBottomMargin = bottom
 
     best_effort(_apply, "_apply_table_row_vpad")
 
 
-def _apply_table_tab_stops(cursor: Any, positions_twips: Any) -> None:
+def _apply_table_tab_stops(cursor: Any, positions_twips: tuple[int, ...]) -> None:
     if not positions_twips:
         return
 
@@ -277,7 +275,7 @@ def _apply_table_tab_stops(cursor: Any, positions_twips: Any) -> None:
         stops = []
         for pos in positions_twips:
             ts = cast("Any", uno.createUnoStruct("com.sun.star.style.TabStop"))
-            ts.Position = int(pos)
+            ts.Position = pos
             ts.Alignment = 0  # com.sun.star.style.TabAlign.LEFT
             ts.DecimalChar = "."
             ts.FillChar = " "
@@ -288,11 +286,11 @@ def _apply_table_tab_stops(cursor: Any, positions_twips: Any) -> None:
 
 
 def _utf16_units(text: str) -> int:
-    return len((text or "").encode("utf-16-le")) // 2
+    return len(text.encode("utf-16-le")) // 2
 
 
 def _role_from_portion_text(text: str) -> str | None:
-    stripped = (text or "").strip()
+    stripped = text.strip()
     if stripped == "You:":
         return "user"
     # Written prefix is _("Assistant:"); also accept the English msgid so a
@@ -302,12 +300,12 @@ def _role_from_portion_text(text: str) -> str | None:
     return None
 
 
-def _resolve_portion_char_color(src_portion: Any, txt: str, theme: Any, default_role: str = "assistant") -> int:
+def _resolve_portion_char_color(src_portion: Any, txt: str, theme: ChatTheme, default_role: str = "assistant") -> int:
     raw = getattr(src_portion, "CharColor", None)
     if isinstance(raw, int) and not is_automatic_char_color(raw):
         return raw
     role = _role_from_portion_text(txt) or default_role
-    return ChatTheme.role_color(theme, role)
+    return theme.role_color(role)
 
 
 def _list_prefix_for_paragraph(para: Any, order_counters: dict[Any, int]) -> str:
@@ -342,8 +340,7 @@ def _list_prefix_for_paragraph(para: Any, order_counters: dict[Any, int]) -> str
         props = list(rules.getByIndex(level))
         for p in props:
             if p.Name == "BulletChar" and p.Value:
-                ch = p.Value
-                bullet_char = ch if isinstance(ch, str) else str(ch)
+                bullet_char = str(p.Value)
             if p.Name == "NumberingType":
                 num_type = p.Value
 
@@ -355,7 +352,7 @@ def _list_prefix_for_paragraph(para: Any, order_counters: dict[Any, int]) -> str
     # com.sun.star.style.NumberingType: BULLET=6, BITMAP=8.
     if n_type in (6, 8) or (n_type is None and bullet_char):
         ch = (bullet_char or "\u2022").strip()
-        if ch and not ch.endswith(" "):
+        if ch:
             ch = ch + " "
         return indent + ch
 
@@ -512,13 +509,13 @@ def _append_stop_banner(items: list[tuple[str, str]], text: str) -> None:
         items[-1] = ("assistant", joined)
         return
     # Stop before the first token: no answer to attach to. Keep the row, without
-    # the newlines that made the empty label line and the extra gap.
+    # the newlines that create the empty label line and the extra gap.
     items.append(("assistant", text.strip()))
 
 
 def _replace_control_with_plain(
     control: Any,
-    items: Any,
+    items: Sequence[tuple[str, str]],
     ctx: Any,
     style_window: Any,
     *,
@@ -536,9 +533,9 @@ def _replace_control_with_plain(
     )
 
 
-def rows_need_hidden_writer(rows: Any) -> bool:
+def rows_need_hidden_writer(rows: Sequence[tuple[str, str]]) -> bool:
     """True when any message content has real HTML tags needing hidden Writer import."""
-    return any(contains_html_tag(content or "") for _role, content in (rows or []))
+    return any(contains_html_tag(content) for _role, content in rows)
 
 
 def append_plain_transcript_row(doc: Any, text: str, role: str = "assistant") -> None:
@@ -552,7 +549,7 @@ def append_plain_transcript_row(doc: Any, text: str, role: str = "assistant") ->
     text_obj.insertString(cursor, role_prefix(role) + body, False)
 
 
-def render_messages_to_hidden_doc(doc: Any, items: Any, style_window: Any = None) -> None:
+def render_messages_to_hidden_doc(doc: Any, items: Sequence[tuple[str, str]], style_window: Any = None) -> None:
     """Fill *doc* from *items*. Each message is one edit against the previous body.
 
     Snapshot the body, append, and if the new span is not that message,
@@ -562,7 +559,6 @@ def render_messages_to_hidden_doc(doc: Any, items: Any, style_window: Any = None
     """
     text_obj = doc.getText()
     for role, content in items:
-        content = content or ""
         if role == "assistant":
             content = strip_legacy_ai_label(content)
         ok, previous, added = _append_rich_text_with_span(doc, content, role=role, style_window=style_window)
@@ -570,7 +566,7 @@ def render_messages_to_hidden_doc(doc: Any, items: Any, style_window: Any = None
             continue
         text_obj.setString(previous)
         append_plain_transcript_row(doc, content, role=role)
-        current = text_obj.getString() or ""
+        current = text_obj.getString()
         suffix = current[len(previous):] if current.startswith(previous) else current
         if not span_matches_message(suffix, role, content):
             # The plain row is the message text. If it still does not match,
@@ -589,7 +585,7 @@ def _tag_cell_link(model: Any, link_start: Any, dest_cursor: Any, addr: str) -> 
 def paint_message_items(
     ctx: Any,
     control: Any,
-    items: Any,
+    items: Sequence[tuple[str, str]],
     style_window: Any = None,
     *,
     restore: Any = None,
@@ -604,7 +600,7 @@ def paint_message_items(
     """
     if control is None:
         return False
-    rows = [(role, content) for role, content in (items or [])]
+    rows = list(items)
     if not rows:
         clear_control(control)
         return True
@@ -630,7 +626,7 @@ def paint_message_items(
             return True
         configure_hidden_writer_for_chat(doc)
         render_messages_to_hidden_doc(doc, rows, style_window=style_window)
-        if contains_html_tag(doc.getText().getString() or ""):
+        if contains_html_tag(doc.getText().getString()):
             # render_messages_to_hidden_doc already reverts a bad element.
             # If a tag is still in the body, do not copy that document.
             log.warning("paint_message_items: hidden doc still has tags; plain paint")
@@ -694,7 +690,7 @@ def _copy_formatted_from_hidden_doc_to_control(
             inserted = False
             theme = ChatTheme.resolve(style_window=style_window)
             current_role = role
-            default_color = ChatTheme.role_color(theme, current_role)
+            default_color = theme.role_color(current_role)
 
             dest_cursor = model.createTextCursor()
             dest_cursor.gotoEnd(False)
@@ -735,8 +731,8 @@ def _copy_formatted_from_hidden_doc_to_control(
                     first_para = False
 
                     if _is_writer_text_table(para):
-                        # HTML import creates a real TextTable; portion enum throws and used
-                        # to abort the whole copy (truncate-then-fail blanked the stream tail).
+                        # HTML import creates a real TextTable; portion enum throws and aborts
+                        # the whole copy (truncate-then-fail blanks the stream tail).
                         cell_rows = _text_table_cell_rows(para)
                         tab_stops = _tab_stop_positions_twips(cell_rows)
                         for i, cells in enumerate(cell_rows):
@@ -778,10 +774,10 @@ def _copy_formatted_from_hidden_doc_to_control(
                         detected = _role_from_portion_text(txt)
                         if detected is not None:
                             current_role = detected
-                            default_color = ChatTheme.role_color(theme, current_role)
+                            default_color = theme.role_color(current_role)
                         if line_prefix and not prefix_inserted:
                             # Force normal: right after "Assistant: " the number
-                            # took the label's bold (EditEngine sticky attrs).
+                            # otherwise takes the label's bold (EditEngine sticky attrs).
                             _put(line_prefix, default_color, bold=False, underline=False)
                             dest_cursor.gotoEnd(False)
                             prefix_inserted = True
@@ -804,7 +800,6 @@ def _copy_formatted_from_hidden_doc_to_control(
                             addr = normalize_cell_address(href) if href else None
                             if is_pending:
                                 # Pop the matched queue head even when href supplied the address.
-                                # Pop the pending link queue when href supplies the address.
                                 pending_addr = pending_links[pending_link_idx][1]
                                 pending_link_idx += 1
                                 if not addr:
@@ -845,7 +840,6 @@ def _copy_formatted_from_hidden_doc_to_control(
                                 fallback_text = "\n".join("\t".join(r) for r in _text_table_cell_rows(para))
                             else:
                                 fallback_text = para.getString()
-                            control_len = get_control_text_length(control)
                             if fallback_text:
                                 _put(fallback_text, default_color)
                                 dest_cursor.gotoEnd(False)
@@ -884,13 +878,13 @@ def plain_fallback_text(text: str) -> str:
     with the chat stream stripper. Use that stripper (it also unescapes
     entities).
     """
-    return strip_html_tags(text or "")
+    return strip_html_tags(text)
 
 
-def _row_separator_suffix(text: str | None) -> str:
+def _row_separator_suffix(text: str) -> str:
     """Return the newline suffix needed to leave one blank line after *text*."""
     # One blank line between rows: a single trailing newline needs only one more \\n.
-    if not text or not text.strip():
+    if not text.strip():
         return ""
     if text.endswith("\n\n"):
         return ""
@@ -899,7 +893,7 @@ def _row_separator_suffix(text: str | None) -> str:
     return "\n\n"
 
 
-def _plain_append_messages(control: Any, batch: Any, ctx: Any, style_window: Any, auto_scroll: bool = False, *, restore_focus: Any = None) -> bool:
+def _plain_append_messages(control: Any, batch: Sequence[tuple[str, str]], ctx: Any, style_window: Any, auto_scroll: bool = False, *, restore_focus: Any = None) -> bool:
     """Plain transcript rows with the formatted path's role label, color, and gap."""
     model = control.getModel() if control else None
     if model is None or not hasattr(model, "createTextCursor"):
@@ -913,7 +907,7 @@ def _plain_append_messages(control: Any, batch: Any, ctx: Any, style_window: Any
     cursor.gotoEnd(False)
 
     for role, content in batch:
-        plain = plain_fallback_text(content or "")
+        plain = plain_fallback_text(content)
         if not plain.strip():
             continue
         sep = _row_separator_suffix(last_text)
@@ -922,7 +916,7 @@ def _plain_append_messages(control: Any, batch: Any, ctx: Any, style_window: Any
             cursor.gotoEnd(False)
         apply_rich_control_para_margins(cursor)
 
-        color = ChatTheme.role_color(theme, role)
+        color = theme.role_color(role)
         prefix = role_prefix(role)
         _insert_string_at_rich_cursor(model, cursor, prefix, char_color=color, bold=True)
         cursor.gotoEnd(False)
@@ -963,7 +957,7 @@ def _rollback_then_plain(
 def append_formatted_rows(
     ctx: Any,
     control: Any,
-    items: Any,
+    items: Sequence[tuple[str, str]],
     style_window: Any = None,
     *,
     restore: Any = None,
@@ -1002,9 +996,9 @@ def append_formatted_rows(
         log.debug(
             "append_formatted_rows: hidden doc ready messages=%d total_chars=%d",
             len(rows),
-            sum(len(c or "") for _unused, c in rows),
+            sum(len(c) for _unused, c in rows),
         )
-        doc_text = doc.getText().getString() or ""
+        doc_text = doc.getText().getString()
         if contains_html_tag(doc_text):
             log.warning("append_formatted_rows: hidden doc still has tags; plain append")
             _rollback_then_plain(control, rows, before, ctx, style_window, restore_focus)
@@ -1091,7 +1085,7 @@ def append_formatted_row(
     when the hidden Writer is missing or content is plain text. False when a later
     body element was skipped, so a caller that already cut plain text can put it back.
     """
-    if not control or not text or not text.strip():
+    if not control or not text.strip():
         return False
     if role == "assistant":
         text = strip_legacy_ai_label(text)
@@ -1125,12 +1119,11 @@ def append_formatted_row(
         return True
     _ensure_message_separator(control)
 
-    def _rollback_and_plain() -> bool:
+    def _rollback_and_plain() -> None:
         rollback_rich_insert(control, before)
         _plain_append_messages(
             control, [(role, text)], ctx, style_window, auto_scroll=auto_scroll, restore_focus=restore_focus,
         )
-        return True
 
     doc = None
     inserted = False
@@ -1138,14 +1131,16 @@ def append_formatted_row(
         doc = create_hidden_html_writer(ctx)
         if doc is None:
             log.warning("append_formatted_row: hidden Writer unavailable")
-            return _rollback_and_plain()
+            _rollback_and_plain()
+            return True
         configure_hidden_writer_for_chat(doc)
         ok, _previous, added = _append_rich_text_with_span(doc, text, role=role, style_window=style_window)
         if not ok or not span_matches_message(added, role, text):
             # Filter failed or imported span does not match message. Roll back
             # and write the stripped message.
             log.warning("append_formatted_row: HTML import failed role=%s", role)
-            return _rollback_and_plain()
+            _rollback_and_plain()
+            return True
         log.debug("append_formatted_row: hidden doc ready len=%d role=%s", len(text), role)
         direct_reason = _copy_formatted_from_hidden_doc_to_control(
             doc,

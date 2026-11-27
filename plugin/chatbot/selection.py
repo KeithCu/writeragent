@@ -17,19 +17,16 @@
 
 from __future__ import annotations
 
-import contextlib
 import logging
 from dataclasses import dataclass
 from typing import Any, Callable, Protocol
-
-log = logging.getLogger(__name__)
 
 from plugin.framework.model_lru import update_lru_history
 from plugin.framework.doc_type import DocumentType, get_document_type
 from plugin.framework.async_drain_guard import add_drain_idle_callback, get_drain_owner, remove_drain_idle_callback
 from plugin.framework.queue_executor import main
 from plugin.framework.async_stream import run_stream_completion_async
-from plugin.framework.errors import format_error_message
+from plugin.framework.errors import format_error_message, suppress_disposed
 from plugin.framework.client.llm_client import LlmClient
 
 from plugin.framework.send_cancellation import SendCancellation
@@ -41,6 +38,8 @@ from plugin.framework.i18n import _
 from plugin.framework.uno_context import get_ctx, get_document_from_frame
 from .dialogs import msgbox
 from .dialog_views import input_box
+
+log = logging.getLogger(__name__)
 
 
 class _SelectionHost(HasSendCancellation, Protocol):
@@ -63,8 +62,8 @@ class _SelectionArm:
     ended: bool = False
 
     def detach(self) -> None:
-        if self.listener is not None and self.model is not None and hasattr(self.model, "removeDocumentEventListener"):
-            with contextlib.suppress(Exception):
+        if self.listener is not None and self.model is not None:
+            with suppress_disposed("remove selection doc listener", logger=log):
                 self.model.removeDocumentEventListener(self.listener)
 
 
@@ -103,7 +102,7 @@ def bind_selection_cancel(host: _SelectionHost | None, model: Any) -> _Selection
     # and is not disarmed on exit.
 
     listener: _SelectionDocListener | None = None
-    if model is not None and hasattr(model, "addDocumentEventListener"):
+    if model is not None:
         listener = _SelectionDocListener(scope)
         try:
             model.addDocumentEventListener(listener)
@@ -302,7 +301,7 @@ def do_selection_action_for_document(
     preset_instruction: str | None = None,
     allow_whole_document: bool = False,
     sidebar_notify: Callable[[str], None] | None = None,
-    host: Any | None = None,
+    host: _SelectionHost | None = None,
 ) -> None:
     """Dispatch Extend/Edit Selection to the document-specific implementation."""
     doc_type = get_document_type(model)
@@ -372,8 +371,8 @@ def _action_selection(services: Any, is_edit: bool, frame: Any = None) -> None:
         from plugin.framework.frame_session import session_for_frame
 
         session = session_for_frame(frame)
-        if session is not None and getattr(session, "panel", None) is not None:
-            host = getattr(session.panel, "send_listener", None)
+        if session is not None and session.panel is not None:
+            host = session.panel.send_listener
         doc = get_document_from_frame(frame)
     else:
         doc = services.document.get_active_document()

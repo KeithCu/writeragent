@@ -33,9 +33,9 @@ def _grammar_status_area(phase: str, result: str, preview: str) -> Literal["lang
     """Sidebar label bucket: language-detection LLM / failures vs grammar pipeline."""
     if phase == "request" and result == "Detecting language":
         return "language"
-    # SidebarGrammarStatus clips the preview to 10 characters before this
-    # runs (slice_preview_debug). A language-detection failure therefore
-    # Clipped "Language d…" failures map to the language bucket, not grammar.
+    # SidebarGrammarStatus clips the preview to _GRAMMAR_STATUS_PREVIEW_CHARS before
+    # this runs (slice_preview_debug), so a language-detection failure arrives as
+    # "Language d…". Both spellings map to the language bucket.
     clipped = preview.strip().lower()
     if phase == "failed" and clipped in ("language detection", "language d\u2026"):
         return "language"

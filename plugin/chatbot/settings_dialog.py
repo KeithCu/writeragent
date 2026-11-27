@@ -80,22 +80,19 @@ def canonical_aspect_label(displayed: str) -> str:
 def get_settings_field_specs(ctx: Any) -> list[dict[str, Any]]:
     """Return field specs for Settings dialog (single source for dialog and apply keys)."""
     current_endpoint = get_current_endpoint()
-
-    field_specs = []
-    field_specs.extend(_get_core_field_specs(current_endpoint))
-    field_specs.extend(_get_image_field_specs())
-    field_specs.extend(_get_module_field_specs(ctx))
-
-    return field_specs
+    return [
+        *_get_core_field_specs(current_endpoint),
+        *_get_image_field_specs(),
+        *_get_module_field_specs(ctx),
+    ]
 
 
 def _get_core_field_specs(current_endpoint: str) -> list[dict[str, Any]]:
-    api_key_spec: dict[str, Any] = {"name": "api_key", "value": api_key_field_text(current_endpoint)}
     return [
         {"name": "endpoint", "value": get_config("endpoint")},
         {"name": "request_timeout", "value": str(get_config("request_timeout")), "type": "int"},
         {"name": "text_model", "value": str(get_text_model())},
-        api_key_spec,
+        {"name": "api_key", "value": api_key_field_text(current_endpoint)},
         {"name": "temperature", "value": str(get_config("temperature")), "type": "float"},
         {"name": "chat_max_tokens", "value": str(get_config("chat_max_tokens")), "type": "int"},
         {"name": "additional_instructions", "value": get_config("additional_instructions")},
@@ -134,9 +131,8 @@ def _get_module_field_specs(ctx: Any) -> list[dict[str, Any]]:
     # core is excluded by iter_settings_field_modules so future public core fields
     # cannot be saved without an explicit Settings control.
     for m in iter_settings_field_modules(cast("list[dict[str, Any]]", MODULES)):
-        m_name = str(m.get("name", ""))
         field_specs.extend(
-            build_module_field_specs(m_name, ctx=ctx, control_ids="prefixed")
+            build_module_field_specs(m["name"], ctx=ctx, control_ids="prefixed")
         )
     return field_specs
 
@@ -299,8 +295,7 @@ def apply_settings_result(ctx: Any, result: dict[str, Any], field_specs: list[di
         elif save_key == "audio.tts_speed":
             from plugin.audio.tts_voices import parse_tts_speed
             spd = parse_tts_speed(val)
-            # Why-comment: :g turns the untouched presets 1.0 and 2.0 into "1x" / "2x",
-            # which are not options, so OK rewrote the default and the combo dropped the preset.
+            # Prefer the option's own spelling: "%g" turns the presets 1.0 and 2.0 into "1x" / "2x", which are not options.
             matched_opt: str | None = None
             if isinstance(opts, list):
                 for opt in opts:
@@ -336,9 +331,9 @@ def apply_settings_result(ctx: Any, result: dict[str, Any], field_specs: list[di
         # An untouched field holds its keystore ref when the key cannot be read.
         if not keystore.is_ref(typed_key):
             # One slot, not a copy of the whole map. save merges that slot
-            # into the map it reads under the config lock. Copying the map here
-            # and replacing it in the batch dropped a key another writer stored
-            # for a different endpoint between this read and that write.
+            # into the map it reads under the config lock; copying the map here
+            # and replacing it in the batch would drop a key another writer
+            # stores for a different endpoint between this read and that write.
             slot = endpoint_for_api_key_write(
                 typed_key,
                 saved_endpoint,
@@ -350,8 +345,8 @@ def apply_settings_result(ctx: Any, result: dict[str, Any], field_specs: list[di
                 pending["api_keys_by_endpoint"] = {slot: typed_key}
 
     # One save, and only keys that differ from disk or from the
-    # schema default of a missing key. Passing the whole dialog made a
-    # one-field edit a rewrite of every settings key.
+    # schema default of a missing key, so a one-field edit does not rewrite
+    # every settings key.
     #
     # The new lists are computed here and stored in the same dict, so
     # one save writes the file once and emits once. A list that

@@ -70,8 +70,9 @@ class RecordGesture:
 
     ``holding`` is true from mousePressed on Record until mouseReleased.
     ``fired`` means this press already dispatched ``RECORD_CLICKED`` (the
-    hold timer). ``action_seen`` means ActionEvent arrived while the button
-    was still down, so release must not expect a second one.
+    hold timer). The DOWN_ACTION_SEEN / FIRED_ACTION_SEEN phases mean
+    ActionEvent arrived while the button was still down, so release must not
+    expect a second one.
     """
 
     phase: RecordPhase = RecordPhase.IDLE

@@ -164,11 +164,8 @@ TOOLS FOR COMPLETION:
         + get_chat_response_format_instructions()
         + "\nFormat reply_to_user answer with this style; that text is shown in the chat sidebar."
     )
-    mem_block = format_user_memory_prompt_block()
-    # Cap USER.md with the same CHAT_DOCUMENT_CONTEXT_MAX_CHARS limit
-    # as the main chat prompt. A raw profile crowds out the librarian
-    # instructions.
-    instructions += mem_block
+    # format_user_memory_prompt_block caps USER.md so a raw profile cannot crowd out the librarian instructions.
+    instructions += format_user_memory_prompt_block()
 
     from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_LIBRARIAN, require_sidebar_mode
 
@@ -200,7 +197,6 @@ TOOLS FOR COMPLETION:
 
 
 class LibrarianOnboardingTool(SubAgentSessionToolBase):
-    # Hide from the default main-chat tool surface; librarian onboarding owns this tool.
     name: str | None = "librarian_onboarding"
     description: str = "Librarian agent for new user onboarding."
     agent_label: str = "Librarian"
