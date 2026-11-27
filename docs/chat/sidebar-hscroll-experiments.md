@@ -7,7 +7,7 @@ Deck `ScrolledWindow` H-policy is **AUTOMATIC**. The column width is `getHeightF
 Grep:
 
 ```
-rg "getHeightForWidth|LAYOUT|layout_sanity|cap_width" ~/.config/libreoffice/4/user/config/writeragent_debug.log | tail -50
+rg "getHeightForWidth|LAYOUT|cap_width" ~/.config/libreoffice/4/user/config/writeragent_debug.log | tail -50
 ```
 
 Box is 1x 1280×800. Keith is HiDPI. Do not trust screenshot captions for H-bars. `GDK_SCALE=2` does **not** map XDL AppFont (query stays 49px, not 206).

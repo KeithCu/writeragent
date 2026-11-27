@@ -27,7 +27,9 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from com.sun.star.awt import ItemEvent, TextEvent
 
+from plugin import _manifest
 from plugin.chatbot.bug_report import open_url_in_browser
+from plugin.chatbot import settings_tab_order
 from plugin.framework.errors import ConfigValidationError, UnoObjectError, best_effort, suppress_disposed
 from plugin.framework.menu_icon_dpi import menu_icon_asset_url, pick_shipped_icon, resolve_menu_icon_pixel_size
 from plugin.framework.uno_context import get_extension_url
@@ -1448,24 +1450,17 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
 
 def setup_module_tabs(dlg: Any) -> None:
     """Register action listeners for module-specific tabs in the Settings dialog."""
-    try:
-        from plugin._manifest import MODULES
-        from plugin.chatbot.settings_tab_order import iter_settings_tab_modules
-
-        # Map button ID to step index (starting from 3 for module tabs)
-        # Core tabs: 1=Chat, 2=Image
-        step = 3
-        for m in iter_settings_tab_modules(cast("list[dict[str, Any]]", MODULES)):
-            m_name = str(m.get("name", ""))
-            prefix = m_name.replace(".", "_")
-            btn_id = f"btn_tab_{prefix}"
-            btn = get_optional(dlg, btn_id)
-            if btn:
-                btn.addActionListener(TabListener(dlg, step))
-                step += 1
-    except ImportError:
-        # plugin/_manifest.py is generated and gitignored; importing it fails in some test trees.
-        pass
+    # Map button ID to step index (starting from 3 for module tabs)
+    # Core tabs: 1=Chat, 2=Image
+    step = 3
+    for m in settings_tab_order.iter_settings_tab_modules(cast("list[dict[str, Any]]", _manifest.MODULES)):
+        m_name = str(m.get("name", ""))
+        prefix = m_name.replace(".", "_")
+        btn_id = f"btn_tab_{prefix}"
+        btn = get_optional(dlg, btn_id)
+        if btn:
+            btn.addActionListener(TabListener(dlg, step))
+            step += 1
 
 
 class DownloadAudioListener(_CtxDlgActionListener):

@@ -1042,8 +1042,7 @@ class TestSlashOverlayListeners:
         send_listener._panel_teardown = False
         send_listener.slash_popup.on_query_text.return_value = True
         listener = QueryTextListener(send_listener)
-        with patch("plugin.chatbot.slash_popup.SLASH_OV_VERBOSE_DEBUG", False):
-            listener.on_text_changed(_query_text_event("/he"))
+        listener.on_text_changed(_query_text_event("/he"))
         send_listener.slash_popup.on_query_text.assert_called_once_with("/he")
         send_listener.dispatch.assert_not_called()
 

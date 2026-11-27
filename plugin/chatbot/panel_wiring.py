@@ -368,23 +368,6 @@ def _wireControls(self: Any, root_window: Any) -> None:  # pyright: ignore[repor
         if _tp is not None:
             _tp.resize_listener = _resize
         _resize.relayout_now(root_window)
-
-        # One-time marker for the very first layout after the panel is created.
-        # Extremely useful for diagnosing the "starts wide on restart → scrollbar" case.
-        log.debug("[FIRST LAYOUT] root_w=%d (this is the initial size on app start / sidebar show)",
-                  root_window.getPosSize().Width)
-
-        # Lightweight layout sanity log (always emitted at DEBUG after first wiring).
-        # Helps catch cases where child controls would overflow the allocated panel width.
-        if log.isEnabledFor(logging.DEBUG):
-            rw = root_window.getPosSize().Width
-            max_right = 0
-            for nm in ("clear", "send", "stop", "model_selector", "query", "response"):
-                c = controls.get(nm)
-                if c:
-                    pr = c.getPosSize()
-                    max_right = max(max_right, pr.X + pr.Width)
-            log.debug("[LAYOUT] layout_sanity root_w=%d max_child_right=%d overflow=%s" % (rw, max_right, "YES" if max_right > rw - 2 else "no"))
     except Exception:
         log.exception("Resize listener setup failed")
 
