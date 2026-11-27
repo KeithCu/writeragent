@@ -49,6 +49,8 @@ def _no_libreoffice(monkeypatch):
     monkeypatch.setattr(format_mod, "replace_preserving_format", lambda *a, **k: None)
     monkeypatch.setattr(format_mod, "replace_single_range_with_content", lambda *a, **k: html_import_styles.WriteReport())
     monkeypatch.setattr(search_mod, "drawing_shape_object_containing", lambda *a, **k: None)
+    # Mock matches read as protected table cells; the refusal has its own UNO test.
+    monkeypatch.setattr("plugin.writer.apply_document_content.protected_cell_error", lambda *a, **k: None)
 
 
 class MockRange:

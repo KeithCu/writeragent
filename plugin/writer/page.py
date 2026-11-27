@@ -48,7 +48,7 @@ from plugin.framework.errors import (
     uno_read,
 )
 from plugin.framework.uno_context import supports_service, uno_same
-from .edit_review import flag_style_unreviewed, next_agent_edit_undo_title
+from .edit_review import flag_style_unreviewed, flag_tracked, next_agent_edit_undo_title, record_write
 from .html_export import PAGE_NUMBER_NUMBERING_TYPE_NAMES, xtext_to_content
 from .html_import import replace_xtext_with_html
 from .html_import_styles import attach_write_report
@@ -1018,8 +1018,8 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
             if not text_obj:
                 raise RuntimeError(f"Could not retrieve text object for {region} on style '{style_name}'.")
 
-            report = replace_xtext_with_html(
-                text_obj, content, model=ctx.doc,
+            report, recorded = record_write(
+                ctx.doc, ctx.ctx, lambda: replace_xtext_with_html(text_obj, content, model=ctx.doc)
             )
             result: dict[str, Any] = {
                 "status": "ok",
@@ -1030,10 +1030,13 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
             }
             if auto_height is not None:
                 result["auto_height"] = auto_height
-            # Writer records header/footer text changes itself when RecordChanges is on,
-            # but enabling the region or changing auto_height is a page-style layout change.
-            flag_style_unreviewed(result, ctx.doc if before != after else None)
-            return attach_write_report(result, report)
+            attach_write_report(result, report)
+            if recorded:
+                flag_tracked(result)
+            # Enabling the region or changing auto_height is a page-style change no redline covers.
+            if before != after:
+                flag_style_unreviewed(result, ctx.doc)
+            return result
         except Exception as e:
             if is_disposal(e):
                 raise
@@ -1203,8 +1206,11 @@ _PARTIAL_WRITE_MSG = (
 )
 
 
-def _apply_match_cursors(doc: Any, text_obj: Any, cursors: list[Any], new_text: str) -> tuple[int, int]:
-    """setString from the last match backward. Returns (fields, shapes).
+def _apply_match_cursors(doc: Any, uno_ctx: Any, text_obj: Any, cursors: list[Any], new_text: str) -> tuple[int, int, bool]:
+    """setString from the last match backward. Returns (fields, shapes, recorded).
+
+    The writes run through ``record_write``, so they are one tracked change in Record/Wait and
+    while the user records; *recorded* says whether LibreOffice recorded them.
 
     A failed replace raises ToolExecutionError with the undo layer's code.
     A refused write that changed nothing raises the plain error.
@@ -1214,10 +1220,15 @@ def _apply_match_cursors(doc: Any, text_obj: Any, cursors: list[Any], new_text: 
     before = _scan_region_content(doc, text_obj)
     after_box: list[dict[str, Any]] = [before]
     title = next_agent_edit_undo_title()
+    recorded = False
 
-    def mutate() -> None:
+    def write() -> None:
         for cursor in reversed(cursors):
             cursor.setString(new_text)
+
+    def mutate() -> None:
+        nonlocal recorded
+        _unused, recorded = record_write(doc, uno_ctx, write)
         after = _scan_region_content(doc, text_obj)
         after_box[0] = after
         if len(after["fields"]) < len(before["fields"]) or len(after["images"]) < len(before["images"]):
@@ -1252,7 +1263,7 @@ def _apply_match_cursors(doc: Any, text_obj: Any, cursors: list[Any], new_text: 
                 message = _PARTIAL_WRITE_MSG + err["message"]
             raise ToolExecutionError(message, code=err["code"])
     after = after_box[0]
-    return len(after["fields"]), len(after["images"])
+    return len(after["fields"]), len(after["images"]), recorded
 
 
 class PageReplaceHeaderFooterText(ToolWriterPageBase):
@@ -1355,7 +1366,7 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
             if hits:
                 break
         res = self._replace_in_region_text(
-            ctx.doc, style_name, region, text_obj, old_content, new_text, occurrence, all_matches, cs, hits, notes
+            ctx.doc, ctx.ctx, style_name, region, text_obj, old_content, new_text, occurrence, all_matches, cs, hits, notes
         )
         res.update(MatchMode(cs, False).result_fields())
         return res
@@ -1363,6 +1374,7 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
     def _replace_in_region_text(
         self,
         doc: Any,
+        uno_ctx: Any,
         style_name: str,
         region: str,
         text_obj: Any,
@@ -1414,8 +1426,8 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
             )
 
         try:
-            fields_preserved, shapes_preserved = _apply_match_cursors(
-                doc, text_obj, cursors, new_text,
+            fields_preserved, shapes_preserved, recorded = _apply_match_cursors(
+                doc, uno_ctx, text_obj, cursors, new_text,
             )
         except ToolExecutionError as e:
             return self._tool_error(
@@ -1431,8 +1443,8 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
         }
         if notes:
             result["warning"] = notes[0]
-        # Writer records header/footer text changes itself when RecordChanges is on.
-        flag_style_unreviewed(result)
+        if recorded:
+            flag_tracked(result)
         return result
 
 

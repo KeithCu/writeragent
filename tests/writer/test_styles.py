@@ -2771,6 +2771,24 @@ def _fake_portion(kind: str, *, text: str = "", is_start: bool = True, ident: st
             ],
             True,
         ),
+        # One Format redline per run, the first before ParagraphFormat, together covering
+        # the paragraph (a paragraph style then a whole-paragraph CharPosture) -> True
+        (
+            [
+                _fake_portion("Format", is_start=True, ident="1"),
+                _fake_portion("ParagraphFormat", is_start=True, ident="2"),
+                _fake_portion("Text", text="Alpha one "),
+                _fake_portion("Format", is_start=False, ident="1"),
+                _fake_portion("Format", is_start=True, ident="3"),
+                _fake_portion("Text", text="bold"),
+                _fake_portion("Format", is_start=False, ident="3"),
+                _fake_portion("Format", is_start=True, ident="4"),
+                _fake_portion("Text", text=" word here."),
+                _fake_portion("Format", is_start=False, ident="4"),
+                _fake_portion("ParagraphFormat", is_start=False, ident="2"),
+            ],
+            True,
+        ),
         # ParagraphFormat first -> False
         (
             [

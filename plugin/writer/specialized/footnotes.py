@@ -25,7 +25,7 @@ from plugin.writer.specialized_base import (
 )
 from plugin.framework.errors import make_tool_error
 from plugin.framework.i18n import _
-from plugin.writer.edit_review import flag_tracked, flag_untracked, record_write
+from plugin.writer.edit_review import flag_tracked, flag_tracked_delete, flag_untracked, record_write
 from plugin.writer.search import (
     LADDER_CASE_SENSITIVE_DESCRIPTION,
     explicit_case_sensitive,
@@ -239,14 +239,8 @@ class FootnotesDelete(ToolWriterFootnoteBase):
         if after < before:
             return {"status": "ok", "message": f"Successfully deleted {note_type} at index {index}."}
         if recording:
-            result: dict[str, Any] = {
-                "status": "ok",
-                "message": (
-                    f"{note_type} at index {index} is marked for deletion as a tracked change; "
-                    "it stays in the document until the user accepts or rejects it."
-                ),
-            }
-            flag_tracked(result)
+            result: dict[str, Any] = {"status": "ok"}
+            flag_tracked_delete(result, f"{note_type} at index {index} is")
             return result
         return self._tool_error(
             f"Could not delete {note_type} at index {index}: it is still in the document.")

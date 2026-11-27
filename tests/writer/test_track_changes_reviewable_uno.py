@@ -634,7 +634,7 @@ def test_whole_paragraph_char_change_over_para_redline_is_flagged_uno(ctx, doc):
         r2 = StyleFormatText().execute(native_writer_tool_context(doc, ctx), properties={"CharWeight": 150}, target='selection', all_matches=False)
         assert r2.get("status") == "ok", r2
         assert r2.get("style_unreviewed") is True, r2
-        assert "direct paragraph formatting" in r2.get("warning", ""), r2
+        assert "tracked paragraph change" in r2.get("warning", ""), r2
         reject_all_changes(doc, ctx)
         assert _margin() <= 2
 
@@ -645,7 +645,7 @@ def test_whole_paragraph_char_change_over_para_redline_is_flagged_uno(ctx, doc):
         r_char = ApplyStyle().execute(native_writer_tool_context(doc, ctx), style="Emphasis", family="CharacterStyles", all_matches=False, clear_direct='style_props')
         assert r_char.get("status") == "ok", r_char
         assert r_char.get("style_unreviewed") is True, r_char
-        assert "direct paragraph formatting" in r_char.get("warning", ""), r_char
+        assert "tracked paragraph change" in r_char.get("warning", ""), r_char
         reject_all_changes(doc, ctx)
         assert _margin() <= 2
 
@@ -670,15 +670,15 @@ def test_whole_paragraph_char_change_over_para_redline_is_flagged_uno(ctx, doc):
         reject_all_changes(doc, ctx)
         assert abs(_margin() - 500) <= 2
 
-        # 5. Para then whole Char on a paragraph with one bold word: not flagged, margin kept.
+        # 5. Para then whole Char on a paragraph with one bold word: one Format redline per run,
+        # together covering the paragraph, so Reject All may drop the bold; flagged.
         cur = _setup("Alpha beta.", bold_first_word=True)
         _select_all(cur)
         ApplyStyle().execute(native_writer_tool_context(doc, ctx), style="Heading 2", clear_direct="none", family='ParagraphStyles', all_matches=False)
         r_two = StyleFormatText().execute(native_writer_tool_context(doc, ctx), properties={"CharPosture": 2}, target='selection', all_matches=False)
         assert r_two.get("status") == "ok", r_two
-        assert "style_unreviewed" not in r_two, r_two
-        reject_all_changes(doc, ctx)
-        assert abs(_margin() - 500) <= 2
+        assert r_two.get("style_unreviewed") is True, r_two
+        assert "tracked paragraph change" in r_two.get("warning", ""), r_two
     finally:
         doc.setPropertyValue("RecordChanges", False)
 

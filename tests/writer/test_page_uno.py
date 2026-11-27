@@ -14,6 +14,7 @@ does not require refuse-on-set. The remaining tests pin
 from __future__ import annotations
 
 
+from plugin.framework.config import get_config, save
 from plugin.framework.uno_context import enum_has_more, uno_same
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import (
@@ -39,6 +40,7 @@ from plugin.writer.page import (
     copy_page_style,
     resolve_page_style,
 )
+from tests.writer.doc_builders import list_redlines, reject_all_changes
 
 
 def _style_name(doc):
@@ -1443,3 +1445,41 @@ def test_scan_region_content_sees_nested_input_field_in_content_control_uno(ctx,
 
     scan_meta = _scan_region_content(doc, header)
     assert any(f["presentation"] == "meta-val" for f in scan_meta["fields"]), scan_meta
+
+
+@native_test
+@with_native_doc("writer")
+def test_header_text_writes_report_what_was_recorded_uno(ctx, doc):
+    """Record mode: header replace and set are tagged tracked changes that Reject undoes. User recording: flagged tracked."""
+    style, s_name = _style(doc)
+    style.setPropertyValue("HeaderIsOn", True)
+    header = style.getPropertyValue("HeaderText")
+    header.setString("Old header ACME")
+
+    prev = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "record"})
+    try:
+        replaced = PageReplaceHeaderFooterText().execute(
+            writer_services_tool_context(doc, ctx), style=s_name, region="header",
+            old_content="ACME", content="Initech", all_matches=False,
+        )
+    finally:
+        save({"doc.agent_edit_review_mode": prev})
+    assert replaced["status"] == "ok", replaced
+    assert replaced.get("tracked") is True and replaced.get("review_mode") == "record", replaced
+    assert "style_unreviewed" not in replaced, replaced
+    redlines = list_redlines(doc)
+    assert redlines and all(rl["RedlineComment"].startswith("wa-review:") for rl in redlines), redlines
+    reject_all_changes(doc, ctx)
+    assert header.getString() == "Old header ACME"
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        written = _set_text(doc, ctx, "header", "<p>New header line</p>")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+    assert written["status"] == "ok", written
+    assert written.get("tracked") is True and written.get("pending_review") is True, written
+    assert "review_mode" not in written, written
+    reject_all_changes(doc, ctx)
+    assert header.getString() == "Old header ACME"

@@ -876,6 +876,30 @@ def test_upsert_shape_edit_text_only_does_not_set_text_fit_to_size():
         assert call[0][0] != "TextFitToSize"
 
 
+def test_upsert_shape_edit_in_record_mode_says_it_is_not_tracked():
+    """A Writer shape edit is never a tracked change, so in Record mode the result must say so."""
+    ctx = MagicMock()
+    ctx.active_page_index = 0
+    page = MagicMock(Width=10000, Height=10000)
+    page.getCount.return_value = 1
+    shape = MagicMock()
+    shape.getPosition.return_value = MagicMock(X=100, Y=100)
+    shape.getSize.return_value = MagicMock(Width=100, Height=100)
+    page.getByIndex.return_value = shape
+
+    with (
+        patch("plugin.draw.shapes.DrawBridge") as bridge_cls,
+        patch("plugin.writer.edit_review.is_writer", return_value=True),
+        patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="record"),
+    ):
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
+        out = UpsertShape().execute(ctx, action="edit", index=0, text="New text")
+
+    assert out["status"] == "ok"
+    assert out["tracked"] is False
+    assert "not tracked" in out["warning"]
+
+
 def test_apply_shape_properties_disposal_on_text_propagates():
     shape = MagicMock()
     shape.setString.side_effect = DisposedException("gone")

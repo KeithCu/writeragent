@@ -42,13 +42,20 @@ def _mk_field(*, is_annotation: bool = False, presentation: list[str] | None = N
 
 
 def _attach_fields(doc, *fields):
+    """Give *doc* these text fields; the first enumeration is returned, later ones are fresh."""
+
+    def make_enum():
+        mock_enum = MagicMock()
+        mock_enum.hasMoreElements.side_effect = [True] * len(fields) + [False]
+        mock_enum.nextElement.side_effect = list(fields)
+        return mock_enum
+
+    first = make_enum()
+    pending = iter([first])
     mock_fields = MagicMock()
-    mock_enum = MagicMock()
-    mock_enum.hasMoreElements.side_effect = [True] * len(fields) + [False]
-    mock_enum.nextElement.side_effect = list(fields)
-    mock_fields.createEnumeration.return_value = mock_enum
+    mock_fields.createEnumeration.side_effect = lambda: next(pending, None) or make_enum()
     doc.getTextFields.return_value = mock_fields
-    return mock_enum
+    return first
 
 
 def test_fields_list_empty(mock_ctx):

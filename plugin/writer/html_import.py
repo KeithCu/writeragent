@@ -2088,6 +2088,17 @@ def _step_replace_characters(text: Any, main_cursor: Any, old_text: str, new_tex
             _replace_run_text(text, main_cursor, old, new, inside_run=False)
 
 
+def recorded_replace_keeps_formatting(target_range: Any) -> bool:
+    """True when a recorded ``replace_preserving_format`` of *target_range* keeps its character formatting.
+
+    The recorded path inserts the new text once, after the longest run, so it is safe only when
+    the range is one text run; over several runs (or a field) the bold, italic or link of the
+    other runs is gone after Accept. Runs split by another author's redline marks also count as
+    several, so this can under-report.
+    """
+    return len(_text_runs(target_range, in_redlines=True)) == 1
+
+
 def _replace_recorded(
     model: Any, text: Any, target_range: Any, old_text: str, new_text: str, author_deletion: bool
 ) -> None:
