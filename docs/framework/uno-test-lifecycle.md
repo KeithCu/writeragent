@@ -1033,20 +1033,29 @@ PR CI runs the full UNO set as three parallel `UNO Shard N/3 (<os>)` jobs
 (`test-uno-shard` in `.github/workflows/pr-ci.yml`), each with its own
 soffice, through `make test-uno-full FILTER="--shard N"`. `--shard N` keeps
 only the suite files that `_uno_shards_for` (`plugin/testing_runner.py`)
-packs into shard N. Packing uses longest-processing-time assignment against
-the recorded suite seconds in `plugin/uno_shard_durations.json` (unknown
-files use the median of those values and join the lightest shard). The
-check names stay `UNO Shard N/3 (<os>)`.
+assigns to shard N. The assignment packs every file listed in
+`plugin/uno_shard_durations.json` (suite seconds) by longest-processing-time,
+so it depends only on that file: adding or deleting a test file never moves
+the others. A file the JSON does not list is still discovered; it takes the
+median recorded duration and joins the lightest shard. The check names stay
+`UNO Shard N/3 (<os>)`.
 
-A new suite file is still discovered and assigned; there is no hand-maintained
-file list. Refresh the durations file from recent green CI `SUITE start` /
-`SUITE end` timestamps when one shard becomes the long pole. Changing
-`_UNO_SHARD_COUNT` also needs a matching `shard` matrix and `N/3` in the
-job name; `test_pr_ci_shard_matrix_runs_every_shard` fails until the matrix
-matches, `test_uno_shards_cover_every_suite_file` checks that every
-discovered file lands in exactly one non-empty shard, and
-`test_uno_shard_durations_pack_nearly_even` checks that the recorded
-durations still pack closely.
+The weights are per-suite seconds, not whole-job times: every shard job has the
+same fixed cost (about 75 s of setup, a few seconds of soffice start), so it
+cancels out of the balance. Take them from the runner's `SUITE start` /
+`SUITE end` timestamps. A runner's speed swings by up to about 2x between jobs
+that run the same files (one shard took 193 s of suite time in one run and
+331 s in the next), so average several runs, divide each job's times by that
+job's speed relative to the other jobs, and do not chase differences of 10% or
+less.
+
+Changing `_UNO_SHARD_COUNT` also needs a matching `shard` matrix and `N/3` in
+the job name; `test_pr_ci_shard_matrix_runs_every_shard` fails until the
+matrix matches, `test_uno_shards_cover_every_suite_file` checks that every
+discovered file lands in exactly one non-empty shard,
+`test_uno_shard_durations_pack_nearly_even` checks that the recorded durations
+still pack closely, and `test_new_suite_file_does_not_move_recorded_files`
+checks that assignments stay put.
 
 Each shard keeps the runner's crash handling, so an soffice death skips
 the rest of that shard only.

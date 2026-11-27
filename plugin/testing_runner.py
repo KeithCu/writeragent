@@ -73,11 +73,12 @@ class RunOptions:
     shard: int = 0
 
 
-# PR CI runs the UNO suites as parallel jobs, each with its own soffice. Files
-# are packed by recorded suite duration (longest-processing-time, ties by path)
-# so the three jobs stay close to equal. Unknown files use the median recorded
-# duration and join the lightest shard. The ``shard`` matrix of
-# ``test-uno-shard`` in ``.github/workflows/pr-ci.yml`` must list
+# PR CI runs the UNO suites as parallel jobs, each with its own soffice. Every
+# file listed in ``uno_shard_durations.json`` is packed by longest-processing-
+# time, ties by path, so the assignment depends only on that file: adding or
+# deleting a test file never moves the others. A file the JSON does not list
+# gets the median recorded duration and joins the lightest shard. The ``shard``
+# matrix of ``test-uno-shard`` in ``.github/workflows/pr-ci.yml`` must list
 # 1 .. _UNO_SHARD_COUNT.
 _UNO_SHARD_COUNT = 3
 _UNO_SHARD_DURATIONS_NAME = "uno_shard_durations.json"
@@ -108,8 +109,8 @@ def _load_uno_shard_durations() -> dict[str, float]:
     return out
 
 
-def _uno_shard_default_seconds(durations: dict[str, float] | None = None) -> float:
-    values = sorted((durations or _load_uno_shard_durations()).values())
+def _uno_shard_default_seconds(durations: dict[str, float]) -> float:
+    values = sorted(durations.values())
     if not values:
         return 3.0
     mid = len(values) // 2
@@ -121,17 +122,21 @@ def _uno_shard_default_seconds(durations: dict[str, float] | None = None) -> flo
 def _uno_shards_for(rel_paths: list[str]) -> dict[str, int]:
     """Map repo-relative suite paths (``/`` separators) to a 1-based shard."""
     durations = _load_uno_shard_durations()
-    default = _uno_shard_default_seconds(durations)
-    weights = {path: durations.get(path, default) for path in rel_paths}
-    order = sorted(rel_paths, key=lambda path: (-weights[path], path))
     totals = [0.0] * _UNO_SHARD_COUNT
-    assigned: dict[str, int] = {}
-    for path in order:
+    known: dict[str, int] = {}
+    for path in sorted(durations, key=lambda name: (-durations[name], name)):
         index = min(range(_UNO_SHARD_COUNT), key=lambda i: (totals[i], i))
-        assigned[path] = index + 1
-        totals[index] += weights[path]
+        known[path] = index + 1
+        totals[index] += durations[path]
+    default = _uno_shard_default_seconds(durations)
+    assigned: dict[str, int] = {}
+    for path in sorted(rel_paths):
+        if path not in known:
+            index = min(range(_UNO_SHARD_COUNT), key=lambda i: (totals[i], i))
+            known[path] = index + 1
+            totals[index] += default
+        assigned[path] = known[path]
     return assigned
-
 
 
 class HarnessOffice:

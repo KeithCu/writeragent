@@ -578,22 +578,30 @@ def test_uno_shards_cover_every_suite_file() -> None:
 def test_uno_shard_durations_pack_nearly_even() -> None:
     """Recorded durations should pack into nearly equal shards; refresh the file when they drift."""
     durations = tr._load_uno_shard_durations()
-    paths = [path for path, seconds in durations.items() if seconds > 0]
-    assigned = tr._uno_shards_for(paths)
+    assigned = tr._uno_shards_for(list(durations))
     totals = [0.0] * tr._UNO_SHARD_COUNT
-    for path in paths:
-        totals[assigned[path] - 1] += durations[path]
+    for path, seconds in durations.items():
+        totals[assigned[path] - 1] += seconds
     assert max(totals) - min(totals) <= 1.0
 
 
-def test_unknown_suite_file_still_joins_a_shard() -> None:
-    """A new suite path is not dropped; it is packed with the recorded set."""
+def test_new_suite_file_does_not_move_recorded_files() -> None:
+    """A new suite path joins a shard without changing where any recorded file runs."""
     durations = tr._load_uno_shard_durations()
-    new_path = "tests/writer/test_zz_new_suite_uno.py"
-    assert new_path not in durations
-    assigned = tr._uno_shards_for([*durations, new_path])
-    assert assigned[new_path] in range(1, tr._UNO_SHARD_COUNT + 1)
-    assert set(assigned[path] for path in durations) == set(range(1, tr._UNO_SHARD_COUNT + 1))
+    new_paths = ["tests/writer/test_zz_new_suite_uno.py", "tests/calc/test_aa_new_suite_uno.py"]
+    assert not set(new_paths) & set(durations)
+    before = tr._uno_shards_for(list(durations))
+    after = tr._uno_shards_for([*durations, *new_paths])
+    assert {path: after[path] for path in durations} == before
+    assert all(after[path] in range(1, tr._UNO_SHARD_COUNT + 1) for path in new_paths)
+
+
+def test_deleted_suite_file_does_not_move_the_rest() -> None:
+    durations = tr._load_uno_shard_durations()
+    paths = list(durations)
+    full = tr._uno_shards_for(paths)
+    without_one = tr._uno_shards_for(paths[1:])
+    assert {path: full[path] for path in paths[1:]} == without_one
 
 
 def test_pr_ci_shard_matrix_runs_every_shard() -> None:
