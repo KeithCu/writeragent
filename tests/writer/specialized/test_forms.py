@@ -446,8 +446,7 @@ def test_commit_form_batch_rollback_failed_flag_is_false(monkeypatch):
     def mutate():
         raise ValueError("field failed")
 
-    tool = MagicMock()
-    res = forms._commit_form_batch(tool, SimpleNamespace(doc=doc, ctx=MagicMock()), "Form Create", mutate, "undo msg")
+    res = forms._commit_form_batch(SimpleNamespace(doc=doc, ctx=MagicMock()), "Form Create", mutate, "undo msg")
     assert res is not None
     assert res.get("code") == "ROLLBACK_FAILED"
     assert res.get("rolled_back") is False

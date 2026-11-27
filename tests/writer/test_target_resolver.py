@@ -11,7 +11,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from plugin.framework.errors import ToolExecutionError
-from plugin.framework.tool import ToolBase
 from plugin.writer.target_resolver import insert_at_target, require_selection_range, resolve_target_cursor
 from plugin.tests.testing_utils import DisposedException
 
@@ -178,11 +177,6 @@ def test_resolve_target_cursor_case_sensitive_forwarding(monkeypatch):
     assert calls[-1] == ("needle", False)
 
 
-class _DummyTool(ToolBase):
-    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        return {}
-
-
 def _insert_ctx():
     doc = MagicMock()
     undo_mgr = MagicMock()
@@ -197,7 +191,6 @@ def _insert_ctx():
 
 def test_insert_at_target_search_deletes_then_inserts_inside_the_bracket(monkeypatch):
     ctx, undo_mgr = _insert_ctx()
-    tool = _DummyTool()
     cursor = MagicMock()
     call_order: list[Any] = []
     undo_mgr.enterUndoContext.side_effect = lambda title: call_order.append(("enterUndoContext", title))
@@ -210,7 +203,7 @@ def test_insert_at_target_search_deletes_then_inserts_inside_the_bracket(monkeyp
 
     monkeypatch.setattr("plugin.writer.target_resolver.resolve_target_cursor", lambda *a, **k: cursor)
 
-    res = insert_at_target(tool, ctx, {"target": "search", "old_content": "needle"}, fake_insert, what="the thing")
+    res = insert_at_target(ctx, {"target": "search", "old_content": "needle"}, fake_insert, what="the thing")
     assert res is None
     assert call_order[0][0] == "enterUndoContext"
     assert call_order[1] == ("setString", "")
@@ -220,7 +213,6 @@ def test_insert_at_target_search_deletes_then_inserts_inside_the_bracket(monkeyp
 
 def test_insert_at_target_replace_match_false_keeps_the_match(monkeypatch):
     ctx, _ = _insert_ctx()
-    tool = _DummyTool()
     cursor = MagicMock()
     inserted_cursors: list[Any] = []
 
@@ -231,7 +223,6 @@ def test_insert_at_target_replace_match_false_keeps_the_match(monkeypatch):
         return None
 
     res = insert_at_target(
-        tool,
         ctx,
         {"target": "search", "old_content": "needle"},
         fake_insert,
@@ -245,12 +236,11 @@ def test_insert_at_target_replace_match_false_keeps_the_match(monkeypatch):
 
 def test_insert_at_target_non_search_is_one_undo_step(monkeypatch):
     ctx, undo_mgr = _insert_ctx()
-    tool = _DummyTool()
     cursor = MagicMock()
     monkeypatch.setattr("plugin.writer.target_resolver.resolve_target_cursor", lambda *a, **k: cursor)
 
     # Default undo_title starts with "WriterAgent edit#"
-    res = insert_at_target(tool, ctx, {"target": "end"}, lambda c: None, what="the thing")
+    res = insert_at_target(ctx, {"target": "end"}, lambda c: None, what="the thing")
     assert res is None
     cursor.setString.assert_not_called()
     undo_mgr.enterUndoContext.assert_called_once()
@@ -258,7 +248,7 @@ def test_insert_at_target_non_search_is_one_undo_step(monkeypatch):
 
     # Explicit undo_title uses the provided string
     undo_mgr.reset_mock()
-    res = insert_at_target(tool, ctx, {"target": "end"}, lambda c: None, what="the thing", undo_title="Custom Title")
+    res = insert_at_target(ctx, {"target": "end"}, lambda c: None, what="the thing", undo_title="Custom Title")
     assert res is None
     cursor.setString.assert_not_called()
     undo_mgr.enterUndoContext.assert_called_once_with("Custom Title")
@@ -266,24 +256,22 @@ def test_insert_at_target_non_search_is_one_undo_step(monkeypatch):
 
 def test_insert_at_target_resolver_error_is_the_tool_error(monkeypatch):
     ctx, undo_mgr = _insert_ctx()
-    tool = _DummyTool()
     monkeypatch.setattr("plugin.writer.target_resolver.resolve_target_cursor", MagicMock(side_effect=ValueError("nope")))
 
-    res = insert_at_target(tool, ctx, {"target": "search", "old_content": "needle"}, lambda c: None, what="the thing")
+    res = insert_at_target(ctx, {"target": "search", "old_content": "needle"}, lambda c: None, what="the thing")
     assert res == {"status": "error", "code": "TOOL_EXECUTION_ERROR", "message": "nope"}
     undo_mgr.enterUndoContext.assert_not_called()
 
 
 def test_insert_at_target_insert_failure_rolls_back_with_code(monkeypatch):
     ctx, undo_mgr = _insert_ctx()
-    tool = _DummyTool()
     cursor = MagicMock()
     monkeypatch.setattr("plugin.writer.target_resolver.resolve_target_cursor", lambda *a, **k: cursor)
 
     def bad_insert(c: Any) -> None:
         raise RuntimeError("boom")
 
-    res = insert_at_target(tool, ctx, {"target": "end"}, bad_insert, what="the thing", code="INSERT_FRAME_FAILED")
+    res = insert_at_target(ctx, {"target": "end"}, bad_insert, what="the thing", code="INSERT_FRAME_FAILED")
     assert res is not None
     assert res["status"] == "error"
     assert res["code"] == "INSERT_FRAME_FAILED"
@@ -294,11 +282,10 @@ def test_insert_at_target_insert_failure_rolls_back_with_code(monkeypatch):
 def test_insert_at_target_locked_undo_changes_nothing(monkeypatch):
     ctx, undo_mgr = _insert_ctx()
     undo_mgr.isLocked.return_value = True
-    tool = _DummyTool()
     cursor = MagicMock()
     monkeypatch.setattr("plugin.writer.target_resolver.resolve_target_cursor", lambda *a, **k: cursor)
 
-    res = insert_at_target(tool, ctx, {"target": "search", "old_content": "needle"}, lambda c: None, what="the thing")
+    res = insert_at_target(ctx, {"target": "search", "old_content": "needle"}, lambda c: None, what="the thing")
     assert res is not None
     assert res["status"] == "error"
     assert res["code"] == "UNDO_UNAVAILABLE"
@@ -308,12 +295,11 @@ def test_insert_at_target_locked_undo_changes_nothing(monkeypatch):
 
 def test_insert_at_target_insert_error_dict_is_returned_after_rollback(monkeypatch):
     ctx, undo_mgr = _insert_ctx()
-    tool = _DummyTool()
     cursor = MagicMock()
     monkeypatch.setattr("plugin.writer.target_resolver.resolve_target_cursor", lambda *a, **k: cursor)
 
     err_dict = {"status": "error", "code": "INVALID_PARAM", "message": "already exists"}
-    res = insert_at_target(tool, ctx, {"target": "end"}, lambda c: err_dict, what="the thing")
+    res = insert_at_target(ctx, {"target": "end"}, lambda c: err_dict, what="the thing")
     assert res == err_dict
     undo_mgr.undo.assert_called_once()
 
@@ -355,7 +341,6 @@ def test_insert_at_target_error_dict_rolls_back_and_drops_session_changes(monkey
     from unittest.mock import patch
 
     ctx, undo_mgr = _insert_ctx()
-    tool = _DummyTool()
     cursor = MagicMock()
     monkeypatch.setattr("plugin.writer.target_resolver.resolve_target_cursor", lambda *a, **k: cursor)
 
@@ -364,7 +349,7 @@ def test_insert_at_target_error_dict_rolls_back_and_drops_session_changes(monkey
     session.changes = []
     session.record_mutation.side_effect = lambda fn: fn()
     with patch("plugin.writer.target_resolver.run_in_review_session", side_effect=lambda _d, _c, fn: fn(session)) as run_rev:
-        res_on = insert_at_target(tool, ctx, {"target": "end"}, lambda c: err_dict, what="the thing")
+        res_on = insert_at_target(ctx, {"target": "end"}, lambda c: err_dict, what="the thing")
     assert res_on == err_dict
     run_rev.assert_called_once()
     session.discard_changes_since.assert_called_once_with(0)

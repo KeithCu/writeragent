@@ -34,7 +34,7 @@ from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK  # type: ignore
 
 from plugin.doc.text_helpers import TrackedDeletions, iter_elements, iter_portions
 from plugin.doc.undo import commit_or_rollback_mutation
-from plugin.framework.errors import reraise_if_disposed, uno_read
+from plugin.framework.errors import make_tool_error, reraise_if_disposed, uno_read
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import create_property_value, uno_any
 
@@ -373,7 +373,7 @@ def _entry_before(found: Any, content: str) -> tuple[str, str]:
 
 
 def _resolve_toc_target(
-    tool: Any, doc: Any, index: Any
+    doc: Any, index: Any
 ) -> tuple[Any, Any, int | None, dict[str, Any] | None]:
     indexes = doc.getDocumentIndexes()
     count = indexes.getCount()
@@ -386,7 +386,7 @@ def _resolve_toc_target(
                 if len(tocs) > 1:
                     break
         if len(tocs) != 1:
-            return None, None, None, tool._tool_error(
+            return None, None, None, make_tool_error(
                 "index is required when the document does not have exactly one table of contents.",
                 code="INVALID_PARAM",
             )
@@ -395,14 +395,14 @@ def _resolve_toc_target(
 
     index_position, index_err = parse_non_negative_int(index, name="index")
     if index_err:
-        return None, None, None, tool._tool_error(index_err, code="INVALID_PARAM")
+        return None, None, None, make_tool_error(index_err, code="INVALID_PARAM")
     assert index_position is not None
     err = index_error(index_position, count, "document index")
     if err:
-        return None, None, None, tool._tool_error(err, code="INVALID_PARAM")
+        return None, None, None, make_tool_error(err, code="INVALID_PARAM")
     idx = indexes.getByIndex(index_position)
     if index_kind_from_uno(idx) != "toc":
-        return None, None, None, tool._tool_error(
+        return None, None, None, make_tool_error(
             "index is not a table of contents.", code="INVALID_PARAM"
         )
     return idx, idx.getAnchor(), index_position, None
@@ -434,7 +434,6 @@ def toc_match(
 
 
 def _locate_toc_entry(
-    tool: Any,
     doc: Any,
     old_content: str,
     index: Any,
@@ -444,20 +443,19 @@ def _locate_toc_entry(
 ) -> tuple[Any, Any, Any, dict[str, Any] | None]:
     occ, occurrence_error = parse_non_negative_int(occurrence)
     if occurrence_error:
-        return None, None, None, tool._tool_error(occurrence_error, code="INVALID_PARAM")
-    idx, anchor, _pos, err = _resolve_toc_target(tool, doc, index)
+        return None, None, None, make_tool_error(occurrence_error, code="INVALID_PARAM")
+    idx, anchor, _pos, err = _resolve_toc_target(doc, index)
     if err is not None:
         return None, None, None, err
     found, find_error = toc_match(
         doc, anchor, old_content.strip(), occ, case_sensitive=case_sensitive
     )
     if find_error:
-        return None, None, None, tool._tool_error(find_error, code="NOT_FOUND")
+        return None, None, None, make_tool_error(find_error, code="NOT_FOUND")
     return idx, anchor, found, None
 
 
 def _commit_toc_mutation(
-    tool: Any,
     doc: Any,
     idx: Any,
     mutate: Callable[[], dict[str, Any] | None],
@@ -498,7 +496,7 @@ def _commit_toc_mutation(
                     # Protection restore errors go in restore_err and are returned only
                     # after finally exits, so mutate() exceptions propagate and Python
                     # 3.14+ does not warn on return inside finally.
-                    restore_err = tool._tool_error(
+                    restore_err = make_tool_error(
                         "Could not restore table-of-contents protection; the edit was rolled back."
                     )
         if restore_err is not None:
@@ -507,7 +505,6 @@ def _commit_toc_mutation(
 
     undo_title = next_agent_edit_undo_title()
     error = commit_or_rollback_mutation(
-        tool,
         doc,
         undo_title,
         _wrapped_mutate,
@@ -859,7 +856,6 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
                 return self._tool_error("hyperlink_url must be a non-empty string.", code="INVALID_PARAM")
             override = _one_line(raw_url, "")
         idx, _anchor, found, err = _locate_toc_entry(
-            self,
             doc,
             old_content,
             kwargs.get("index"),
@@ -929,7 +925,6 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
             return None
 
         return _commit_toc_mutation(
-            self,
             doc,
             idx,
             mutate,
@@ -973,7 +968,6 @@ class IndexesDeleteTocEntry(ToolWriterIndexBase):
                 "index_delete_toc_entry takes plain text so the entry match stays a substring.",
                 code="INVALID_PARAM")
         idx, anchor, found, err = _locate_toc_entry(
-            self,
             doc,
             old_content,
             kwargs.get("index"),
@@ -993,7 +987,6 @@ class IndexesDeleteTocEntry(ToolWriterIndexBase):
             return None
 
         return _commit_toc_mutation(
-            self,
             doc,
             idx,
             mutate,
@@ -1116,7 +1109,7 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
         level = kwargs.get("level")
         if level is not None and not 1 <= level <= 10:
             return self._tool_error("level must be an integer from 1 to 10.", code="INVALID_PARAM")
-        idx, anchor, _pos, err = _resolve_toc_target(self, doc, kwargs.get("index"))
+        idx, anchor, _pos, err = _resolve_toc_target(doc, kwargs.get("index"))
         if err is not None:
             return err
         paragraphs = _paragraphs_in_anchor(anchor)
@@ -1172,7 +1165,6 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
             return None
 
         return _commit_toc_mutation(
-            self,
             doc,
             idx,
             mutate,
@@ -1263,7 +1255,7 @@ class IndexesListTocEntries(ToolWriterIndexBase):
         doc = ctx.doc
         index = kwargs.get("index")
         include_links = kwargs["include_links"]
-        _unused_idx, anchor, position, err = _resolve_toc_target(self, doc, index)
+        _unused_idx, anchor, position, err = _resolve_toc_target(doc, index)
         if err is not None:
             return err
         entries = toc_entry_rows(anchor, include_links=include_links)
@@ -1389,7 +1381,7 @@ class IndexesCreate(ToolWriterIndexBase):
             index.update()
             return None
 
-        error = insert_at_target(self, ctx, kwargs, mutate, what="the index", replace_match=False)
+        error = insert_at_target(ctx, kwargs, mutate, what="the index", replace_match=False)
         if error is not None:
             return error
 
@@ -1500,7 +1492,6 @@ class IndexesAddMark(ToolWriterIndexBase):
             cursor.getText().insertTextContent(cursor, content, False)
 
         err = insert_at_target(
-            self,
             ctx,
             kwargs,
             mutate,

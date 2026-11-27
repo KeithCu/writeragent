@@ -235,7 +235,6 @@ def _form_page_cursors(doc: Any) -> _PageCursors | None:
 
 
 def _commit_form_batch(
-    tool: Any,
     ctx: Any,
     title: str,
     mutate: Any,
@@ -259,7 +258,7 @@ def _commit_form_batch(
             error["rolled_back"] = outcome.rolled_back
             return error
     except UndoUnavailable:
-        return tool._tool_error(undo_message, code="UNDO_UNAVAILABLE")
+        return make_tool_error(undo_message, code="UNDO_UNAVAILABLE")
     return None
 
 
@@ -315,7 +314,7 @@ def _append_text_to_calc_active_area(doc: Any, text: str) -> None:
     cell.setString(prev + (text or ""))
 
 
-def _field_failure_result(tool: Any, results: list[Any], *, action: str, names: list[str]) -> dict[str, Any] | None:
+def _field_failure_result(results: list[Any], *, action: str, names: list[str]) -> dict[str, Any] | None:
     """Return an error payload when any form field failed, else None.
 
     ``form_create`` and ``form_generate`` must not return status ok
@@ -334,7 +333,7 @@ def _field_failure_result(tool: Any, results: list[Any], *, action: str, names: 
     shown = "; ".join(bits[:5])
     if len(bits) > 5:
         shown += "; ..."
-    return tool._tool_error(f"{action}: {len(bits)} of {len(results)} fields failed. {shown}", results=results)
+    return make_tool_error(f"{action}: {len(bits)} of {len(results)} fields failed. {shown}", results=results)
 
 
 def _plain_text_for_calc_html_fragment(html: str) -> str:
@@ -562,10 +561,9 @@ class FormCreate(ToolWriterFormBase):
                 if res.get("status") != "error":
                     self._insert_space(ctx)
 
-            return _field_failure_result(self, results, action="form_create", names=names)
+            return _field_failure_result(results, action="form_create", names=names)
 
         batch_err = _commit_form_batch(
-            self,
             ctx,
             "Form Create",
             mutate,
@@ -687,10 +685,9 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
                     # Errors propagate: retrying after a partial insert would insert the text twice and hide the error.
                     self._insert_text(ctx, part, page_cursors=page_cursors)
 
-            return _field_failure_result(self, field_results, action="form_generate", names=field_names)
+            return _field_failure_result(field_results, action="form_generate", names=field_names)
 
         batch_err = _commit_form_batch(
-            self,
             ctx,
             "Form Generate",
             mutate,
@@ -893,7 +890,6 @@ class FormEditControl(ToolWriterFormBase):
                 shape.setSize(Size(kwargs.get("width", sz.Width), kwargs.get("height", sz.Height)))
 
         batch_err = commit_or_rollback_mutation(
-            self,
             ctx.doc,
             "WriterAgent: Edit form control",
             mutate,
@@ -945,7 +941,6 @@ class FormDeleteControl(ToolWriterFormBase):
             dp.remove(shape)
 
         batch_err = commit_or_rollback_mutation(
-            self,
             ctx.doc,
             "WriterAgent: Delete form control",
             mutate,

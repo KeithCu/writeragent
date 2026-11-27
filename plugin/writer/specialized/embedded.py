@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 
 from plugin.calc.formula_dialect import to_api
-from plugin.framework.errors import is_disposal, reraise_if_disposed, uno_read
+from plugin.framework.errors import is_disposal, make_tool_error, reraise_if_disposed, uno_read
 from plugin.framework.uno_context import create_property_value, execute_dispatch
 from plugin.writer.edit_review import flag_tracked
 from plugin.writer.record_changes import insert_recorded_content, is_recording_changes
@@ -95,7 +95,7 @@ def _write_cell(cell: Any, value: Any, doc: Any) -> None:
     raise ValueError(f"unsupported cell value type: {type(value).__name__}")
 
 
-def _deselect_inplace_embed(doc: Any, uno_ctx: Any, tool: Any) -> dict[str, Any] | None:
+def _deselect_inplace_embed(doc: Any, uno_ctx: Any) -> dict[str, Any] | None:
     """Leave in-place OLE editing before insert (avoids native crash on second embed)."""
     controller = uno_read(doc.getCurrentController, None)
     if controller is None:
@@ -104,7 +104,7 @@ def _deselect_inplace_embed(doc: Any, uno_ctx: Any, tool: Any) -> dict[str, Any]
         selection = controller.getSelection()
     except Exception as exc:
         reraise_if_disposed(exc)
-        return tool._tool_error(f"Could not read the selection before insert ({exc}).")
+        return make_tool_error(f"Could not read the selection before insert ({exc}).")
 
     if not selection.supportsService(_TEXT_EMBEDDED_OBJECT):
         return None
@@ -125,7 +125,7 @@ def _deselect_inplace_embed(doc: Any, uno_ctx: Any, tool: Any) -> dict[str, Any]
             controller.select(cursor)
     except Exception as exc:
         reraise_if_disposed(exc)
-        return tool._tool_error(f"Could not leave in-place embedded edit before insert ({exc}).")
+        return make_tool_error(f"Could not leave in-place embedded edit before insert ({exc}).")
     return None
 
 
@@ -164,18 +164,18 @@ class _EmbedRequest(NamedTuple):
     name: str | None
 
 
-def _validate_embed_args(tool: Any, kwargs: Mapping[str, Any]) -> _EmbedRequest | dict[str, Any]:
+def _validate_embed_args(kwargs: Mapping[str, Any]) -> _EmbedRequest | dict[str, Any]:
     data = kwargs["data"]
     for row_idx, row in enumerate(data):
         if not isinstance(row, list):
-            return tool._tool_error(
+            return make_tool_error(
                 f"data row {row_idx} must be an array.",
                 code="INVALID_PARAM",
                 parameter="data",
             )
         for col_idx, cell in enumerate(row):
             if isinstance(cell, bool):
-                return tool._tool_error(
+                return make_tool_error(
                     f"data[{row_idx}][{col_idx}] cannot be a boolean.",
                     code="INVALID_PARAM",
                     parameter="data",
@@ -184,18 +184,18 @@ def _validate_embed_args(tool: Any, kwargs: Mapping[str, Any]) -> _EmbedRequest 
     width = kwargs.get("width")
     height = kwargs.get("height")
     if (width is None) ^ (height is None):
-        return tool._tool_error(
+        return make_tool_error(
             "width and height must both be set or both omitted.",
             code="INVALID_PARAM",
         )
     if width is not None and width <= 0:
-        return tool._tool_error("width must be a positive integer.", code="INVALID_PARAM", parameter="width")
+        return make_tool_error("width must be a positive integer.", code="INVALID_PARAM", parameter="width")
     if height is not None and height <= 0:
-        return tool._tool_error("height must be a positive integer.", code="INVALID_PARAM", parameter="height")
+        return make_tool_error("height must be a positive integer.", code="INVALID_PARAM", parameter="height")
 
     embed_name = kwargs.get("name")
     if embed_name == "":
-        return tool._tool_error("name cannot be empty.", code="INVALID_PARAM", parameter="name")
+        return make_tool_error("name cannot be empty.", code="INVALID_PARAM", parameter="name")
 
     rows = len(data)
     cols = max((len(row) for row in data), default=0)
@@ -209,7 +209,7 @@ def _validate_embed_args(tool: Any, kwargs: Mapping[str, Any]) -> _EmbedRequest 
     return _EmbedRequest(data=data, rows=rows, cols=cols, size=size, name=embed_name)
 
 
-def _insert_spreadsheet(tool: Any, doc: Any, cursor: Any, clsid: str, req: _EmbedRequest) -> str | dict[str, Any]:
+def _insert_spreadsheet(doc: Any, cursor: Any, clsid: str, req: _EmbedRequest) -> str | dict[str, Any]:
     """Insert and fill the OLE at cursor (inside insert_at_target's undo step); container name or error dict."""
     text = cursor.getText()
     container = doc.getEmbeddedObjects()
@@ -217,7 +217,7 @@ def _insert_spreadsheet(tool: Any, doc: Any, cursor: Any, clsid: str, req: _Embe
 
     emb = doc.createInstance(_TEXT_EMBEDDED_OBJECT)
     if not emb:
-        return tool._tool_error("Failed to create TextEmbeddedObject.")
+        return make_tool_error("Failed to create TextEmbeddedObject.")
 
     emb.CLSID = clsid
     emb.AnchorType = AS_CHARACTER
@@ -229,7 +229,7 @@ def _insert_spreadsheet(tool: Any, doc: Any, cursor: Any, clsid: str, req: _Embe
     after_names = set(container.getElementNames())
     new_names = after_names - before_names
     if len(new_names) != 1:
-        return tool._tool_error("Spreadsheet OLE was not installed in the document.")
+        return make_tool_error("Spreadsheet OLE was not installed in the document.")
 
     container_name = next(iter(new_names))
 
@@ -238,10 +238,10 @@ def _insert_spreadsheet(tool: Any, doc: Any, cursor: Any, clsid: str, req: _Embe
     except Exception as exc:
         if is_disposal(exc):
             raise
-        return tool._tool_error(f"Could not open embedded spreadsheet ({exc}).")
+        return make_tool_error(f"Could not open embedded spreadsheet ({exc}).")
 
     if inner is None or not inner.supportsService(_SPREADSHEET_DOC_SERVICE):
-        return tool._tool_error("Embedded object is not a Calc spreadsheet.")
+        return make_tool_error("Embedded object is not a Calc spreadsheet.")
 
     sheet = inner.getSheets().getByIndex(0)
 
@@ -256,7 +256,7 @@ def _insert_spreadsheet(tool: Any, doc: Any, cursor: Any, clsid: str, req: _Embe
             try:
                 _write_cell(sheet.getCellByPosition(c_idx, r_idx), cell_val, inner)
             except ValueError as ve:
-                return tool._tool_error(str(ve))
+                return make_tool_error(str(ve))
 
     return container_name
 
@@ -293,14 +293,14 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        req = _validate_embed_args(self, kwargs)
+        req = _validate_embed_args(kwargs)
         if isinstance(req, dict):
             return req
 
         # Deselect before insert_at_target resolves the target: this avoids a native crash on a
         # second embed, and unpinned (MCP) contexts must see the post-deselect cursor after the
         # OLE anchor rather than the pre-deselect view cursor (pinned sidebar turns read the pin).
-        deselect_err = _deselect_inplace_embed(ctx.doc, ctx.ctx, self)
+        deselect_err = _deselect_inplace_embed(ctx.doc, ctx.ctx)
         if deselect_err is not None:
             return deselect_err
 
@@ -320,13 +320,13 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
         def mutate(cursor: Any) -> dict[str, Any] | None:
             nonlocal container_name, recorded
             recorded = is_recording_changes(ctx.doc)
-            res = _insert_spreadsheet(self, ctx.doc, cursor, clsid, req)
+            res = _insert_spreadsheet(ctx.doc, cursor, clsid, req)
             if isinstance(res, dict):
                 return res
             container_name = res
             return None
 
-        error = insert_at_target(self, ctx, kwargs, mutate, what="the spreadsheet OLE")
+        error = insert_at_target(ctx, kwargs, mutate, what="the spreadsheet OLE")
         if error is not None:
             return error
 

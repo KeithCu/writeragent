@@ -14,12 +14,11 @@ from __future__ import annotations
 from typing import Any
 
 from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
-from plugin.framework.errors import is_disposal, reraise_if_disposed
+from plugin.framework.errors import is_disposal, make_tool_error, reraise_if_disposed
 from plugin.framework.tool import ToolBase, ToolContext
 
 
 def commit_or_rollback_mutation(
-    tool: ToolBase,
     doc: Any,
     undo_title: str,
     mutate: Any,
@@ -42,7 +41,7 @@ def commit_or_rollback_mutation(
     try:
         outcome = commit_or_rollback(doc, undo_title, mutate, session=session)
     except UndoUnavailable:
-        return tool._tool_error(undo_unavailable_msg, code="UNDO_UNAVAILABLE")
+        return make_tool_error(undo_unavailable_msg, code="UNDO_UNAVAILABLE")
     except Exception as e:
         # Mutate failures come back on UndoOutcome; this arm catches rare faults in the
         # wrapper itself (such as the session snapshot), so the tool still gets a
@@ -54,17 +53,17 @@ def commit_or_rollback_mutation(
         if outcome.mutate_error is None:
             return outcome.error
         if not outcome.group_closed:
-            return tool._tool_error(
+            return make_tool_error(
                 f"The change failed and its undo step could not be closed, so part of it may still be in the document ({outcome.mutate_error}).",
                 code=code,
             )
         if not outcome.nothing_landed:
-            return tool._tool_error(
+            return make_tool_error(
                 f"The change failed and could not be rolled back, so part of it may still be in the document ({outcome.mutate_error}).",
                 code=code,
             )
         cause = outcome.mutate_error
-    return tool._tool_error(
+    return make_tool_error(
         f"{rollback_msg} ({cause}).",
         code=code,
         top_level=extra_error,
@@ -78,7 +77,6 @@ def _undo_steps(kwargs: dict[str, Any]) -> int:
 
 
 def _step_undo_manager(
-    tool: ToolBase,
     ctx: ToolContext,
     action_key: str,
     kwargs: dict[str, Any],
@@ -86,7 +84,7 @@ def _step_undo_manager(
     steps = _undo_steps(kwargs)
     try:
         if not hasattr(ctx.doc, "getUndoManager"):
-            return tool._tool_error("Document does not support undo.")
+            return make_tool_error("Document does not support undo.")
         um = ctx.doc.getUndoManager()
         count = 0
         possible_fn = um.isRedoPossible if action_key == "redone" else um.isUndoPossible
@@ -99,7 +97,7 @@ def _step_undo_manager(
         return {"status": "ok", action_key: count, "can_undo": um.isUndoPossible(), "can_redo": um.isRedoPossible()}
     except Exception as e:
         reraise_if_disposed(e)
-        return tool._tool_error(str(e))
+        return make_tool_error(str(e))
 
 
 class Undo(ToolBase):
@@ -118,7 +116,7 @@ class Undo(ToolBase):
     _action_key: str = "undone"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        return _step_undo_manager(self, ctx, self._action_key, kwargs)
+        return _step_undo_manager(ctx, self._action_key, kwargs)
 
 
 class Redo(Undo):

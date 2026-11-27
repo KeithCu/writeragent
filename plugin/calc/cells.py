@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING, Any, Callable, ClassVar
-from plugin.framework.errors import CalcError, Diagnostic, ToolExecutionError, WriterAgentException, format_error_payload, is_disposal, make_tool_ok
+from plugin.framework.errors import CalcError, Diagnostic, ToolExecutionError, WriterAgentException, format_error_payload, is_disposal, make_tool_error, make_tool_ok
 from plugin.framework.tool import ToolBase
 
 if TYPE_CHECKING:
@@ -116,7 +116,6 @@ def _manipulator_context(ctx: ToolContext, range_arg: Any) -> tuple[CellManipula
 
 
 def _mutate_ranges(
-    tool: ToolBase,
     doc: Any,
     ranges: list[Any],
     undo_title: str,
@@ -127,7 +126,7 @@ def _mutate_ranges(
 ) -> dict[str, Any]:
     """Run apply_one on each range inside one compound undo."""
     if len(ranges) == 0:
-        return tool._tool_error("range is required", code="INVALID_PARAM")
+        return make_tool_error("range is required", code="INVALID_PARAM")
 
     target = ranges[0]
     results: list[Any] = []
@@ -173,7 +172,7 @@ def _mutate_ranges(
         # available list) so execute_safe does not flatten them to a generic error.
         if isinstance(exc, WriterAgentException):
             raise ToolExecutionError(msg, code=exc.code, details=exc.details) from exc
-        return tool._tool_error(msg)
+        return make_tool_error(msg)
 
 
 def _preview_if_large(bridge: CalcBridge, range_name: str) -> dict[str, Any] | None:
@@ -492,7 +491,6 @@ class WriteCellRange(ToolBase):
                 )
 
             return _mutate_ranges(
-                self,
                 ctx.doc,
                 rn,
                 "WriterAgent: Copy range",
@@ -549,7 +547,6 @@ class WriteCellRange(ToolBase):
             return make_tool_ok(message=message, **merged)
 
         return _mutate_ranges(
-            self,
             ctx.doc,
             rn,
             "WriterAgent: Write formulas",
@@ -698,7 +695,6 @@ class SetCellStyle(ToolBase):
             return f"Style applied to {r}"
 
         return _mutate_ranges(
-            self,
             ctx.doc,
             rn,
             "WriterAgent: Set style",
@@ -780,7 +776,6 @@ class MergeCells(ToolBase):
             return make_tool_ok(warnings=warnings, **fields)
 
         return _mutate_ranges(
-            self,
             ctx.doc,
             rn,
             "WriterAgent: Merge cells",
@@ -849,7 +844,6 @@ class SortRange(ToolCalcRangeBase):
         has_header: bool = kwargs["has_header"]
 
         return _mutate_ranges(
-            self,
             ctx.doc,
             rn,
             "WriterAgent: Sort range",

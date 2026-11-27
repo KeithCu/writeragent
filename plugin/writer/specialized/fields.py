@@ -218,7 +218,6 @@ class FieldsDelete(ToolWriterFieldBase):
             return None
 
         err = commit_or_rollback_mutation(
-            self,
             doc,
             undo_title,
             mutate,
@@ -296,7 +295,6 @@ class FieldsInsert(ToolWriterFieldBase):
             recorded = insert_recorded_content(doc, cursor.getText(), cursor, field)
 
         err = insert_at_target(
-            self,
             ctx,
             kwargs,
             insert,

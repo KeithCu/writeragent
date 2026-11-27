@@ -276,7 +276,7 @@ def test_frame_insert_default_size_and_undo_path():
 
     captured: dict[str, Any] = {}
 
-    def _commit(_tool, _doc, _title, mutate, *_args, **_kwargs):
+    def _commit(_doc, _title, mutate, *_args, **_kwargs):
         captured["mutate"] = mutate
         mutate()
         return None
@@ -341,7 +341,7 @@ def test_frame_insert_pending_review_on_recorded_search_delete(target, collapsed
     cursor.getText.return_value = MagicMock()
     ctx = MagicMock(doc=doc)
 
-    def _commit(_tool, _doc, _title, mutate, *_args, **_kwargs):
+    def _commit(_doc, _title, mutate, *_args, **_kwargs):
         mutate()
         return None
 
@@ -482,7 +482,7 @@ def test_frame_delete_text_box_removes_owning_shape():
     doc, _plain, box_frame, box_shape, draw_page = _make_text_box_doc()
     ctx = MagicMock(doc=doc)
 
-    def _commit(_tool, _doc, _title, mutate, *_a, **_k):
+    def _commit(_doc, _title, mutate, *_a, **_k):
         mutate()
         return None
 

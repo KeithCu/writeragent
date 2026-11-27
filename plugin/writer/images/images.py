@@ -36,6 +36,7 @@ from plugin.framework.errors import (
     NetworkError,
     ToolExecutionError,
     best_effort,
+    make_tool_error,
     name_miss_details,
     reraise_if_disposed,
     resolve_exception_message,
@@ -334,7 +335,7 @@ class ImageGenerate(ToolWriterImageBase):
     def execute(self, ctx: Any, **args: Any) -> Any:
         prompt = args.get("prompt", "")
 
-        dim_err = _validate_dimensions(self, args, ("base_size", "width", "height"))
+        dim_err = _validate_dimensions(args, ("base_size", "width", "height"))
         if dim_err:
             return dim_err
 
@@ -508,7 +509,6 @@ class ImageGenerate(ToolWriterImageBase):
 
 
 def _download_for_tool(
-    tool: Any,
     url: str,
     *,
     force: bool = False,
@@ -518,9 +518,9 @@ def _download_for_tool(
         return _download_image_to_cache(url, force=force, cancel=cancel)
     except Exception as exc:
         if (isinstance(exc, NetworkError) and exc.code == "STOPPED") or is_cancelled(cancel):
-            return tool._tool_error("Image download stopped by user.", code="USER_STOPPED", url=url)
+            return make_tool_error("Image download stopped by user.", code="USER_STOPPED", url=url)
         log.exception("image download failed")
-        return tool._tool_error("Could not download image: %s" % exc, code="DOWNLOAD_FAILED", url=url)
+        return make_tool_error("Could not download image: %s" % exc, code="DOWNLOAD_FAILED", url=url)
 
 
 # When only width_mm or height_mm is given, the other dimension scales proportionally
@@ -736,8 +736,8 @@ class ImageList(ToolWriterImageBase):
 # ------------------------------------------------------------------
 
 
-def _image_not_found(tool: Any, image_name: str) -> dict[str, Any]:
-    return tool._tool_error(
+def _image_not_found(image_name: str) -> dict[str, Any]:
+    return make_tool_error(
         "Image '%s' not found or document does not support graphic objects." % image_name,
         code="IMAGE_NOT_FOUND",
         image_name=image_name,
@@ -745,7 +745,7 @@ def _image_not_found(tool: Any, image_name: str) -> dict[str, Any]:
     )
 
 
-def _resolve_graphic(tool: Any, ctx: Any, image_name: str, sheet_index: int | None = None) -> tuple[Any, dict[str, Any] | None]:
+def _resolve_graphic(ctx: Any, image_name: str, sheet_index: int | None = None) -> tuple[Any, dict[str, Any] | None]:
     try:
         graphic = visual_helpers.get_graphic_object_by_name(ctx.doc, image_name, sheet_index=sheet_index)
     except visual_helpers.AmbiguousGraphicNameError as exc:
@@ -754,19 +754,19 @@ def _resolve_graphic(tool: Any, ctx: Any, image_name: str, sheet_index: int | No
         extra: dict[str, Any] = {"image_name": image_name, "sheet_indices": sheets, "sheets": sheets}
         if shapes:
             extra["shape_indices"] = shapes
-        return None, tool._tool_error(str(exc), code="AMBIGUOUS_NAME", **extra)
+        return None, make_tool_error(str(exc), code="AMBIGUOUS_NAME", **extra)
     if not graphic:
-        return None, _image_not_found(tool, image_name)
+        return None, _image_not_found(image_name)
     return graphic, None
 
 
 def _validate_dimensions(
-    tool: Any, kwargs: dict[str, Any], keys: tuple[str, ...] = ("width_mm", "height_mm")
+    kwargs: dict[str, Any], keys: tuple[str, ...] = ("width_mm", "height_mm")
 ) -> dict[str, Any] | None:
     for key in keys:
         val = kwargs.get(key)
         if val is not None and val <= 0:
-            return tool._tool_error("%s must be greater than 0." % key, code="INVALID_PARAM", parameter=key)
+            return make_tool_error("%s must be greater than 0." % key, code="INVALID_PARAM", parameter=key)
     return None
 
 
@@ -789,7 +789,7 @@ class ImageGetInfo(ToolWriterImageBase):
         image_name = kwargs["name"]
         sheet_index = kwargs.get("sheet_index")
 
-        graphic, err = _resolve_graphic(self, ctx, image_name, sheet_index=sheet_index)
+        graphic, err = _resolve_graphic(ctx, image_name, sheet_index=sheet_index)
         if err is not None:
             return err
 
@@ -953,7 +953,7 @@ class ImageSetProperties(ToolWriterImageBase):
         if not image_name:
             return self._tool_error("name is required.", code="MISSING_PARAMETER", parameter="name")
 
-        dim_err = _validate_dimensions(self, kwargs)
+        dim_err = _validate_dimensions(kwargs)
         if dim_err is not None:
             return dim_err
 
@@ -965,7 +965,7 @@ class ImageSetProperties(ToolWriterImageBase):
                 return self._tool_error(f"{crop_key} must be 0 or greater.", code="INVALID_PARAM", parameter=crop_key)
 
         sheet_index = kwargs.get("sheet_index")
-        graphic, resolve_err = _resolve_graphic(self, ctx, image_name, sheet_index=sheet_index)
+        graphic, resolve_err = _resolve_graphic(ctx, image_name, sheet_index=sheet_index)
         if resolve_err is not None:
             return resolve_err
 
@@ -1069,7 +1069,6 @@ class ImageSetProperties(ToolWriterImageBase):
             return None
 
         mutation_err = commit_or_rollback_mutation(
-            self,
             ctx.doc,
             "WriterAgent: Set image properties",
             _mutate,
@@ -1139,7 +1138,7 @@ class ImageCropAndHighlight(ToolWriterImageBase):
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         image_name = kwargs["name"]
         sheet_index = kwargs.get("sheet_index")
-        obj, err = _resolve_graphic(self, ctx, image_name, sheet_index=sheet_index)
+        obj, err = _resolve_graphic(ctx, image_name, sheet_index=sheet_index)
         if err is not None:
             return err
         crop_box = kwargs.get("crop_box")
@@ -1204,7 +1203,6 @@ class ImageCropAndHighlight(ToolWriterImageBase):
             return None
 
         err = commit_or_rollback_mutation(
-            self,
             ctx.doc,
             "WriterAgent: Crop and highlight image",
             _mutate,
@@ -1252,7 +1250,7 @@ class ImageDownload(ToolWriterImageBase):
         force = kwargs["force"]
         cancel = ctx.send_cancellation
 
-        dl_result = _download_for_tool(self, url, force=force, cancel=cancel)
+        dl_result = _download_for_tool(url, force=force, cancel=cancel)
         if isinstance(dl_result, dict):
             return dl_result
         return {"status": "ok", "local_path": dl_result, "url": url}
@@ -1267,14 +1265,14 @@ def _is_url(path: str) -> bool:
     return path.startswith("http://") or path.startswith("https://")
 
 
-def _local_image_path(tool: Any, path: str, cancel: SendCancellation | None = None) -> str | dict[str, Any]:
+def _local_image_path(path: str, cancel: SendCancellation | None = None) -> str | dict[str, Any]:
     if _is_url(path):
-        dl_result = _download_for_tool(tool, path, cancel=cancel)
+        dl_result = _download_for_tool(path, cancel=cancel)
         if isinstance(dl_result, dict):
             return dl_result
         path = dl_result
     if not os.path.isfile(path):
-        return tool._tool_error(f"File not found: {path}", code="FILE_NOT_FOUND", path=path)
+        return make_tool_error(f"File not found: {path}", code="FILE_NOT_FOUND", path=path)
     return path
 
 
@@ -1345,7 +1343,7 @@ class ImageInsert(ToolWriterImageBase):
 
         width_mm_val = kwargs.get("width_mm")
         height_mm_val = kwargs.get("height_mm")
-        dim_err = _validate_dimensions(self, kwargs)
+        dim_err = _validate_dimensions(kwargs)
         if dim_err is not None:
             return dim_err
 
@@ -1360,7 +1358,7 @@ class ImageInsert(ToolWriterImageBase):
             pinned_cursor = main.run(_pinned_writer_cursor, ctx)
 
         cancel = ctx.send_cancellation
-        local_path = _local_image_path(self, image_path, cancel)
+        local_path = _local_image_path(image_path, cancel)
         if isinstance(local_path, dict):
             return local_path
         image_path = local_path
@@ -1504,7 +1502,7 @@ class ImageDelete(ToolWriterImageBase):
         image_name = kwargs["name"]
         sheet_index = kwargs.get("sheet_index")
 
-        graphic, err = _resolve_graphic(self, ctx, image_name, sheet_index=sheet_index)
+        graphic, err = _resolve_graphic(ctx, image_name, sheet_index=sheet_index)
         if err is not None:
             return err
 
@@ -1517,7 +1515,7 @@ class ImageDelete(ToolWriterImageBase):
             )
         except ToolExecutionError as exc:
             if exc.code == "IMAGE_NOT_FOUND":
-                return _image_not_found(self, image_name)
+                return _image_not_found(image_name)
             return self._tool_error(str(exc), code=exc.code, image_name=image_name)
 
         res: dict[str, Any] = {"status": "ok", "deleted": image_name}
@@ -1560,25 +1558,25 @@ class ImageReplace(ToolWriterImageBase):
         new_image_path = kwargs["path"]
         sheet_index = kwargs.get("sheet_index")
 
-        dim_err = _validate_dimensions(self, kwargs)
+        dim_err = _validate_dimensions(kwargs)
         if dim_err is not None:
             return dim_err
 
         if _is_url(new_image_path):
             # Existence is UNO. Do not hold the graphic proxy across the download.
             def _probe() -> Any:
-                return _resolve_graphic(self, ctx, image_name, sheet_index=sheet_index)[1]
+                return _resolve_graphic(ctx, image_name, sheet_index=sheet_index)[1]
 
             err = main.run(_probe, timeout=60.0)
             if err is not None:
                 return err
-            local_path = _local_image_path(self, new_image_path, ctx.send_cancellation)
+            local_path = _local_image_path(new_image_path, ctx.send_cancellation)
             if isinstance(local_path, dict):
                 return local_path
             new_image_path = local_path
 
         def _apply() -> dict[str, Any]:
-            graphic, err = _resolve_graphic(self, ctx, image_name, sheet_index=sheet_index)
+            graphic, err = _resolve_graphic(ctx, image_name, sheet_index=sheet_index)
             if err is not None:
                 return err
             if not os.path.isfile(new_image_path):

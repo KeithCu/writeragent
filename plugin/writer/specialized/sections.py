@@ -31,7 +31,7 @@ from plugin.doc.text_helpers import (
 )
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.doc.visual_helpers import mm_to_unit
-from plugin.framework.errors import ToolExecutionError
+from plugin.framework.errors import ToolExecutionError, make_tool_error
 
 from ..edit_review import flag_style_unreviewed
 from ..page import apply_column_layout, column_layout_error
@@ -47,7 +47,7 @@ if TYPE_CHECKING:
 def _find_section(tool: ToolWriterSectionBase, ctx: ToolContext, name: str | None) -> Any:
     """Resolve a named section or return a structured not-found error payload."""
     if not name:
-        return tool._tool_error("name is required.")
+        return make_tool_error("name is required.")
     return tool.get_item(
         ctx.doc,
         "getTextSections",
@@ -72,7 +72,7 @@ def _section_or_error(
     # unosect.cxx WID_SECT_DOCUMENT_INDEX is set on index sections and their _Head children.
     index = section.getPropertyValue("DocumentIndex")
     if index is not None:
-        return tool._tool_error(
+        return make_tool_error(
             f"Section '{name}' belongs to index {index!r}; use the indexes domain.",
             code="INDEX_SECTION",
         )
@@ -82,12 +82,12 @@ def _section_or_error(
     key = section.getPropertyValue("ProtectionKey")
     if key:
         if current_password is None:
-            return tool._tool_error(
+            return make_tool_error(
                 f"Section '{name}' has a password; pass it as current_password to section_set_password to remove it, or change it in Format > Sections.",
                 code="SECTION_PASSWORD_PROTECTED",
             )
         if not _password_matches(key, current_password):
-            return tool._tool_error(
+            return make_tool_error(
                 f"current_password does not match the password of section '{name}'.",
                 code="INVALID_PARAM",
                 parameter="current_password",
@@ -172,7 +172,6 @@ def _margin_fields(section: Any) -> dict[str, float]:
 
 
 def _paragraph_span(
-    tool: ToolWriterSectionBase,
     ctx: ToolContext,
     locator: str,
     end_locator: str | None,
@@ -180,11 +179,11 @@ def _paragraph_span(
     """Resolve locator(s) to a text cursor widened to whole paragraphs."""
     if locator == "selection":
         if end_locator:
-            return tool._tool_error("end_locator is not allowed when locator='selection'.")
+            return make_tool_error("end_locator is not allowed when locator='selection'.")
         try:
             cur = resolve_target_cursor(ctx, "selection", None)
         except ValueError:
-            return tool._tool_error(
+            return make_tool_error(
                 "Could not read the current selection; pass locator='paragraph:N' (and end_locator)."
             )
         start, end = cur.getStart(), cur.getEnd()
@@ -194,19 +193,19 @@ def _paragraph_span(
             first = svc.resolve_locator(ctx.doc, locator)["para_index"]
             last = svc.resolve_locator(ctx.doc, end_locator or locator)["para_index"]
         except ToolExecutionError as e:
-            return tool._tool_error(str(e))
+            return make_tool_error(str(e))
 
         paras = svc.get_paragraph_ranges(ctx.doc)
         for idx in (first, last):
             err = index_error(idx, len(paras), "paragraph")
             if err is not None:
-                return tool._tool_error(err)
+                return make_tool_error(err)
         if last < first:
-            return tool._tool_error(
+            return make_tool_error(
                 f"end_locator paragraph {last} is before locator paragraph {first}."
             )
         if not all(paras[i].supportsService("com.sun.star.text.Paragraph") for i in (first, last)):
-            return tool._tool_error(
+            return make_tool_error(
                 "Locator points at a table; use the paragraph before or after it."
             )
         start, end = paras[first].getStart(), paras[last].getEnd()
@@ -221,7 +220,6 @@ def _paragraph_span(
 
 
 def _commit(
-    tool: ToolWriterSectionBase,
     ctx: ToolContext,
     title: str,
     what: str,
@@ -233,7 +231,6 @@ def _commit(
     rollback_msg: str | None = None,
 ) -> dict[str, Any]:
     err = commit_or_rollback_mutation(
-        tool,
         ctx.doc,
         title,
         mutate,
@@ -396,7 +393,7 @@ class SectionCreate(ToolWriterSectionBase):
                 parameter="name",
             )
 
-        cursor = _paragraph_span(self, ctx, kwargs["locator"], kwargs.get("end_locator"))
+        cursor = _paragraph_span(ctx, kwargs["locator"], kwargs.get("end_locator"))
         if isinstance(cursor, dict):
             return cursor
 
@@ -426,7 +423,6 @@ class SectionCreate(ToolWriterSectionBase):
                 cursor.getText().insertTextContent(cursor, section, True)
 
         return _commit(
-            self,
             ctx,
             "WriterAgent: Create section",
             "create the section",
@@ -463,7 +459,6 @@ class SectionDelete(ToolWriterSectionBase):
             section.getAnchor().getText().removeTextContent(section)
 
         return _commit(
-            self,
             ctx,
             "WriterAgent: Delete section",
             "delete the section",
@@ -508,7 +503,6 @@ class SectionSetColumns(ToolWriterSectionBase):
             section.setPropertyValue("TextColumns", cols)
 
         return _commit(
-            self,
             ctx,
             "WriterAgent: Set section columns",
             "set section columns",
@@ -551,7 +545,6 @@ class SectionSetProtection(ToolWriterSectionBase):
             section.setPropertyValue("IsProtected", protected)
 
         return _commit(
-            self,
             ctx,
             "WriterAgent: Set section protection",
             "set section protection",
@@ -611,7 +604,6 @@ class SectionSetVisibility(ToolWriterSectionBase):
                 )
 
         return _commit(
-            self,
             ctx,
             "WriterAgent: Set section visibility",
             "set section visibility",
@@ -662,7 +654,6 @@ class SectionSetPassword(ToolWriterSectionBase):
                 section.setPropertyValue("ProtectionKey", uno.ByteSequence(b""))
 
         return _commit(
-            self,
             ctx,
             "WriterAgent: Set section password",
             "set section password",
@@ -718,7 +709,6 @@ class SectionRename(ToolWriterSectionBase):
             section.setName(new_name)
 
         return _commit(
-            self,
             ctx,
             "WriterAgent: Rename section",
             "rename the section",
@@ -775,7 +765,6 @@ class SectionSetMargins(ToolWriterSectionBase):
                 section.setPropertyValue("SectionRightMargin", mm_to_unit(right_mm))
 
         return _commit(
-            self,
             ctx,
             "WriterAgent: Set section margins",
             "set section margins",

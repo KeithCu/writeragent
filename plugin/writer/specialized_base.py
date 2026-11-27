@@ -22,6 +22,7 @@ import json
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from plugin.framework.doc_type import DOCUMENT_SERVICES
+from plugin.framework.errors import make_tool_error
 from plugin.framework.tool import ToolBase, ToolSpecialBase
 
 if TYPE_CHECKING:
@@ -60,14 +61,14 @@ def index_error(index: int, count: int, what: str) -> str | None:
     return f"Invalid index {index}. The document has {count} {what}(s)."
 
 
-def grouped_text_box_error(tool: ToolBase, index: str) -> dict[str, Any]:
+def grouped_text_box_error(index: str) -> dict[str, Any]:
     """Error when refusing to delete a single Word text box inside a group.
 
     SwUndoFlyBase::DelFly clears the shared text-box node of the whole group,
     and SvxShapeGroup::remove adds no undo and leaves the hidden frame behind.
     """
     group_index = int(index.split(".")[0])
-    return tool._tool_error(
+    return make_tool_error(
         f"Shape {index} is, or holds, a Word text box inside group {group_index}. "
         f"LibreOffice cannot delete it alone without breaking the group's text boxes. "
         f"Empty a box with shape_upsert(action='edit', index='<its shape_index>', text=''), "

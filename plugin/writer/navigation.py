@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Callable
 
-from plugin.framework.errors import ToolExecutionError
+from plugin.framework.errors import ToolExecutionError, make_tool_error
 
 from .specialized_base import ToolWriterStructuralBase, enum_param
 
@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
 
-def _nav_result(tool: ToolWriterStructuralBase, call: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+def _nav_result(call: Callable[[], dict[str, Any]]) -> dict[str, Any]:
     """Map one navigation service call to the tool envelope.
 
     The service raises on failure; this maps ValueError / ToolExecutionError to
@@ -38,7 +38,7 @@ def _nav_result(tool: ToolWriterStructuralBase, call: Callable[[], dict[str, Any
     try:
         result = call()
     except (ValueError, ToolExecutionError) as e:
-        return tool._tool_error(str(e))
+        return make_tool_error(str(e))
     return {"status": "ok", **result}
 
 
@@ -61,7 +61,7 @@ class NavHeading(ToolWriterStructuralBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         prox_svc = ctx.services.writer_proximity
-        return _nav_result(self, lambda: prox_svc.navigate_heading(ctx.doc, kwargs["locator"], kwargs["direction"]))
+        return _nav_result(lambda: prox_svc.navigate_heading(ctx.doc, kwargs["locator"], kwargs["direction"]))
 
 
 class NavSurroundings(ToolWriterStructuralBase):
@@ -83,7 +83,7 @@ class NavSurroundings(ToolWriterStructuralBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         prox_svc = ctx.services.writer_proximity
-        return _nav_result(self, lambda: prox_svc.get_surroundings(ctx.doc, kwargs["locator"], radius=kwargs["radius"], include=kwargs.get("include")))
+        return _nav_result(lambda: prox_svc.get_surroundings(ctx.doc, kwargs["locator"], radius=kwargs["radius"], include=kwargs.get("include")))
 
 
 class NavHeadingChildren(ToolWriterStructuralBase):
@@ -114,4 +114,4 @@ class NavHeadingChildren(ToolWriterStructuralBase):
         if len(provided) > 1:
             return self._tool_error("Provide only one of locator, para_index, bookmark (got: %s)" % ", ".join(provided))
         locator = ("bookmark:" + bookmark) if bookmark is not None else kwargs.get("locator")
-        return _nav_result(self, lambda: tree_svc.get_heading_children(ctx.doc, heading_para_index=para_index, locator=locator, content_strategy=strategy, depth=kwargs["depth"]))
+        return _nav_result(lambda: tree_svc.get_heading_children(ctx.doc, heading_para_index=para_index, locator=locator, content_strategy=strategy, depth=kwargs["depth"]))

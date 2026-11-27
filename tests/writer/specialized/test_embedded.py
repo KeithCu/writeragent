@@ -78,7 +78,7 @@ def _fake_config(clsid: str, *, factory: str, doc_service: str):
     return smgr
 
 
-def _commit_mutate(_tool, _doc, _title, mutate, *_args, **_kwargs):
+def _commit_mutate(_doc, _title, mutate, *_args, **_kwargs):
     return mutate()
 
 
@@ -340,9 +340,8 @@ def test_deselect_inplace_embed_at_page_dispatches_escape():
     controller.getSelection.return_value = selection
 
     uno_ctx = MagicMock()
-    tool = EmbeddedInsert()
     with patch("plugin.writer.specialized.embedded.execute_dispatch") as disp:
-        err = embedded_mod._deselect_inplace_embed(doc, uno_ctx, tool)
+        err = embedded_mod._deselect_inplace_embed(doc, uno_ctx)
 
     assert err is None
     disp.assert_called_once_with(uno_ctx, controller, ".uno:Escape")

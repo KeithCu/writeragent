@@ -25,12 +25,12 @@ from plugin.doc.text_helpers import normalize_linebreaks
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.draw.base import DRAW_PAGE_PROPERTY, ToolDrawCommentBase
 from plugin.draw.bridge import DrawBridge
-from plugin.framework.errors import reraise_if_disposed, uno_read
+from plugin.framework.errors import make_tool_error, reraise_if_disposed, uno_read
 from plugin.framework.tool_schema import page_index_param
 from plugin.framework.uno_context import enum_has_more, uno_same
 
 if TYPE_CHECKING:
-    from plugin.framework.tool import ToolBase, ToolContext
+    from plugin.framework.tool import ToolContext
 
 # offapi/com/sun/star/office/XAnnotationAccess.idl — implemented on Impress/Draw pages in
 # sd/source/ui/inc/unopage.hxx (SdGenericDrawPage), though drawing.DrawPage does not publish it.
@@ -79,8 +79,8 @@ def _page_supports_annotations(page: Any) -> bool:
     )
 
 
-def _annotations_unavailable(tool: ToolBase, page_index: int) -> dict[str, Any]:
-    return tool._tool_error(
+def _annotations_unavailable(page_index: int) -> dict[str, Any]:
+    return make_tool_error(
         "Page %d does not support comments (annotations)." % page_index,
         code="ANNOTATIONS_UNAVAILABLE",
         page=page_index,
@@ -142,13 +142,12 @@ def _page_targets(
 
 
 def _collect_comments(
-    tool: ToolBase,
     page_targets: list[tuple[int, Any]],
 ) -> tuple[list[tuple[int, int, Any]], dict[str, Any] | None]:
     rows: list[tuple[int, int, Any]] = []
     for page_index, page in page_targets:
         if not _page_supports_annotations(page):
-            return rows, _annotations_unavailable(tool, page_index)
+            return rows, _annotations_unavailable(page_index)
         for idx, ann in enumerate(_iter_annotations_on_page(page)):
             rows.append((page_index, idx, ann))
     return rows, None
@@ -160,9 +159,8 @@ def _list_truncation_hint(count: int, total: int, next_offset: int, *, one_page:
     return "Showing %d of %d. Pass offset=%d to continue, or page to one slide." % (count, total, next_offset)
 
 
-def _run_page_comment_mutation(tool: ToolBase, doc: Any, mutate: Any) -> dict[str, Any] | None:
+def _run_page_comment_mutation(doc: Any, mutate: Any) -> dict[str, Any] | None:
     return commit_or_rollback_mutation(
-        tool,
         doc,
         _UNDO_TITLE,
         mutate,
@@ -202,7 +200,7 @@ class ListPageComments(ToolDrawCommentBase):
             page_kw,
             active_page_index=ctx.active_page_index,
         )
-        flat, err = _collect_comments(self, targets)
+        flat, err = _collect_comments(targets)
         if err is not None:
             return err
 
@@ -256,7 +254,7 @@ class AddPageComment(ToolDrawCommentBase):
         bridge = DrawBridge(ctx.doc)
         page, actual_idx = bridge.resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
         if not _page_supports_annotations(page):
-            return _annotations_unavailable(self, actual_idx)
+            return _annotations_unavailable(actual_idx)
 
         text = normalize_linebreaks(str(raw_text))
         author_strip = (kwargs.get("author") or "").strip()
@@ -287,7 +285,7 @@ class AddPageComment(ToolDrawCommentBase):
                 "message": "New comment was inserted but is not visible in the page enumeration.",
             }
 
-        err = _run_page_comment_mutation(self, ctx.doc, mutate)
+        err = _run_page_comment_mutation(ctx.doc, mutate)
         if err is not None:
             return err
         return {
@@ -326,7 +324,7 @@ class DeletePageComment(ToolDrawCommentBase):
         bridge = DrawBridge(ctx.doc)
         page, actual_idx = bridge.resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
         if not _page_supports_annotations(page):
-            return _annotations_unavailable(self, actual_idx)
+            return _annotations_unavailable(actual_idx)
 
         annotations = _iter_annotations_on_page(page)
         if index >= len(annotations):
@@ -346,7 +344,7 @@ class DeletePageComment(ToolDrawCommentBase):
                 raise
             return None
 
-        err = _run_page_comment_mutation(self, ctx.doc, mutate)
+        err = _run_page_comment_mutation(ctx.doc, mutate)
         if err is not None:
             return err
         return {

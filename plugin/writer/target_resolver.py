@@ -4,13 +4,13 @@ from typing import TYPE_CHECKING, Any
 
 from plugin.doc.text_helpers import clone_text_range, live_insert_range, live_selection_range
 from plugin.doc.undo import commit_or_rollback_mutation
-from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
+from plugin.framework.errors import ToolExecutionError, make_tool_error, reraise_if_disposed, uno_read
 from plugin.writer import search as search_mod
 from plugin.writer.edit_review import edit_is_recorded, next_agent_edit_undo_title, run_in_review_session
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
-    from plugin.framework.tool import ToolBase, ToolContext
+    from plugin.framework.tool import ToolContext
     from plugin.writer.edit_review import EditReviewSession
 
 
@@ -147,7 +147,6 @@ def resolve_target_cursor(
 
 
 def insert_at_target(
-    tool: ToolBase,
     ctx: ToolContext,
     kwargs: Mapping[str, Any],
     insert: Callable[[Any], dict[str, Any] | None],
@@ -184,7 +183,7 @@ def insert_at_target(
             case_sensitive=kwargs.get("case_sensitive"),
         )
     except ValueError as ve:
-        return tool._tool_error(str(ve))
+        return make_tool_error(str(ve))
     delete_match = replace_match and target == "search"
     if delete_match:
         refused = search_mod.crossing_match_error(ctx.doc, cursor, recorded=edit_is_recorded(ctx.doc))
@@ -206,7 +205,6 @@ def insert_at_target(
 
     def commit(session: EditReviewSession) -> dict[str, Any] | None:
         return commit_or_rollback_mutation(
-            tool,
             ctx.doc,
             undo_title or next_agent_edit_undo_title(),
             lambda: session.record_mutation(mutate),
