@@ -68,7 +68,7 @@ def show_new_script_dialog(
 
             edit = dlg.getControl("NameEdit")
             if edit is not None:
-                set_control_text(edit, default_name or "")
+                set_control_text(edit, default_name)
 
             chk = dlg.getControl("ChkAttach")
             if chk is not None:
@@ -78,7 +78,7 @@ def show_new_script_dialog(
                     set_control_text(chk, reason)
                     chk.getModel().HelpText = reason
                 set_checkbox_state(chk, 1 if initial_attach else 0)
-                set_control_enabled(chk, bool(can_attach))
+                set_control_enabled(chk, can_attach)
 
             outcome: tuple[str, bool] | None = None
 
@@ -86,11 +86,11 @@ def show_new_script_dialog(
                 def on_action_performed(self, rEvent: Any) -> None:
                     nonlocal outcome
                     ec = dlg.getControl("NameEdit")
-                    t = (get_control_text(ec) or "").strip()
+                    t = get_control_text(ec).strip()
                     cc = dlg.getControl("ChkAttach")
                     # A disabled box can still report State 1. can_attach is the
                     # same predicate that disabled it.
-                    attach = bool(can_attach and get_checkbox_state(cc) == 1)
+                    attach = can_attach and get_checkbox_state(cc) == 1
                     # new_script_name_error blocks reserved init names before attach, matching attach_document_script rejection for INIT/Init.
                     message = new_script_name_error(t, attach=attach)
                     if message is not None:

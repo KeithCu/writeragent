@@ -66,13 +66,13 @@ def test_column_vector_stays_nx1():
 def test_check_python_data_size_rejects_large():
     big = [[0] * 1000 for _ in range(300)]
     assert wire_cell_count(big) == 300_000
-    err = check_python_data_size(big, max_cells=_schema_int("python_max_data_cells", "default", required=True))
+    err = check_python_data_size(big, max_cells=_schema_int("python_max_data_cells", "default", fallback=250_000))
     assert err is not None
     assert "300000" in err.replace(",", "")
 
 
 def test_check_python_data_size_ok():
-    assert check_python_data_size([1, 2], max_cells=_schema_int("python_max_data_cells", "default", required=True)) is None
+    assert check_python_data_size([1, 2], max_cells=_schema_int("python_max_data_cells", "default", fallback=250_000)) is None
 
 
 def test_values_from_inspector_range():

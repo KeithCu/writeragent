@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 from plugin.framework.config import get_config
 from plugin.ppt_master.paths import apply_data_root_env
 from plugin.scripting.config_limits import python_exec_timeout
-from plugin.scripting.venv_worker import _get_worker_manager
+from plugin.scripting.venv_worker import get_worker_manager
 
 log = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ def run_ppt_master_venv_turn(
     """Dispatch one sidebar turn to the venv ppt-master runner."""
     apply_data_root_env(uno_ctx)
 
-    manager, err = _get_worker_manager()
+    manager, err = get_worker_manager()
     if manager is None:
         assert err is not None
         return err

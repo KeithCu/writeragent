@@ -76,26 +76,19 @@ _DATA_CELLS_FALLBACK_MIN = 1000
 _DATA_CELLS_FALLBACK_MAX = 2_000_000
 
 
-def _schema_int(field_name: str, name: str, *, fallback: int | None = None, required: bool = False) -> int:
+def _schema_int(field_name: str, name: str, *, fallback: int) -> int:
     """One scripting schema field. Fallbacks cover trees without plugin._manifest."""
     # Lazy: the compute bundle ships this module for its constants, not config_schema.
     from plugin.framework.config_schema import get_config_schema
 
     field = get_config_schema(f"scripting.{field_name}")
     if field is None:
-        if required:
-            raise RuntimeError(
-                f"scripting.{field_name} missing from module.yaml/manifest; run make manifest"
-            )
-        assert fallback is not None
         return fallback
     val = field.get(name)
     # bool is an int subclass, so a module.yaml true/false must not pass.
     if type(val) is int:
         return val
-    if fallback is not None:
-        return fallback
-    raise RuntimeError(f"scripting.{field_name}.{name} must be int in module.yaml/manifest")
+    return fallback
 
 
 def _bounds(field_name: str) -> tuple[int, int]:
@@ -103,12 +96,9 @@ def _bounds(field_name: str) -> tuple[int, int]:
     if field_name == "python_exec_timeout":
         lo = _schema_int(field_name, "min", fallback=_TIMEOUT_FALLBACK_MIN)
         hi = _schema_int(field_name, "max", fallback=_TIMEOUT_FALLBACK_MAX)
-    elif field_name == "python_max_data_cells":
+    else:
         lo = _schema_int(field_name, "min", fallback=_DATA_CELLS_FALLBACK_MIN)
         hi = _schema_int(field_name, "max", fallback=_DATA_CELLS_FALLBACK_MAX)
-    else:
-        lo = _schema_int(field_name, "min", required=True)
-        hi = _schema_int(field_name, "max", required=True)
     return lo, hi
 
 

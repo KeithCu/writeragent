@@ -107,8 +107,6 @@ def _spec_from_direct_helper_call(node: ast.Call, helper: str) -> dict[str, Any]
 
     The positional prefix table maps arguments for convert_quantity,
     parse_quantity, format_quantity, and check_dimensionality; keywords win.
-    Applying that map to every helper turned describe_data(data) into
-    {"quantity": "data"}.
     """
     params: dict[str, Any] = {}
     for kw in node.keywords:
@@ -156,7 +154,6 @@ class ScriptFacts:
     """Parsed AST and metadata for user scripts, computed in a single pass."""
 
     code: str
-    _tree: ast.AST | None
     _parse_error: bool
     _call_names: set[str]
     _call_nodes: list[ast.Call]
@@ -166,7 +163,6 @@ class ScriptFacts:
 
     def __init__(self, code: str, tree: ast.AST | None, parse_error: bool) -> None:
         self.code = code
-        self._tree = tree
         self._parse_error = parse_error
         self._call_names = set()
         self._call_nodes = []
@@ -386,7 +382,7 @@ def format_elapsed_time(seconds: float) -> str:
     return f"{int(ms)} ms"
 
 
-def _elapsed_since(t0: float) -> float:
+def elapsed_since(t0: float) -> float:
     """Seconds since *t0*.
 
     ``scripts/crosshair_domains.py`` swaps this body for one that returns 0.0,
@@ -424,9 +420,9 @@ def rps_error_outcome(
     When ``t0`` is ``None``, the message is returned as given with no elapsed time.
     Callers use this for refusals before the run starts or failures with no run clock.
     """
-    err_msg = str(message)
+    err_msg = message
     if t0 is not None:
-        elapsed = _elapsed_since(t0)
+        elapsed = elapsed_since(t0)
         if "timed out" not in err_msg.lower() and "timeout" not in err_msg.lower():
             err_msg = f"{err_msg} (took {format_elapsed_time(elapsed)})"
     out: dict[str, Any] = {"ok": False, "message": err_msg}
@@ -437,8 +433,8 @@ def rps_error_outcome(
 
 def rps_insert_failed_outcome(error: BaseException, *, t0: float) -> dict[str, Any]:
     """Outcome when domain insert/egress fails after a successful helper run."""
-    # UNO often sets str(exc) to the method name only (e.g. insertDocumentFromURL);
-    # log type/str/repr + traceback so Arch debug.log matches the RPS dialog.
+    # UNO often sets str(exc) to the method name only (e.g. insertDocumentFromURL),
+    # so log type, str and repr with the traceback.
     # Prefer exc_info=error so we still get a stack if called outside an except.
     log.error(
         "rps_insert_failed_outcome: type=%s str=%r repr=%r",
@@ -452,7 +448,7 @@ def rps_insert_failed_outcome(error: BaseException, *, t0: float) -> dict[str, A
         "ok": False,
         "message": _("Failed to insert result: {error} (took {time})").format(
             error=_exception_detail(error),
-            time=format_elapsed_time(_elapsed_since(t0)),
+            time=format_elapsed_time(elapsed_since(t0)),
         ),
     }
 
@@ -490,7 +486,7 @@ def preview_insert_ok_outcome(
     stdout: str | None,
     result: Any,
 ) -> dict[str, Any]:
-    formatted_time = format_elapsed_time(_elapsed_since(t0))
+    formatted_time = format_elapsed_time(elapsed_since(t0))
     preview = preview_text[:80] + ("…" if len(preview_text) > 80 else "")
     status_ok = _("{domain} '{helper}' completed. Inserted: {preview} (took {time})").format(
         domain=domain_label,
@@ -509,13 +505,22 @@ def plot_insert_ok_outcome(
     stdout: str | None,
     result: Any,
 ) -> dict[str, Any]:
-    formatted_time = format_elapsed_time(_elapsed_since(t0))
+    formatted_time = format_elapsed_time(elapsed_since(t0))
     msg = _("Plot inserted ({title}). (took {time})").format(title=title, time=formatted_time)
     if helper:
         status_ok = _("Viz '{helper}' completed. {msg}").format(helper=helper, msg=msg)
     else:
         status_ok = msg
     return rps_ok_outcome(status_ok, result=result, stdout=stdout)
+
+
+def _checked_helper_name(helper: str, domain: str, error_code: str) -> str:
+    name = str(helper or "").strip()
+    if not name:
+        raise ToolExecutionError("helper is required", code=error_code)
+    if name not in names(domain):
+        raise ToolExecutionError(f"Unknown helper {name!r}", code=error_code)
+    return name
 
 
 def run_domain(
@@ -531,12 +536,7 @@ def run_domain(
 
     row = get_domain_wiring(wiring_id)
     if row.runner == "symbolic":
-        name = str(helper or "").strip()
-        if not name:
-            raise ToolExecutionError("helper is required", code="SYMBOLIC_ERROR")
-        h_names = names("symbolic")
-        if name not in h_names:
-            raise ToolExecutionError(f"Unknown helper {name!r}", code="SYMBOLIC_ERROR")
+        name = _checked_helper_name(helper, "symbolic", "SYMBOLIC_ERROR")
 
         doc_type = kwargs.get("doc_type")
         if doc_type is None and doc is not None:
@@ -605,13 +605,7 @@ def run_trusted_calc_data_helper(
     """
     wiring_id = row.id
     error_code = row.error_code or ""
-    helper_names = names(row.helper_domain or wiring_id)
-
-    name = str(helper or "").strip()
-    if not name:
-        raise ToolExecutionError("helper is required", code=error_code)
-    if name not in helper_names:
-        raise ToolExecutionError(f"Unknown helper {name!r}", code=error_code)
+    name = _checked_helper_name(helper, row.helper_domain or wiring_id, error_code)
 
     dr = str(data_range).strip() if data_range else None
     if not dr and data is None:

@@ -19,7 +19,7 @@ per-tool classes are the public script API (IDE jump and types). Change this
 generator if the file is too large; do not slim the generated module by hand.
 """
 from __future__ import annotations
-from typing import Any, NoReturn, TYPE_CHECKING
+from typing import Any, Callable, NoReturn, TYPE_CHECKING
 from plugin.framework.constants import WORKFLOW_TASK_PREFIXES as _WORKFLOW_TASK_PREFIXES
 
 if TYPE_CHECKING:
@@ -53,11 +53,12 @@ def _tool_failure(res: Any) -> BaseException:
     """
     if isinstance(res, dict):
         msg = str(res.get("message") or res.get("error") or res)
-        if res.get("code") == "USER_STOPPED":
-            from plugin.framework.ipc import UserStopped
+        code = res.get("code")
+        if code == "USER_STOPPED":
+            from plugin.framework.ipc import UserStopped  # weight: only needed when cancelled
+
             return UserStopped(msg)
         err = RuntimeError(msg)
-        code = res.get("code")
         if code is not None:
             setattr(err, "code", code)
         return err
@@ -130,7 +131,7 @@ def _find_item(res: Any, name: object) -> _Item | None:
     return None
 
 
-def _raise_keyed_failure(res: Any, name: str, list_call: Any) -> NoReturn:
+def _raise_keyed_failure(res: Any, name: str, list_call: Callable[[], Any]) -> NoReturn:
     """Distinguish a missing key from other tool errors using one list call.
 
     Tool not-found error codes differ across families, so containers confirm
@@ -146,7 +147,7 @@ def _raise_keyed_failure(res: Any, name: str, list_call: Any) -> NoReturn:
     raise _tool_failure(res)
 
 
-def _get_item(res: Any, name: str, list_call: Any) -> _Item:
+def _get_item(res: Any, name: str, list_call: Callable[[], Any]) -> _Item:
     """Unwrap a get/get_info response into an _Item, or raise KeyError/RuntimeError."""
     if not isinstance(res, dict) or res.get("status") == "error":
         _raise_keyed_failure(res, name, list_call)
@@ -160,7 +161,7 @@ def _get_item(res: Any, name: str, list_call: Any) -> _Item:
     return item
 
 
-def _check_keyed(res: Any, name: str, list_call: Any) -> None:
+def _check_keyed(res: Any, name: str, list_call: Callable[[], Any]) -> None:
     """Validate a keyed mutation response, or raise KeyError/RuntimeError."""
     if not isinstance(res, dict) or res.get("status") == "error":
         _raise_keyed_failure(res, name, list_call)
@@ -1183,7 +1184,7 @@ draw = _DrawProxy()
 class _EmbeddedProxy:
     """Proxy for embedded tools."""
 
-    def insert(self, object_type: str, *, data: list[list[str | float | None]] = [], name: str | None = None, width: int | None = None, height: int | None = None, target: str | None = None, old_content: str | None = None, case_sensitive: bool | None = None) -> _Item:
+    def insert(self, object_type: str, *, data: list[list[str | float | None]] | None = None, name: str | None = None, width: int | None = None, height: int | None = None, target: str | None = None, old_content: str | None = None, case_sensitive: bool | None = None) -> _Item:
         """Insert a Calc spreadsheet OLE into the active Writer document (object_type='spreadsheet' only). Use target='beginning', 'end', 'selection', 'full_document', or 'search' with old_content. Optional data fills cells from A1; optional width and height (both or neither). Saving as .docx keeps cell values and formulas as an embedded xlsx but drops the object name and the exact visible width.
 
         Args:
@@ -1213,7 +1214,7 @@ class _FieldProxy:
         """
         return _result(call_host_tool("field_delete", ids=ids, snapshot=snapshot))
 
-    def insert(self, field: str, *, properties: dict[str, Any] = {}, target: str | None = None, old_content: str | None = None, case_sensitive: bool | None = None) -> _Item:
+    def insert(self, field: str, *, properties: dict[str, Any] | None = None, target: str | None = None, old_content: str | None = None, case_sensitive: bool | None = None) -> _Item:
         """Insert a text field at the specified target position. Use target='beginning', 'end', or 'selection' to insert at those positions. Use target='search' with old_content to find and replace text. Supports various field types natively provided by LibreOffice. Common field types include: 'PageNumber', 'PageCount', 'DateTime', 'Author', 'FileName', 'WordCount', 'CharacterCount', 'ParagraphCount', 'TableCount', 'GraphicObjectCount', 'EmbeddedObjectCount', and 'Annotation'. Specify optional properties to configure the field.
 
         Args:

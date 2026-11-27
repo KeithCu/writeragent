@@ -123,8 +123,7 @@ def pack_message(message: dict[str, Any]) -> bytes:
     try:
         return pack_pickle_frame(message, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
     except IpcPayloadSizeError as exc:
-        # pack_pickle_frame's message includes the byte count. A fixed
-        # sentence here dropped that count from str(exc) at the host dialog.
+        # Re-raise with pack_pickle_frame's own message so the host dialog shows the byte count.
         raise ValueError(str(exc)) from exc
 
 
@@ -142,14 +141,9 @@ def message_type(message: dict[str, Any]) -> str:
 
 
 def _deal_ipc_dict_ok_pytest(msg: object) -> bool:
-    # Editor IPC carries script source, doc URLs, and stderr. The old pre
-    # capped every string at DEAL_MAX_TOKEN (64) and the dict at 32 keys, so
-    # stamp_session raised PreContractError before it copied the message.
-    # A Mapping of any size is in domain; the body reads the keys it knows.
-    # Mapping, not dict: the signatures are Mapping so dict[str, str] targets
-    # typecheck (pyright dict is invariant). A dict-only pre raised
-    # PreContractError for any other Mapping while LibreOffice, where deal is
-    # stubbed, accepted it. CrossHair stays type(msg) is dict.
+    # Any Mapping of any size is in domain: editor IPC carries script source, doc URLs and stderr,
+    # and the signatures take Mapping so dict[str, str] targets typecheck.
+    # CrossHair narrows this to a small dict (scripts/crosshair_domains.py).
     return isinstance(msg, Mapping)
 
 
@@ -208,10 +202,10 @@ def target_identity_key(mode: str, target: Mapping[str, str] | None) -> tuple[st
     """Stable key so reopening the same cell/script reuses ``session_id``."""
     # crosshair: off
     t = normalize_target(target)
-    # One list. A hand-written tuple omitted script_origin, so a user script and
-    # a document script with the same name shared a session_id and a save wrote
-    # the other target.
-    return (str(mode or ""), *(t.get(key, "") for key in _TARGET_KEYS))
+    # Built from _TARGET_KEYS so every identity field is in the key; without
+    # script_origin a user script and a document script of the same name would
+    # share a session.
+    return (mode, *(t.get(key, "") for key in _TARGET_KEYS))
 
 
 def session_id_of(message: Mapping[str, Any]) -> str:
@@ -240,7 +234,7 @@ def stamp_session(
     """
     # crosshair: off
     out = dict(msg)
-    out["session_id"] = str(session_id or "")
+    out["session_id"] = session_id
     use_mode = str(mode or out.get("mode") or "")
     if use_mode:
         out["mode"] = use_mode

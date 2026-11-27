@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import threading
 import uuid
-from typing import Any
+from typing import Any, Callable
 
 from plugin.doc.udprops import get_document_property, remove_document_property, set_document_property
 from plugin.framework.config import get_config
@@ -85,7 +85,7 @@ def _doc_url(raw_doc: Any) -> str:
     return (raw_doc.getURL() or "").strip()
 
 
-def _enumerated_matching_models(ctx: Any, predicate: Any, *, label: str = "session_manager") -> list[Any]:
+def _enumerated_matching_models(ctx: Any, predicate: Callable[[Any], bool], *, label: str = "session_manager") -> list[Any]:
     """Open models matching *predicate*.
 
     Registered scratch documents (hidden helpers and research copies) never match: the user did not
@@ -134,7 +134,7 @@ def focused_calc_document(ctx: Any) -> Any | None:
             # missing controller still counts: requiring one would skip the open
             # model.
             # A controller with no frame is an unfocused window; keep searching.
-            if ctrl is None or getattr(ctrl, "getFrame", lambda: None)() is not None:
+            if ctrl is None or ctrl.getFrame() is not None:
                 if is_calc(doc):
                     return guard_uno(doc)
         except Exception as e:
@@ -186,11 +186,11 @@ def _retire_orphaned_unsaved_session(raw_doc: Any, url: str, existing: str | Non
     if still_present:
         log.debug("session_manager: session property still present after remove; skipping reset")
         return
-    if not is_unsaved_document_key(str(existing)):
+    if not is_unsaved_document_key(existing):
         return
     try:
         for kind in DOCUMENT_KINDS:
-            _call_reset_python_session(SessionKey.of(kind, str(existing)).wire())
+            _call_reset_python_session(SessionKey.of(kind, existing).wire())
     except Exception:
         log.debug("session_manager: cleanup of unsaved session failed", exc_info=True)
 
@@ -220,18 +220,12 @@ def mint_document_key(doc: Any) -> str:
     new_id = new_unsaved_document_key()
     try:
         set_document_property(raw_doc, PYTHON_WORKBOOK_SESSION_PROP, new_id)
-        # set_document_property returns without writing (and without raising)
-        # when the document has no UserDefinedProperties bag. Read the value back:
-        # returning the minted id unchecked would make the next call mint a
-        # different key. Otherwise use the unsaved:uuid fallback.
-        stored = get_document_property(raw_doc, PYTHON_WORKBOOK_SESSION_PROP)
-        if stored is not None and str(stored) == new_id:
-            return new_id
     except Exception:
         log.debug("session_manager: writing session property failed", exc_info=True)
-    # Do not use id(raw_doc): CPython recycles ids after GC, so two unsaved
-    # docs opened in sequence could collide on a stale worker session.
-    return new_unsaved_document_key()
+    # A document with no UserDefinedProperties bag keeps no key, so each call
+    # mints a new one. Do not use id(raw_doc): CPython recycles ids after GC,
+    # so two unsaved documents opened in sequence could share a stale worker session.
+    return new_id
 
 
 def calc_workbook_base_session_id(doc: Any) -> str:
@@ -258,7 +252,7 @@ def workbook_session_id(doc: Any | None) -> str | None:
             return None
         return calc_workbook_base_session_id(guard_uno(doc))
     except Exception:
-        # No second call on the raw doc: that skipped guard_uno and read getURL off-main.
+        # Do not retry on the raw doc: that would read getURL off the main thread.
         log.debug("workbook_session_id: guarded calc session id lookup failed", exc_info=True)
         return None
 
@@ -295,7 +289,7 @@ def pin_script_document(doc: Any) -> str | None:
 
 def release_script_document(session_id: str | None) -> None:
     """Drop a pin from :func:`pin_script_document`. Other session ids are ignored."""
-    if not isinstance(session_id, str):
+    if session_id is None:
         return
     parsed = SessionKey.parse(session_id)
     if parsed.kind is not SessionKind.DOC:
@@ -317,7 +311,7 @@ def document_for_script_session(ctx: Any, session_id: str | None) -> Any | None:
     ``python_run_script``). It returns that object and does not walk
     the desktop. A pin that was already released does not match.
     """
-    if not isinstance(session_id, str):
+    if session_id is None:
         return None
     parsed = SessionKey.parse(session_id)
     if parsed.kind is SessionKind.DOC:
@@ -392,7 +386,7 @@ def _reset_calc_python_sessions(ctx: Any, doc: Any) -> None:
     if failed is not None and _msgbox_reset_failure(ctx, failed, _("Could not reset Python session.")):
         return
 
-    # Re-seed init script immediately after reset (C2.2.3) so helper functions (e.g. def double(x): ...)
+    # Re-seed init script immediately after reset so helper functions (e.g. def double(x): ...)
     # and init variables are re-populated in the worker for both shared and isolated sessions.
     init_kwargs = build_python_eval_init_kwargs(doc)
     if init_kwargs:
@@ -445,7 +439,7 @@ def reset_workbook_python_session(ctx: Any, doc: Any | None = None) -> None:
     _reset_on_main(ctx, doc)
 
 
-def _reset_on_main(ctx: Any, doc: Any | None = None) -> None:
+def _reset_on_main(ctx: Any, doc: Any | None) -> None:
     # Resetting a session on an unsaved/clean document must not mint a key
     # (WriterAgentPythonSessionId); the inner functions tell the user when
     # there is no session to reset. A focused Base, Math, or Start Center

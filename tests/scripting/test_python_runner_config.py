@@ -9,8 +9,8 @@ import pytest
     [
         (False, False, False),
         (True, False, True),
-        # os access implies file access (venv_worker builds files = allow_files or allow_os)
-        (False, True, True),
+        # build_sandbox_policy in the child derives files = files or os_; the host forwards allow_files directly.
+        (False, True, False),
         (True, True, True),
     ],
 )

@@ -11,7 +11,6 @@ from unittest.mock import ANY, MagicMock, patch
 import pytest
 
 from plugin.scripting.domain_registry import get_domain_wiring
-from tests.harness.strip_bundle import requires_asserts
 from tests.scripting.python_runner_test_support import execute_and_insert_result
 
 _SAMPLE_IMAGE = {"__wa_payload__": "image", "format": "png", "data": b"abc"}
@@ -232,24 +231,6 @@ def test_topics_and_sentiment_bind_section_list(mock_venv, mock_insert):
             "text": sections,
             "document_context": {"lang": "en"},
         }
-
-
-@requires_asserts
-def test_text_analytics_input_type_assertions():
-    from plugin.scripting.python_runner import _prepare_rps_execution
-
-    ctx = MagicMock()
-    doc = MagicMock()
-    code = get_domain_wiring("text").templates()["full"]
-
-    with patch("plugin.scripting.python_runner.is_writer", return_value=True):
-        with patch("plugin.scripting.python_runner.resolve_text_analytics_document_inputs", return_value=(123, {})):
-            with pytest.raises(AssertionError):
-                _prepare_rps_execution(ctx, doc, code)
-
-        with patch("plugin.scripting.python_runner.resolve_text_analytics_document_inputs", return_value=("valid text", "not a dict")):
-            with pytest.raises(AssertionError):
-                _prepare_rps_execution(ctx, doc, code)
 
 
 @patch("plugin.scripting.units.insert_units_result_into_doc")

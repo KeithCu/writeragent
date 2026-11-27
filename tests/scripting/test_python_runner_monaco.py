@@ -100,7 +100,7 @@ def test_run_python_dialog_open_and_error_routing(
     with (
         patch.object(pr, "get_ctx", return_value=ctx),
         patch.object(pr, "get_desktop") as mock_desktop,
-        patch("plugin.scripting.python_runner.resolve_run_script_selection", return_value=("script", "x=1", {})),
+        patch("plugin.scripting.python_runner.resolve_run_script_selection", return_value=("script", "x=1")),
         patch("plugin.scripting.document_scripts.build_xdl_script_picker_state", return_value=([], {}, {})),
         patch("plugin.scripting.python_runner.build_xdl_script_picker_state", return_value=([], {}, {})),
         patch.object(pr, "monaco_editor_available", return_value=monaco_avail),
@@ -155,7 +155,7 @@ def test_run_python_dialog_cancel_keeps_dirty_cell_and_skips_native():
                         with (
                             patch(
                                 "plugin.scripting.python_runner.resolve_run_script_selection",
-                                return_value=("Demo", "print(1)", {}),
+                                return_value=("Demo", "print(1)"),
                             ),
                             patch(
                                 "plugin.scripting.document_scripts.build_xdl_script_picker_state",

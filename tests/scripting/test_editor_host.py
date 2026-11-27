@@ -300,7 +300,7 @@ def test_launch_monaco_editor_reuses_running_process():
     pe.sessions.clear()
     pe.focused_id = None
 
-    def fake_send(msg: dict) -> None:
+    def fake_send(msg: dict, **_kw: object) -> None:
         sent_messages.append(msg)
 
     pe.send = fake_send  # type: ignore[method-assign]
@@ -877,7 +877,7 @@ def test_launch_while_child_runs_preserves_clean_session_for_same_target():
     )
     pe.register_session(state)
     sent_messages: list[dict] = []
-    pe.send = MagicMock(side_effect=sent_messages.append)
+    pe.send = MagicMock(side_effect=lambda msg, **_kw: sent_messages.append(msg))
     try:
         ok = launch_mod.launch_monaco_editor(
             MagicMock(),
@@ -1011,7 +1011,7 @@ def test_save_script_requested_ok_sends_load_follows_and_rereads_run_script(monk
     doc_sentinel = object()
     monkeypatch.setattr(launch_mod, "get_user_scripts", lambda: {"S1": "new_code"})
     monkeypatch.setattr(launch_mod, "build_xdl_script_picker_state", lambda doc, scripts: {"doc": doc})
-    monkeypatch.setattr(launch_mod, "resolve_run_script_selection", lambda doc, st: ("S1", "re_read_code", "user"))
+    monkeypatch.setattr(launch_mod, "resolve_run_script_selection", lambda doc, st: ("S1", "re_read_code"))
 
     state = launch_mod.EditorSessionState(
         "sid1",
@@ -1736,7 +1736,7 @@ def test_launch_after_child_death_ends_stale_session_and_keeps_run_script_doc():
             with patch.object(pe, "start", side_effect=lambda p: setattr(pe, "_proc", p)):
                 with patch.object(pe, "wait_for_ready", return_value=True):
                     with patch.object(launch_mod, "run_in_background"):
-                        with patch.object(pe, "send", side_effect=sent_messages.append):
+                        with patch.object(pe, "send", side_effect=lambda msg, **_kw: sent_messages.append(msg)):
                             ok = launch_mod.launch_monaco_editor(
                                 MagicMock(),
                                 exe="/venv/bin/python",
@@ -2177,7 +2177,7 @@ def test_launch_enriches_load_when_sent():
     pe.sessions.clear()
     pe.focused_id = None
 
-    def fake_send(msg: dict) -> None:
+    def fake_send(msg: dict, **_kw: object) -> None:
         sent_messages.append(msg)
 
     pe.send = fake_send  # type: ignore[method-assign]

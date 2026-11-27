@@ -21,7 +21,6 @@ from typing import Any, Callable, ClassVar, Iterator
 
 from plugin.framework.deal_shim import (
     DEAL_MAX_SHAPE_DIM,
-    DEAL_MAX_TOKEN,
     deal,
 )
 from plugin.scripting.payload_codec import (
@@ -37,9 +36,6 @@ from plugin.scripting.payload_codec import (
 log = logging.getLogger(__name__)
 
 _DEAL_GRID_DIM = DEAL_MAX_SHAPE_DIM
-_DEAL_CELL_INT_ABS = 8
-_DEAL_CELL_STR_LEN = 4
-_DEAL_COL_NAME_LEN = DEAL_MAX_TOKEN
 
 
 def _assert_rectangular(grid: list[list[Any]]) -> None:
@@ -101,7 +97,7 @@ def pack_calc_range_envelope(
     return envelope
 
 
-def _deal_grid_values_ok(values: object) -> bool:
+def _deal_grid_values_ok(values: object) -> bool:  # pyright: ignore[reportUnusedFunction]
     return (
         isinstance(values, list)
         and len(values) <= _DEAL_GRID_DIM
@@ -112,15 +108,6 @@ def _deal_grid_values_ok(values: object) -> bool:
             for row in values
         )
     )
-
-
-def _deal_calc_range_other_ok_pytest(other: object) -> bool:
-    if other is None or isinstance(other, (bool, int, float, str)):
-        return True
-    return isinstance(other, CalcRange) and _deal_grid_values_ok(other._values)
-
-
-_deal_calc_range_other_ok = _deal_calc_range_other_ok_pytest
 
 
 def _deal_binary_op_pre(*args: Any, **kwargs: Any) -> bool:
@@ -432,7 +419,7 @@ def materialize_calc_range(wire: Any) -> CalcRange:
     if isinstance(wire, CalcRange):
         return wire
     if is_calc_range_payload(wire):
-        inner = wire.get("data")
+        inner = wire["data"]
         address = wire.get("address")
         addr = (address.strip() or None) if isinstance(address, str) else None
         # __init__ calls _materialize_inner_grid, so unpacking here as well would walk every cell twice.
@@ -531,7 +518,7 @@ def materialize_inputs(wire: Any) -> tuple[CalcRange, ...]:
         return ()
     selected: Any = None
     if is_multi_data(wire):
-        selected = wire.get("items") or []
+        selected = wire["items"]
     elif isinstance(wire, (list, tuple)) and wire and all(is_calc_range_payload(x) or isinstance(x, CalcRange) for x in wire):
         selected = wire
     elif _is_json_argument_list(wire):
@@ -558,7 +545,6 @@ def _is_json_argument_list(obj: Any) -> bool:
     if not isinstance(obj, (list, tuple)) or not obj:
         return False
     return any(not isinstance(item, (list, tuple)) or (item and isinstance(item[0], (list, tuple))) for item in obj)
-
 
 
 def _deal_labeled_grid_ok(*args: Any, **kwargs: Any) -> bool:
@@ -622,7 +608,7 @@ def result_to_calc_grid(result: Any) -> Any:
     Unknown iterables (e.g. set, generator) become lists; scalars stay unchanged.
     """
     if is_dataframe_payload(result):
-        cols = list(result.get("columns") or [])
+        cols = list(result["columns"])
         data = result.get("data")
         if not isinstance(data, list):
             listed = _host_ndarray_as_list(data)

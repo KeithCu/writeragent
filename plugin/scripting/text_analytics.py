@@ -36,9 +36,12 @@ install_lazy_exports(globals(), "text_analytics", _TEXT_VENV_EXPORTS)
 log = logging.getLogger(__name__)
 
 
+_PREAMBLE_TITLE = "Introduction / preamble"
+
+
 def resolve_text_analytics_document_inputs(
     doc: Any,
-    helper: str,
+    helper: str | None,
     *,
     scope: str = "whole",
 ) -> tuple[str | list[str], dict[str, Any]]:
@@ -67,12 +70,10 @@ def resolve_text_analytics_document_inputs(
 def _get_writer_text(doc: Any) -> str:
     """Best-effort extraction of document text for analysis (no tracked deletions)."""
     try:
-        if not is_writer(doc):
-            return ""
         text = doc.getText()
-        return visible_range_text(doc, text) or ""
+        # getString() is omitted so tracked deletions do not leak into analysis text.
+        return visible_range_text(doc, text)
     except Exception as exc:
-        # reraise_if_disposed stops on closed documents; getString() is omitted so tracked deletions do not leak into analysis text.
         reraise_if_disposed(exc)
         log.debug("text analytics: writer text extraction failed", exc_info=True)
         return ""
@@ -89,9 +90,6 @@ def _get_writer_sections(doc: Any) -> list[str]:
         return [full] if full.strip() else []
 
     try:
-        if not is_writer(doc):
-            return []
-
         tree = build_heading_tree(doc)
         # If no real headings, just return the whole doc as one "section".
         if not tree.get("children"):
@@ -101,16 +99,16 @@ def _get_writer_sections(doc: Any) -> list[str]:
         text_obj = doc.getText()
         enum = text_obj.createEnumeration()
         sections: list[str] = []
-        current_title = "Introduction / preamble"
+        current_title = _PREAMBLE_TITLE
         current_parts: list[str] = []
-        heading_levels = {n.get("para_index"): n.get("text", "") for n in iter_heading_nodes(tree) if n.get("text")}
+        heading_text_by_para = {n.get("para_index"): n.get("text", "") for n in iter_heading_nodes(tree) if n.get("text")}
 
         # Heading paragraphs become section titles only, not body lines, so topic/sentiment models do not double-count headings.
         def _flush() -> None:
             body = "\n".join(current_parts).strip()
             if body:
                 sections.append(f"{current_title}\n{body}" if current_title else body)
-            elif current_title and current_title != "Introduction / preamble":
+            elif current_title and current_title != _PREAMBLE_TITLE:
                 sections.append(current_title)
 
         state = TrackedDeletions(doc).state_at(text_obj)
@@ -118,11 +116,11 @@ def _get_writer_sections(doc: Any) -> list[str]:
         for el in iter_elements(enum):
             try:
                 if el.supportsService("com.sun.star.text.Paragraph"):
-                    ptext = get_string_without_tracked_deletions(el, state) or ""
-                    if para_index in heading_levels:
+                    ptext = get_string_without_tracked_deletions(el, state)
+                    if para_index in heading_text_by_para:
                         # Flush previous section
                         _flush()
-                        current_title = ptext.strip() or heading_levels[para_index]
+                        current_title = ptext.strip() or heading_text_by_para[para_index]
                         current_parts = []
                     elif ptext.strip():
                         current_parts.append(ptext)
@@ -134,7 +132,7 @@ def _get_writer_sections(doc: Any) -> list[str]:
 
         _flush()
 
-        # Clean and dedup empties
+        # Drop sections of 20 characters or fewer (a bare heading is not enough text to model).
         sections = [s.strip() for s in sections if len(s.strip()) > 20]
         if sections:
             return sections
@@ -151,7 +149,7 @@ def _lang_of(obj: Any, where: str) -> str | None:
     for prop in ("CharLocale", "CharLocaleAsian", "CharLocaleComplex"):
         try:
             loc = obj.getPropertyValue(prop)
-            if loc and getattr(loc, "Language", None):
+            if loc and loc.Language:
                 lang = str(loc.Language).strip().lower()[:2]
                 if lang and lang != "zxx":
                     return lang
@@ -183,8 +181,7 @@ def is_text_analytics_result(value: Any) -> bool:
     """True when *value* looks like a text analytics helper result."""
     if not isinstance(value, dict):
         return False
-    # Error dicts must take this insert path. Falling through inserted the
-    # raw dict as generic Writer text and reported success.
+    # Error dicts take this insert path so the insert raises; the generic Writer path would insert the raw dict and report success.
     status = value.get("status")
     helper = value.get("helper")
 
@@ -254,7 +251,7 @@ def _result_to_html_table(data: dict[str, Any]) -> str:
     # Sentiment: overall + summary of per-section if available
     sent = data.get("sentiment") or {}
     if sent and isinstance(sent, dict) and "score" in sent:
-        sc = sent.get("score", 0)
+        sc = sent["score"]
         lab = sent.get("label", "neutral")
         _row("sentiment", f"{lab} ({sc})")
     per_sec = data.get("per_section") or []
@@ -305,7 +302,7 @@ def text_analytics_payload_error(data: Any) -> str | None:
 
 def insert_text_analytics_result_into_doc(ctx: Any, doc: Any, result: dict[str, Any]) -> int:
     """Insert a compact HTML report for the text analytics result (Writer)."""
-    # weight: the Writer HTML import stack is only needed on Insert
+    # host only: not in the compute bundle
     from plugin.writer.html_import import insert_content_at_position, run_writer_mutation_with_optional_review
 
     if not is_writer(doc):

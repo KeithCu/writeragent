@@ -203,7 +203,7 @@ def _collect_params(tool: "ToolBase") -> list[ParamRecord]:
         else:
             if "default" in schema:
                 val = schema["default"]
-                if val is None:
+                if val is None or isinstance(val, (list, dict)):
                     annotation = f"{py_type} | None" if "None" not in py_type.split(" | ") else py_type
                     default = "None"
                 else:
@@ -422,7 +422,7 @@ _PREAMBLE_LINES: tuple[str, ...] = (
     'generator if the file is too large; do not slim the generated module by hand.',
     '"""',
     'from __future__ import annotations',
-    'from typing import Any, NoReturn, TYPE_CHECKING',
+    'from typing import Any, Callable, NoReturn, TYPE_CHECKING',
     'from plugin.framework.constants import WORKFLOW_TASK_PREFIXES as _WORKFLOW_TASK_PREFIXES',
     '',
     'if TYPE_CHECKING:',
@@ -456,11 +456,12 @@ _PREAMBLE_LINES: tuple[str, ...] = (
     '    """',
     '    if isinstance(res, dict):',
     '        msg = str(res.get("message") or res.get("error") or res)',
-    '        if res.get("code") == "USER_STOPPED":',
-    '            from plugin.framework.ipc import UserStopped',
+    '        code = res.get("code")',
+    '        if code == "USER_STOPPED":',
+    '            from plugin.framework.ipc import UserStopped  # weight: only needed when cancelled',
+    '',
     '            return UserStopped(msg)',
     '        err = RuntimeError(msg)',
-    '        code = res.get("code")',
     '        if code is not None:',
     '            setattr(err, "code", code)',
     '        return err',
@@ -533,7 +534,7 @@ _PREAMBLE_LINES: tuple[str, ...] = (
     '    return None',
     '',
     '',
-    'def _raise_keyed_failure(res: Any, name: str, list_call: Any) -> NoReturn:',
+    'def _raise_keyed_failure(res: Any, name: str, list_call: Callable[[], Any]) -> NoReturn:',
     '    """Distinguish a missing key from other tool errors using one list call.',
     '',
     '    Tool not-found error codes differ across families, so containers confirm',
@@ -549,7 +550,7 @@ _PREAMBLE_LINES: tuple[str, ...] = (
     '    raise _tool_failure(res)',
     '',
     '',
-    'def _get_item(res: Any, name: str, list_call: Any) -> _Item:',
+    'def _get_item(res: Any, name: str, list_call: Callable[[], Any]) -> _Item:',
     '    """Unwrap a get/get_info response into an _Item, or raise KeyError/RuntimeError."""',
     '    if not isinstance(res, dict) or res.get("status") == "error":',
     '        _raise_keyed_failure(res, name, list_call)',
@@ -563,7 +564,7 @@ _PREAMBLE_LINES: tuple[str, ...] = (
     '    return item',
     '',
     '',
-    'def _check_keyed(res: Any, name: str, list_call: Any) -> None:',
+    'def _check_keyed(res: Any, name: str, list_call: Callable[[], Any]) -> None:',
     '    """Validate a keyed mutation response, or raise KeyError/RuntimeError."""',
     '    if not isinstance(res, dict) or res.get("status") == "error":',
     '        _raise_keyed_failure(res, name, list_call)',
