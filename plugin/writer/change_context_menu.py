@@ -8,8 +8,9 @@ Adds two entries to the Writer text context menu (only while the document holds 
 changes -- wa-review session tokens): accept/reject the agent change under the cursor as one
 unit (a replace's strikethrough + underline resolve together, no Manage dialog). The user's own
 tracked changes are never touched. Bulk accept/reject ALL agent changes lives on the review
-toolbar (see docs/writer/reviewable-agent-edits.md, "Inline review UI"), not in this menu. The entries dispatch
-``org.extension.writeragent:writer.accept_change`` / ``writer.reject_change``, handled in ``main.py``.
+toolbar, not in this menu (see docs/writer/reviewable-agent-edits.md, "Inline review UI"). The
+entries dispatch ``org.extension.writeragent:writer.accept_change`` / ``writer.reject_change``,
+handled in ``main.py``.
 
 PyUNO pitfalls this file works around (each silently killed the menu when done wrong):
 - ``queryInterface(InterfaceClass)`` cannot convert an imported interface class to a UNO type;

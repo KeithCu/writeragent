@@ -359,8 +359,9 @@ def tag_agent_redlines(doc: Any, before_ids: set[Any],
     if tagged is None:
         return None
     # Full success. Streamed edit paths tag their redlines here instead of via record_mutation, so
-    # this is where they must reveal the review fast-travel toolbar (see docs/writer/reviewable-agent-edits.md, "Inline review UI") -- otherwise it never appears
+    # this is where they must reveal the review fast-travel toolbar -- otherwise it never appears
     # for those edits. Best-effort/silent; runs on the edit's (main) thread.
+    # See docs/writer/reviewable-agent-edits.md ("Inline review UI").
     refresh_review_toolbar(doc)
     return tagged[0]
 
@@ -659,8 +660,9 @@ class EditReviewSession:
             token, bookmark_name, accepted_text, rejected_text,
             original_preview or "\n".join(rejected_all),
             proposed_preview or "\n".join(accepted_all)))
-        # A new pending change exists -> reveal the review fast-travel toolbar (see docs/writer/reviewable-agent-edits.md, "Inline review UI"). Runs on the
-        # main thread (the edit does), so the LayoutManager call is safe; best-effort/silent.
+        # A new pending change exists -> reveal the review fast-travel toolbar. Runs on the main
+        # thread (the edit does), so the LayoutManager call is safe; best-effort/silent.
+        # See docs/writer/reviewable-agent-edits.md ("Inline review UI").
         refresh_review_toolbar(self.doc)
         return result
 

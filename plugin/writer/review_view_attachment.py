@@ -221,6 +221,7 @@ def _release_controller(controller: Any, interceptor: Any, click_handler: Any) -
         controller.releaseContextMenuInterceptor(interceptor)
     except Exception:
         log.debug("review_view_attachment: releaseContextMenuInterceptor failed", exc_info=True)
+    # removeMouseClickHandler touches a disposed view listener list; skip when already dead.
     try:
         if controller_alive(controller):
             controller.removeMouseClickHandler(click_handler)
@@ -275,6 +276,7 @@ def register_controller(controller: Any) -> None:
         interceptor = change_context_menu.make_interceptor(model)
         # detach_click_handler breaks the import cycle: disposing must not import this registry.
         click_handler = review_click_popup.ClickReviewHandler(model, detach_click_handler)
+        # Every Writer view controller derives from SfxBaseController, which implements both interfaces.
         controller.registerContextMenuInterceptor(interceptor)
         controller.addMouseClickHandler(click_handler)
         with _lock:

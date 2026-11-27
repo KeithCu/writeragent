@@ -9,12 +9,20 @@ import pytest
 from plugin.tests.testing_utils import DisposedException
 
 
+def _clean_ctx(doc_length: int | None = None) -> MagicMock:
+    """Mock ToolContext with zero tracked redlines so get_content does not hit the failure path."""
+    ctx = MagicMock()
+    ctx.doc.getRedlines.return_value.getCount.return_value = 0
+    if doc_length is not None:
+        ctx.services.document.get_document_length.return_value = doc_length
+    return ctx
+
+
 def test_truncated_flag_on_get_document_content():
     from plugin.writer import html_export
     from plugin.writer.get_document_content import GetDocumentContent
 
-    ctx = MagicMock()
-    ctx.services.document.get_document_length.return_value = 800
+    ctx = _clean_ctx(800)
     with patch.object(html_export, "document_to_content",
                       return_value="<p>short</p>\n\n[... truncated ...]"):
         res = GetDocumentContent().execute(ctx, max_chars=10)
@@ -33,8 +41,7 @@ def test_get_document_content_surfaces_portion_walk_warning():
     from plugin.writer import html_export
     from plugin.writer.get_document_content import GetDocumentContent
 
-    ctx = MagicMock()
-    ctx.services.document.get_document_length.return_value = 800
+    ctx = _clean_ctx(800)
 
     def _fake_export(*_args, **kwargs):
         dest = kwargs.get("walk_warnings")
@@ -191,8 +198,7 @@ def test_range_rejects_invalid_bounds_and_max_chars():
 def test_range_result_reports_the_offsets_it_read():
     from plugin.writer.get_document_content import GetDocumentContent
 
-    ctx = MagicMock()
-    ctx.services.document.get_document_length.return_value = 100
+    ctx = _clean_ctx(100)
     with patch("plugin.writer.html_export.document_to_content", return_value="<p>slice</p>") as mock_dtc:
         res = GetDocumentContent().execute(ctx, scope="range", start=2, end=4)
     assert res["status"] == "ok"
@@ -236,19 +242,17 @@ def test_get_document_content_wrong_arguments_are_rejected_before_execute(args):
 def test_selection_with_no_content_warns():
     from plugin.writer.get_document_content import GetDocumentContent
 
-    ctx = MagicMock()
-    ctx.services.document.get_document_length.return_value = 100
+    ctx = _clean_ctx(100)
     with patch("plugin.writer.html_export.document_to_content", return_value=""):
         res = GetDocumentContent().execute(ctx, scope="selection")
     assert res["status"] == "ok"
-    assert res.get("warning")
+    assert "Nothing was selected" in res.get("warning", "")
 
 
 def test_document_length_zero_warns():
     from plugin.writer.get_document_content import GetDocumentContent
 
-    ctx = MagicMock()
-    ctx.services.document.get_document_length.return_value = 0
+    ctx = _clean_ctx(0)
     with patch("plugin.writer.html_export.document_to_content", return_value="<p>x</p>"):
         res = GetDocumentContent().execute(ctx)
     assert "document_length came back 0" in res.get("warning", "")
@@ -277,9 +281,8 @@ def test_get_document_content_selection_scope_uses_pinned_range():
     from plugin.writer.get_document_content import GetDocumentContent
 
     pinned = MagicMock()
-    ctx = MagicMock()
+    ctx = _clean_ctx(20)
     ctx.selection_pin = SelectionPin(pinned, ctx.doc)
-    ctx.services.document.get_document_length.return_value = 20
     with patch("plugin.writer.html_export.document_to_content", return_value="<p>pinned</p>") as mock_export:
         res = GetDocumentContent().execute(ctx, scope="selection")
 
