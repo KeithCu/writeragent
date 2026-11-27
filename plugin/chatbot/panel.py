@@ -27,6 +27,7 @@ from __future__ import annotations
 import logging
 import threading
 import uno
+from plugin.chatbot.dialogs import query_text as read_query_text
 from plugin.chatbot.send_handlers import SendHandlersMixin, dispatch_sidebar_send
 from plugin.chatbot.tool_loop import ToolCallingMixin
 from plugin.chatbot.tool_loop_actions import (
@@ -1070,9 +1071,7 @@ class SendButtonListener(BaseActionListener):
         """
         if self.query_control is None:
             return
-        from plugin.chatbot.dialogs import query_text
-
-        self.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=bool(query_text(self.query_control))))
+        self.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=bool(read_query_text(self.query_control))))
 
     def _run_turn_drain(
         self,
@@ -1281,9 +1280,7 @@ class SendButtonListener(BaseActionListener):
         from plugin.framework.i18n import _
 
         # Get user query and clear field (before loading tools, so direct-image path can return early)
-        from plugin.chatbot.dialogs import query_text as _get_query_text
-
-        query_text = _get_query_text(self.query_control)
+        query_text = read_query_text(self.query_control)
 
         # Audio implies we have input even if text is empty.
         # Stop Rec sets has_audio and always starts a send; fail explicitly
@@ -1343,9 +1340,7 @@ class SendButtonListener(BaseActionListener):
 
         log.info("=== _do_send START ===")
 
-        from plugin.chatbot.dialogs import query_text as _get_query_text
-
-        peek_text = _get_query_text(self.query_control)
+        peek_text = read_query_text(self.query_control)
 
         parsed = parse_slash_text(peek_text)
         slash_cmd = None

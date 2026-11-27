@@ -529,9 +529,9 @@ def sync_rich_control_bounds(rich_control: Any, root_window: Any, placeholder_ct
         bounds_changed = _apply_rich_control_geometry(rich_control, bx, by, bw, bh)
         if bounds_changed:
             log_rich_scroll("sync_bounds", rect=f"{bx},{by},{bw},{bh}")
-            # RichTextControlImpl::layoutWindow (forms/source/richtext/richtextimplcontrol.cxx)
-            # calls SetVisArea(Point()), so every setPosSize resets scroll to the top.
-            # Stock: Hidden SelectAll, no reveal_caret.
+            # Stock RichTextControlImpl::layoutWindow (forms/source/richtext/richtextimplcontrol.cxx)
+            # calls SetVisArea(Point()), so every setPosSize jumps to the top; the local patch
+            # d3cb23173e07 keeps the old top-left. Stock: Hidden SelectAll, no reveal_caret.
             if _model_text(rich_control):
                 _invalidate_peer(rich_control)
                 _scroll_rich_to_tail(rich_control, restore_focus=restore_focus)

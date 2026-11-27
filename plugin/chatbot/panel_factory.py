@@ -158,7 +158,7 @@ if TYPE_CHECKING:
     from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
 
 from com.sun.star.ui import XUIElementFactory, XUIElement, XToolPanel, XSidebarPanel
-from com.sun.star.ui.UIElementType import TOOLPANEL  # type: ignore
+from com.sun.star.ui.UIElementType import TOOLPANEL  # ty: ignore[unresolved-import]
 
 from plugin.framework.uno_listeners import BaseFocusListener, BaseItemListener
 from plugin.framework.config import get_config, get_current_endpoint, save

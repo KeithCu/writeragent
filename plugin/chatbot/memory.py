@@ -156,6 +156,13 @@ def format_user_memory_prompt_block() -> str:
 UPSERT_MEMORY_CHAT_VALUE_MAX = 400
 
 
+# Pytest profile: always True. scripts/crosshair_domains.py _patch_memory swaps these
+# for bounded predicates so CrossHair explores a small domain.
+def _deal_memory_args_ok(*args: Any, **kwargs: Any) -> bool:
+    return True
+
+
+@deal.pre(lambda arguments, *_unused, **__: _deal_memory_args_ok(arguments))
 @deal.post(lambda result: result is None or isinstance(result, dict))
 def upsert_memory_arguments_dict(arguments: object) -> dict[str, Any] | None:
     # crosshair: off
@@ -170,6 +177,11 @@ def upsert_memory_arguments_dict(arguments: object) -> dict[str, Any] | None:
     return None
 
 
+def _deal_memory_chat_line_ok(*args: Any, **kwargs: Any) -> bool:
+    return True
+
+
+@deal.pre(lambda arguments: _deal_memory_chat_line_ok(arguments))
 @deal.post(lambda result: isinstance(result, str) and result.endswith("\n"))
 def format_upsert_memory_chat_line(arguments: object) -> str:
     """One-line chat preview when memory_upsert starts (main chat tool loop)."""
