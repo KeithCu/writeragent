@@ -21,6 +21,7 @@ from plugin.draw.designs import (
     enumerate_impress_designs,
 )
 from plugin.draw.pages import AddSlide, inherit_master_from_neighbor
+from plugin.framework.doc_type import DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE
 from plugin.draw.shape_clone import ClonedShape
 from plugin.framework.errors import DocumentDisposedError
 from plugin.framework.url_utils import path_to_file_url
@@ -234,7 +235,7 @@ def test_inherit_master_from_neighbor(neighbor_index: int, insert_at: int):
 
 def test_add_slide_reports_inherited_master():
     ctx = MagicMock()
-    ctx.doc.supportsService.return_value = True
+    ctx.doc.supportsService.side_effect = lambda name: name in (IMPRESS_DOCUMENT_SERVICE, DRAW_DOCUMENT_SERVICE)
     page = MagicMock()
     page.Layout = 20
     pages = MagicMock()

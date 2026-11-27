@@ -1111,9 +1111,9 @@ def test_apply_temporal_format_runs_vertically_merges_homogeneous_column():
 def test_make_number_formatter_unwraps_guarded_doc():
     """attachNumberFormatsSupplier must get the raw doc, not a Layer-A proxy.
 
-    The stub defines ``_UnoThreadGuardProxy`` and never constructs it
-    (``_wrap_uno`` returns the raw object); patch ``unwrap_uno`` so the
-    test does not depend on which module is loaded.
+    The release stub has no proxy class and its ``unwrap_uno`` returns its
+    argument; patch ``unwrap_uno`` so the test does not depend on which
+    module is loaded.
     """
     from plugin.calc.manipulator import CellManipulator
 

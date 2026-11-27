@@ -229,7 +229,7 @@ class FrameSession:
         if self._closed or not self._restore_query:
             return
         query = self.focus_pin
-        if query is None or not hasattr(query, "setFocus"):
+        if query is None:
             return
         if not self.frame_is_active_window():
             log.debug("stream focus: skip restore, frame not active doc=%s", self.doc_uid)
@@ -251,7 +251,7 @@ class FrameSession:
         listeners are on other controls; :meth:`dispose` releases those.
         """
         frame = self.frame
-        if frame is None or not hasattr(frame, "addEventListener"):
+        if frame is None:
             return False
         from plugin.framework.uno_listeners import HAVE_UNO
 
@@ -453,16 +453,14 @@ class FrameSession:
         if control is None or listener is None:
             return
         try:
-            remover = getattr(control, method, None)
-            if callable(remover):
-                remover(listener)
+            getattr(control, method)(listener)
         except Exception as exc:
             if _is_attach_thread_violation(exc):
                 raise
             log.debug("frame session %s", method, exc_info=True)
 
     def _attach_query_listener(self, query: Any) -> None:
-        if query is None or not hasattr(query, "addFocusListener"):
+        if query is None:
             return
         if self._query_control is query and self._query_listener is not None:
             return
@@ -534,14 +532,11 @@ class FrameSession:
         mouse_track: Any = None
         focus_track: Any = None
         try:
-            if hasattr(control, "addMouseListener"):
-                mouse_track = _LeaveMouse()
-                control.addMouseListener(mouse_track)
-            if hasattr(control, "addFocusListener"):
-                focus_track = _LeaveFocus()
-                control.addFocusListener(focus_track)
-            if mouse_track is not None or focus_track is not None:
-                self._leave.append((control, mouse_track, focus_track))
+            mouse_track = _LeaveMouse()
+            control.addMouseListener(mouse_track)
+            focus_track = _LeaveFocus()
+            control.addFocusListener(focus_track)
+            self._leave.append((control, mouse_track, focus_track))
         except Exception as exc:
             # Roll back a half-attached pair first, then surface a thread
             # violation. A normal failure stays a debug log after the rollback.
@@ -571,7 +566,7 @@ class FrameSession:
             return
 
         controller = self._controller()
-        if controller is None or not hasattr(controller, "addMouseClickHandler"):
+        if controller is None:
             return
         if self._click_handler is not None and _same_frame(self._click_controller, controller):
             return

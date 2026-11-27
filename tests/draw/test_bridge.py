@@ -6,6 +6,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from plugin.draw.bridge import DrawBridge, get_draw_context_for_chat
+from plugin.framework.doc_type import DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE
 from plugin.framework.errors import DocumentDisposedError, UnoObjectError
 from plugin.tests.testing_utils import DisposedException
 
@@ -34,7 +35,9 @@ def _chat_ctx(
     pages.getByIndex.return_value = page
 
     model = MagicMock()
-    model.supportsService.return_value = is_impress
+    # An Impress model supports both services; a Draw model only DrawingDocument.
+    services = {IMPRESS_DOCUMENT_SERVICE, DRAW_DOCUMENT_SERVICE} if is_impress else {DRAW_DOCUMENT_SERVICE}
+    model.supportsService.side_effect = lambda name: name in services
     model.getURL.return_value = url
 
     bridge = MagicMock()
@@ -877,7 +880,7 @@ def test_get_draw_context_for_chat_uses_uno_same_when_wrappers_differ():
     pages.getByIndex.side_effect = lambda i: (first, listed)[i]
 
     model = MagicMock()
-    model.supportsService.return_value = True
+    model.supportsService.side_effect = lambda name: name in (IMPRESS_DOCUMENT_SERVICE, DRAW_DOCUMENT_SERVICE)
     model.getURL.return_value = "file:///tmp/deck.odp"
 
     bridge = MagicMock()

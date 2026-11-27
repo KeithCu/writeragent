@@ -546,16 +546,6 @@ def test_close_listener_failure_is_not_left_open():
     assert session._closed is False
 
 
-def test_frame_without_close_api_is_not_tracked():
-    class _Bare:
-        pass
-
-    frame = _Bare()
-    session = open_frame_session(frame, "doc-a")
-    assert session.frame is frame
-    assert session_for_frame(frame) is None
-
-
 def test_close_listener_import_failure_is_not_tracked():
     frame = MagicMock()
     with patch("plugin.framework.uno_listeners.HAVE_UNO", False):

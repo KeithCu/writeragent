@@ -18,6 +18,7 @@ from plugin.draw.pages import (
     RenameSlide,
     SetActivePage,
 )
+from plugin.framework.doc_type import DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE
 from plugin.tests.testing_utils import DisposedException
 
 
@@ -25,9 +26,13 @@ def _ctx():
     return MagicMock()
 
 
+# A presentation model supports both services; DrawingDocument alone is Draw.
+_IMPRESS_SERVICES = frozenset({IMPRESS_DOCUMENT_SERVICE, DRAW_DOCUMENT_SERVICE})
+
+
 def _impress_ctx():
     ctx = MagicMock()
-    ctx.doc.supportsService.return_value = True
+    ctx.doc.supportsService.side_effect = lambda name: name in _IMPRESS_SERVICES
     return ctx
 
 
@@ -650,7 +655,7 @@ def test_read_slide_text_reraises_dispose():
 
 def test_get_presentation_info_reports_deck():
     doc = MagicMock()
-    doc.supportsService.return_value = True
+    doc.supportsService.side_effect = lambda name: name in _IMPRESS_SERVICES
 
     first_page = MagicMock()
     first_page.Width = 33867
