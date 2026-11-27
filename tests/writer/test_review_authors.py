@@ -342,3 +342,26 @@ def test_begin_swaps_when_saved_name_cannot_be_written(
     prior = review_authors.begin(ctx)
     assert prior == ("OriginalGiven", "OriginalSn")
     assert store["givenname"] == review_authors.INSERT_AUTHOR
+
+
+def test_begin_respects_split_author_colors_flag(
+    clean_state: None,
+    fake_profile: tuple[dict[str, str], list[dict[str, str]]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store, _commits = fake_profile
+    ctx = object()
+
+    monkeypatch.setattr(review_authors.config, "get_config", lambda _key: False)
+    prior = review_authors.begin(ctx)
+    assert prior == ("OriginalGiven", "OriginalSn")
+    assert store["givenname"] == review_authors.INSERT_AUTHOR
+    with review_authors.deletion_author():
+        assert store["givenname"] == review_authors.INSERT_AUTHOR
+    review_authors.end(ctx, prior)
+
+    monkeypatch.setattr(review_authors.config, "get_config", lambda _key: True)
+    prior = review_authors.begin(ctx)
+    with review_authors.deletion_author():
+        assert store["givenname"] == review_authors.DELETE_AUTHOR
+    review_authors.end(ctx, prior)

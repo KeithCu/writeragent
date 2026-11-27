@@ -1610,7 +1610,7 @@ def test_recorded_whole_paragraph_replace_matches_untracked_uno(ctx: Any, doc: A
                     elif table_ending:
                         assert [t for _s, t in actual_accept] == [t for _s, t in untracked], (label, "accept", actual_accept, untracked)
                     else:
-                        assert actual_accept[:-1] == untracked and actual_accept[-1][1] == "", (label, "accept", actual_accept, untracked)
+                        assert actual_accept == untracked, (label, "accept", actual_accept, untracked)
 
                     _seed()
                     if mode == "search":
@@ -3947,6 +3947,199 @@ def test_recorded_partial_block_replace_authors_deletion_separately_uno(ctx: Any
 
         accept_all_changes(doc, ctx)
         assert body_texts(doc.getText()) == ["Keep before", "ReA", "B", " me", "Keep after"]
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_recorded_full_document_table_only_uno(ctx: Any, doc: Any) -> None:
+    """Recorded full_document on a table-only body keeps the trailing paragraph Standard on Reject."""
+    from plugin.framework.config import get_config, save
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    tctx = native_writer_tool_context(doc, ctx)
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+
+    def _seed_table_only() -> None:
+        save({flag: "off"})
+        doc.setPropertyValue("RecordChanges", False)
+        res = ApplyDocumentContent().execute(
+            tctx, target="full_document", content=["<table><tr><td>Old</td></tr></table>"]
+        )
+        assert res.get("status") == "ok", res
+
+    try:
+        _seed_table_only()
+        save({flag: "record"})
+        res = ApplyDocumentContent().execute(tctx, target="full_document", content=["<h1>New heading</h1>"])
+        assert res.get("status") == "ok", res
+        reject_all_changes(doc, ctx)
+        shape = body_shape(doc.getText())
+        assert shape[0] == ("TABLE", ""), shape
+        assert shape[-1] == ("Standard", ""), shape
+
+        _seed_table_only()
+        save({flag: "record"})
+        res = ApplyDocumentContent().execute(tctx, target="full_document", content=["<h1>New heading</h1>"])
+        assert res.get("status") == "ok", res
+        accept_all_changes(doc, ctx)
+        assert [t for _s, t in body_shape(doc.getText()) if t] == ["New heading"]
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_recorded_whole_paragraph_shapes_and_roundtrip_uno(ctx: Any, doc: Any) -> None:
+    """Whole-paragraph replace shapes preserve page breaks, styles, numbering, and ODF round-trip."""
+    import os
+    import tempfile
+    from com.sun.star.style.ParagraphAdjust import BLOCK as PARA_ADJUST_BLOCK
+    from plugin.framework.config import get_config, save
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    tctx = native_writer_tool_context(doc, ctx)
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+
+    def _snap() -> list[tuple[Any, ...]]:
+        out: list[tuple[Any, ...]] = []
+        enum = doc.getText().createEnumeration()
+        while enum_has_more(enum):
+            el = enum.nextElement()
+            if el.supportsService("com.sun.star.text.TextTable"):
+                out.append(("TABLE",))
+            else:
+                out.append((
+                    el.getString(),
+                    str(el.getPropertyValue("ParaStyleName")),
+                    bool(el.getPropertyValue("NumberingIsNumber")),
+                    str(el.getPropertyValue("ListLabelString") or ""),
+                    str(el.getPropertyValue("BreakType").value),
+                    str(el.getPropertyValue("PageDescName") or ""),
+                ))
+        return out
+
+    def _apply_base(html: str) -> None:
+        save({flag: "off"})
+        doc.setPropertyValue("RecordChanges", False)
+        res = ApplyDocumentContent().execute(tctx, target="full_document", content=[html])
+        assert res.get("status") == "ok", res
+
+    def _seed_page_break_follower() -> None:
+        _apply_base('<p>First</p><p>Middle</p><p data-lo-para="page-break-before:always">After</p>')
+
+    def _seed_alice_insert_heading() -> None:
+        _apply_base("<h1>Head</h1><p>Body</p>")
+        doc.setPropertyValue("RecordChanges", True)
+        text = doc.getText()
+        cur = text.createTextCursorByRange(body_paragraphs(text)[0].getEnd())
+        text.insertString(cur, " extra", False)
+        doc.setPropertyValue("RecordChanges", False)
+
+    def _seed_second_para_in_list() -> None:
+        _apply_base("<ol><li>Item 1</li><li>Item 2</li></ol>")
+        text = doc.getText()
+        p2 = body_paragraphs(text)[1]
+        cur = text.createTextCursorByRange(p2.getStart())
+        cur.setPropertyValue("NumberingIsNumber", False)
+
+    def _seed_before_heading() -> None:
+        _apply_base("<p>First</p><p>Clause</p><h1>Heading</h1>")
+
+    def _seed_last_list_item() -> None:
+        _apply_base("<ol><li>One</li><li>Two</li></ol><p>Outro</p>")
+
+    def _seed_last_list_before_table() -> None:
+        _apply_base("<ol><li>One</li><li>Two</li></ol><table><tr><td>Cell</td></tr></table>")
+
+    def _seed_numbered_justified() -> None:
+        _apply_base("<p>Plain</p><p>Target clause</p>")
+        text = doc.getText()
+        cur = text.createTextCursorByRange(body_paragraphs(text)[1])
+        cur.setPropertyValue("NumberingStyleName", "Numbering 123")
+        cur.setPropertyValue("ParaAdjust", PARA_ADJUST_BLOCK)
+
+    def _seed_first_heading() -> None:
+        _apply_base("<h1>First</h1><p>Second</p>")
+
+    def _seed_alice_struck_prev_break() -> None:
+        _apply_base("<ol><li>One</li><li>Two</li></ol>")
+        doc.setPropertyValue("RecordChanges", True)
+        text = doc.getText()
+        cur = text.createTextCursorByRange(body_paragraphs(text)[1].getStart())
+        assert cur.goLeft(1, True)
+        cur.setString("")
+        doc.setPropertyValue("RecordChanges", False)
+
+    cases = [
+        ("page_break_follower", _seed_page_break_follower, "Middle", "<p>New</p>", False),
+        ("alice_insert_heading", _seed_alice_insert_heading, "Head extra", "<p>New</p>", False),
+        ("second_para_in_list", _seed_second_para_in_list, "Item 2", "<p>New</p>", False),
+        ("odf_store_before_heading", _seed_before_heading, "Clause", "<p>New</p>", True),
+        ("odf_store_last_list_item", _seed_last_list_item, "Two", "<p>New</p>", True),
+        ("last_list_before_table", _seed_last_list_before_table, "Two", "<p>New</p>", False),
+        ("numbered_justified", _seed_numbered_justified, "Target clause", "<p>New clause</p>", False),
+        ("first_para_heading", _seed_first_heading, "First", "<h1>New</h1>", False),
+        ("alice_struck_prev_break", _seed_alice_struck_prev_break, "Two", "<p>New</p>", False),
+    ]
+
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for name, seeder, old_text, new_html, store_odf in cases:
+                seeder()
+                save({flag: "off"})
+                res = ApplyDocumentContent().execute(tctx, target="search", old_content=old_text, content=[new_html])
+                assert res.get("status") == "ok", (name, "untracked", res)
+                untracked = _snap()
+
+                # Record -> Accept
+                seeder()
+                seed_snap = _snap()
+                save({flag: "record"})
+                res = ApplyDocumentContent().execute(tctx, target="search", old_content=old_text, content=[new_html])
+                assert res.get("status") == "ok", (name, "record", res)
+                accept_all_changes(doc, ctx)
+                assert _snap() == untracked, (name, "accept", _snap(), untracked)
+
+                # Record -> (optional ODF store) -> Reject
+                seeder()
+                save({flag: "record"})
+                res = ApplyDocumentContent().execute(tctx, target="search", old_content=old_text, content=[new_html])
+                assert res.get("status") == "ok", (name, "reject", res)
+                if store_odf:
+                    pv = uno.createUnoStruct("com.sun.star.beans.PropertyValue")
+                    pv.Name = "FilterName"
+                    pv.Value = "writer8"
+                    doc.storeToURL(uno.systemPathToFileUrl(os.path.join(tmpdir, f"{name}.odt")), (pv,))
+                reject_all_changes(doc, ctx)
+                assert _snap() == seed_snap, (name, "reject", _snap(), seed_snap)
+
+                # Record -> one Undo
+                seeder()
+                save({flag: "record"})
+                res = ApplyDocumentContent().execute(tctx, target="search", old_content=old_text, content=[new_html])
+                assert res.get("status") == "ok", (name, "undo", res)
+                doc.getUndoManager().undo()
+                assert _snap() == seed_snap, (name, "undo", _snap(), seed_snap)
+
+            # Review Off with RecordChanges on: user-typed paragraph before replaced paragraph stays separate on Reject.
+            _apply_base("<p>Para two.</p>")
+            doc.setPropertyValue("RecordChanges", True)
+            text = doc.getText()
+            cur = text.createTextCursor()
+            cur.gotoStart(False)
+            text.insertString(cur, "Para one.", False)
+            text.insertControlCharacter(cur, uno.getConstantByName("com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK"), False)
+            seed_snap = _snap()
+            res = ApplyDocumentContent().execute(tctx, target="search", old_content="Para two.", content=["<p>New two.</p>"])
+            assert res.get("status") == "ok", ("review_off_record", res)
+            reject_all_changes(doc, ctx)
+            assert _snap() == seed_snap, ("review_off_record_reject", _snap(), seed_snap)
     finally:
         save({flag: prev})
         doc.setPropertyValue("RecordChanges", False)

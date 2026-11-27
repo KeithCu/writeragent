@@ -300,6 +300,29 @@ def test_split_authors_whole_block_off_one_color_uno(ctx, doc):
 
 @native_test
 @with_native_doc("writer")
+def test_split_authors_off_one_color_html_and_full_document_uno(ctx, doc):
+    """Toggle OFF: HTML block search replace and full_document both use one author (WriterAgent)."""
+    for target, kwargs, expected in (
+        ("search", {"old_content": "Old clause body here.", "content": ["<p>New clause body here.</p>"]}, "New clause body here."),
+        ("full_document", {"content": ["<p>Full replacement.</p>"]}, "Full replacement."),
+    ):
+        _reset(doc, ctx, "Old clause body here.")
+        with _saved_config(doc, ctx, {
+            _FLAG: "record",
+            "doc.agent_edit_split_author_colors": False,
+        }):
+            res = ApplyDocumentContent().execute(
+                native_writer_tool_context(doc, ctx), target=target, **kwargs
+            )
+            assert res.get("status") == "ok", (target, res)
+            authors = {r["RedlineAuthor"] for r in list_redlines(doc)}
+            assert authors == {"WriterAgent"}, (target, authors)
+            accept_all_changes(doc, ctx)
+            assert _para_text(doc).strip() == expected, (target, _para_text(doc))
+
+
+@native_test
+@with_native_doc("writer")
 def test_html_import_failure_rolls_back_in_review_mode_uno(ctx, doc):
     """Atomicity for the HTML/import path: in record mode replace_full_document does setString('')
     then imports HTML. If the import throws AFTER the delete, the whole edit is rolled back -- the

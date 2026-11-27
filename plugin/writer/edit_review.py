@@ -1078,7 +1078,7 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
     recording is on) and only PART of the block changed -- as several SURGICAL sub-changes,
     each its own tracked Delete+Insert with its own accept/reject outcome.
     """
-    split_author = split and bool(config.get_config("doc.agent_edit_split_author_colors"))
+    split_author = split and review_authors.split_author_colors()
 
     def _whole() -> None:
         original = found.getString()
