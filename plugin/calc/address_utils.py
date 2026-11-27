@@ -393,18 +393,6 @@ def parse_local(address: str) -> tuple[int, int] | None:
         return None
 
 
-def range_shape(range_str: str) -> tuple[int, int, int] | None:
-    """Return ``(cell_count, rows, cols)`` for an A1 range, or None for invalid refs."""
-    try:
-        _unused_sheet, local = split_sheet_prefix(range_str)
-        (c0, r0), (c1, r1) = parse_range_string(local)
-    except (ValueError, TypeError):
-        return None
-    cols = c1 - c0 + 1
-    rows = r1 - r0 + 1
-    return cols * rows, rows, cols
-
-
 def split_axis(address: str) -> tuple[str, str, str] | None:
     """Split whole column or row range (e.g. 'A:B' or '1:10') into ('col'|'row', start, end) or None."""
     address = address.replace("$", "")

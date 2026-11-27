@@ -316,16 +316,6 @@ def test_parse_local():
     assert parse_local("A0") is None
 
 
-def test_range_shape():
-    from plugin.calc.address_utils import range_shape
-
-    assert range_shape("C2:C9") == (8, 8, 1)
-    assert range_shape("Sheet1.C2:C9") == (8, 8, 1)
-    assert range_shape("A1:B1") == (2, 1, 2)
-    assert range_shape("A1") == (1, 1, 1)
-    assert range_shape("SalesData") is None
-
-
 def test_split_axis():
     from plugin.calc.address_utils import split_axis
 

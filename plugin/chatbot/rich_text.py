@@ -296,7 +296,6 @@ def _tighten_list_indent(body_range: Any) -> None:
                     break
             for p in props:
                 if p.Name == "LeftMargin":
-                    log.debug("_tighten_list_indent: level=%d orig LeftMargin=%s text=%r", level, p.Value, para.getString()[:40])
                     p.Value = abs(flo) + 115 + level * 225
             any_props = uno_any("[]com.sun.star.beans.PropertyValue", tuple(props))
             uno.invoke(rules, "replaceByIndex", (level, any_props))
@@ -428,7 +427,6 @@ def _append_rich_text_with_span(  # pyright: ignore[reportUnusedFunction]
         looks_html = False
         if has_body:
             looks_html = contains_html_tag(text)
-            log.debug("append_rich_text: looks_html=%s len=%d snippet=%r", looks_html, len(text), text[:120])
 
             if looks_html:
                 try:

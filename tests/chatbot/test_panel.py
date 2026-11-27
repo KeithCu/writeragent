@@ -1042,8 +1042,7 @@ class TestSlashOverlayListeners:
         send_listener._panel_teardown = False
         send_listener.slash_popup.on_query_text.return_value = True
         listener = QueryTextListener(send_listener)
-        with patch("plugin.chatbot.slash_popup.SLASH_OV_VERBOSE_DEBUG", False):
-            listener.on_text_changed(_query_text_event("/he"))
+        listener.on_text_changed(_query_text_event("/he"))
         send_listener.slash_popup.on_query_text.assert_called_once_with("/he")
         send_listener.dispatch.assert_not_called()
 
@@ -2888,6 +2887,7 @@ def _make_do_send_listener() -> SimpleNamespace:
         _restore_query_text=MagicMock(),
         _send_handlers=send_handlers,
         _tool_calling=tool_calling,
+        _orphan_send_outcome=None,
     )
     listener._require_send_document = types.MethodType(SendButtonListener._require_send_document, listener)
     listener._fail_send = types.MethodType(SendButtonListener._fail_send, listener)

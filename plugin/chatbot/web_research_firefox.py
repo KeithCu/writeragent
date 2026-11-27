@@ -207,7 +207,7 @@ def _write_pidfile(pidfile: str, firefox_pid: int) -> None:
 def _cmdline_args_matches(args: list[str], profile_dir: str) -> bool:
     """Match exact --profile <profile_dir> and any --remote-debugging-port flag in argv (each launch picks a free port)."""
     has_profile = any(
-        args[i] == "--profile" and i + 1 < len(args) and args[i + 1] == profile_dir
+        args[i] == "--profile" and args[i + 1] == profile_dir
         for i in range(len(args) - 1)
     )
     return has_profile and any(a.startswith("--remote-debugging-port=") for a in args)
@@ -354,8 +354,8 @@ def _launch_firefox(profile_dir: str) -> FirefoxBidiClient:
     if managed.pid is not None:
         best_effort(lambda: _write_pidfile(pidfile, int(managed.pid)), "firefox bidi: write pidfile")
 
-    deadline = time.time() + FIREFOX_LAUNCH_TIMEOUT_SEC
-    while time.time() < deadline:
+    deadline = time.monotonic() + FIREFOX_LAUNCH_TIMEOUT_SEC
+    while time.monotonic() < deadline:
         try:
             return connect_firefox_bidi(port, 1.0)
         except OSError:

@@ -30,7 +30,9 @@ from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Callable, Protocol, final
 
-from plugin.framework.send_cancellation import SendCancellation
+from plugin.framework.errors import ToolExecutionError, best_effort, format_error_payload
+from plugin.framework.logging import redact_sensitive_payload_for_log
+from plugin.framework.send_cancellation import SendCancellation, unpack_approval
 from plugin.framework.i18n import _
 from plugin.framework.tool import ToolBase
 
@@ -42,8 +44,6 @@ if TYPE_CHECKING:
 from plugin.framework.client.auth import resolve_auth_for_config
 from plugin.framework.client.model_fetcher import resolve_context_window
 from plugin.framework.constants import BIDI_BROWSER_TYPE, CDP_BROWSER_TYPES
-from plugin.framework.errors import ToolExecutionError, best_effort, format_error_payload
-from plugin.framework.send_cancellation import unpack_approval
 from plugin.framework.url_utils import get_url_domain
 from plugin.contrib.cdp import browser_cdp_tool
 from plugin.contrib.smolagents.agents import ToolCallingAgent
@@ -62,6 +62,7 @@ from plugin.chatbot.web_pages import (
     page_budget_chars,
 )
 from plugin.chatbot.web_research_cache import (
+    RESEARCH_CACHE_KIND,
     ordered_unique_query_words,
     format_research_cache_key,
     enqueue_research_cache_embedding_backfill,
@@ -104,10 +105,6 @@ class WebAgentRunParams:
     pages: PageStore = field(default_factory=PageStore)
 
 
-
-
-
-
 class WebResearchToolCallingAgent(ToolCallingAgent):
     """Subclass of ToolCallingAgent that injects the step budget into the prompt on each step."""
 
@@ -122,19 +119,9 @@ class WebResearchToolCallingAgent(ToolCallingAgent):
         ):
             visit_tool = self.tools.get("visit_webpage")
             if visit_tool is not None and "urls" not in visit_tool.inputs:
-                from plugin.contrib.smolagents.utils import AgentToolExecutionError
+                from plugin.chatbot.smol_agent import call_tool_unvalidated
 
-                resolved_args = self._substitute_state_variables(arguments)
-                if not isinstance(resolved_args, dict):
-                    resolved_args = arguments
-                try:
-                    return visit_tool(**resolved_args, sanitize_inputs_outputs=True)
-                except Exception as e:
-                    error_msg = (
-                        f"Error executing tool '{tool_name}' with arguments {str(resolved_args)}: {type(e).__name__}: {e}\n"
-                        "Please try again or use another tool"
-                    )
-                    raise AgentToolExecutionError(error_msg, self.logger) from e
+                return call_tool_unvalidated(self, visit_tool, tool_name, arguments)
         return super().execute_tool_call(tool_name, arguments)
 
     def augment_messages_for_step(self, messages: list[ChatMessage]) -> list[ChatMessage]:
@@ -146,15 +133,14 @@ class WebResearchToolCallingAgent(ToolCallingAgent):
         remaining = max_steps - current_step + 1
         used = current_step - 1
 
-        # Match test expectations in tests/chatbot/test_web_research.py (step budget section)
         budget_msg = f"Step budget: {used} step(s) used, {remaining} step(s) remaining (maximum {max_steps}). You are on step {current_step} of {max_steps}."
         if remaining <= 2:
             budget_msg += " You are almost out of steps! You MUST call final_answer in your next turn with your best summary."
 
-        if messages and (messages[-1].role == MessageRole.USER or messages[-1].role == MessageRole.TOOL_RESPONSE):
+        if messages and messages[-1].role in (MessageRole.USER, MessageRole.TOOL_RESPONSE):
             # Prepend to last user-equivalent message to avoid consecutive USER roles after conversion
             last_msg = messages[-1]
-            # Ensure content is a list of parts to satisfy smolagents' merge-assertion (models.py:376)
+            # Content must be a list of parts: get_clean_message_list (plugin/contrib/smolagents/models.py) asserts that when it merges two same-role messages.
             if isinstance(last_msg.content, str):
                 last_msg.content = [{"type": "text", "text": last_msg.content}]
             elif last_msg.content is None:
@@ -212,7 +198,7 @@ def _write_research_cache(
     from plugin.contrib.smolagents.default_tools import _web_cache_set
 
     storage_key = format_research_cache_key(stem_lang, unique_key, mode=mode)
-    _web_cache_set(cache_path, "research", storage_key, result_text, cache_max_mb * 1024 * 1024)
+    _web_cache_set(cache_path, RESEARCH_CACHE_KIND, storage_key, result_text, cache_max_mb * 1024 * 1024)
     if embedding_text:
         enqueue_research_cache_embedding_for_row(ctx.ctx, cache_path, storage_key, embedding_text)
     enqueue_research_cache_embedding_backfill(ctx.ctx, cache_path, max_age_days)
@@ -442,8 +428,8 @@ class VisitWebpageBrowserTool(Tool):
         if not (lower_url.startswith("http://") or lower_url.startswith("https://")):
             return "Error visiting webpage via browser: URL must use http or https scheme."
 
-        # Each visit opens and closes its own tab. Reusing the first page
-        # tab meant two deep-research workers navigated the same document.
+        # Each visit opens and closes its own tab, so two deep-research workers
+        # never navigate the same document.
         if not _browser_refcount.visit_enter():
             return "Error visiting webpage via browser: browser is closing"
         tab: str | None = None
@@ -499,10 +485,17 @@ def _resolve_web_research_window(client: Any) -> int:
     return assumed
 
 
+WEB_SEARCH_STOPPED_MSG = "Web search stopped by user."
+
+
 def _user_stopped_payload() -> dict[str, Any]:
+<<<<<<< HEAD
     from plugin.framework.errors import user_stopped_payload
 
     return user_stopped_payload("Web search stopped by user.")
+=======
+    return format_error_payload(ToolExecutionError(WEB_SEARCH_STOPPED_MSG, code="USER_STOPPED"))
+>>>>>>> origin/master
 
 
 def _run_web_agent(
@@ -588,8 +581,8 @@ def _run_web_agent(
         if stop_checker and stop_checker():
             return _user_stopped_payload()
         if params.append_thinking_callback:
-            params.append_thinking_callback(f"Running tool: {step.name} with {step.arguments}\n")
-        status_msg = ""
+            safe_args = redact_sensitive_payload_for_log(step.arguments)
+            params.append_thinking_callback(f"Running tool: {step.name} with {safe_args}\n")
         if step.name == "web_search":
             def echo(q: str) -> None:
                 if params.chat_append_callback:
@@ -636,12 +629,12 @@ def _run_web_agent(
         else:
             status_msg = str(step.name)
 
-        if params.status_callback and status_msg:
+        if params.status_callback:
             params.status_callback(f"{status_msg}...")
         return None
 
     executor = SmolAgentExecutor(ctx)
-    return executor.execute_safe(agent, task, tool_call_handler=tool_call_handler, stop_message="Web search stopped by user.", error_prefix="Web search failed")
+    return executor.execute_safe(agent, task, tool_call_handler=tool_call_handler, stop_message=WEB_SEARCH_STOPPED_MSG, error_prefix="Web search failed")
 
 
 def _run_deep_web_research(
@@ -811,8 +804,8 @@ class WebResearchTool(ToolBase):
         udir = user_config_dir()
         raw_mb = get_config("chatbot.web_cache_max_mb")
         cache_max_mb = 0 if raw_mb <= 0 else max(1, min(500, raw_mb))
-        # web_cache_max_mb 0 disables the shared web cache. Page and search
-        # web_cache_max_mb 0 omits cache_path entirely so reads and writes both stay off.
+        # web_cache_max_mb 0 disables the shared web cache: cache_path is None,
+        # so page, search and research reads and writes all stay off.
         cache_path = os.path.join(udir, "writeragent_web_cache.db") if (udir and cache_max_mb > 0) else None
         cache_max_age_days = get_config("chatbot.web_cache_validity_days")
 

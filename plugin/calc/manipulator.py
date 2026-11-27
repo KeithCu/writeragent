@@ -58,9 +58,8 @@ from plugin.calc.error_detector import formula_error_cells
 from plugin.calc.formula_dialect import FormulaDialects, make_cell_address
 from plugin.calc.formula_fill import expand_single_formula, repeated_formula_columns
 from plugin.calc.python.addin_values import accepts_returned_any, is_failed_run_text
-from plugin.calc.python.cell_discovery import py_formula_or_none
 from plugin.calc.python.diagnostics import diagnostics_workbook_key, get_diagnostics_store
-from plugin.calc.python.formula_edit import repair_py_code_newlines
+from plugin.calc.python.formula_edit import py_formula_or_none, repair_py_code_newlines
 from plugin.calc.python.geometric_recalc_core import arg_overlaps_box
 from plugin.calc.datetime_wire import (
     coalesce_temporal_apply_rects,
@@ -267,7 +266,7 @@ def _with_notes(result: dict[str, Any], notes: Sequence[Diagnostic]) -> dict[str
     return result
 
 
-def _values_length_mismatch_message(range_name: str, n_vals: int, n_cells: int, rows: int, cols: int) -> str:
+def values_length_mismatch_message(range_name: str, n_vals: int, n_cells: int, rows: int, cols: int) -> str:
     """Loud error so the model can resize the array or the range (no silent zip/pad)."""
     hint = ""
     if cols == 1 and rows > 1:
@@ -277,7 +276,7 @@ def _values_length_mismatch_message(range_name: str, n_vals: int, n_cells: int, 
     return f"Array has {n_vals} values but range {range_name} has {n_cells} cells ({rows}×{cols}). JSON array must match range size exactly, or pass a single string to fill the whole range.{hint}"
 
 
-def _first_ragged_row(values: Sequence[Any]) -> int | None:
+def first_ragged_row(values: Sequence[Any]) -> int | None:
     """Return the 0-based index of the first row that is not a sequence matching row 1's length."""
     width = len(values[0])
     for idx, row in enumerate(values):
@@ -286,7 +285,7 @@ def _first_ragged_row(values: Sequence[Any]) -> int | None:
     return None
 
 
-def _grid_mismatch_message(
+def grid_mismatch_message(
     range_name: str,
     values: Sequence[Any],
     rows: int,
@@ -337,7 +336,7 @@ def parse_then_by(then_by: Any) -> list[SortKey] | None:
     return parsed
 
 
-def _sort_keys_width_error(range_str: str, keys: Sequence[SortKey], width: int) -> str | None:
+def sort_keys_width_error(range_str: str, keys: Sequence[SortKey], width: int) -> str | None:
     """Return the first out-of-range key error for a range of *width* columns; shared with the string harness."""
     for idx, (col, _unused) in enumerate(keys):
         if not 0 <= col < width:
@@ -346,7 +345,7 @@ def _sort_keys_width_error(range_str: str, keys: Sequence[SortKey], width: int) 
     return None
 
 
-def _sort_done_message(range_str: str, keys: Sequence[SortKey]) -> str:
+def sort_done_message(range_str: str, keys: Sequence[SortKey]) -> str:
     """Return the sort completion message for one or more keys; shared with the string harness."""
     if len(keys) == 1:
         col, asc = keys[0]
@@ -356,7 +355,7 @@ def _sort_done_message(range_str: str, keys: Sequence[SortKey]) -> str:
     return f"Range {range_str} sorted by {parts}."
 
 
-def _sort_unchanged_message(range_str: str, keys: Sequence[SortKey]) -> str:
+def sort_unchanged_message(range_str: str, keys: Sequence[SortKey]) -> str:
     """Return the no-op sort message telling the caller what to check instead of repeating; shared with the string harness."""
     if len(keys) == 1:
         return (
@@ -558,7 +557,7 @@ def _write_values_cell_ok(cell: Any) -> bool:
     return isinstance(cell, (str, int, float, bool))
 
 
-def _write_values_grid_cell_error(parsed_vals: list[Any]) -> str | None:
+def write_values_grid_cell_error(parsed_vals: list[Any]) -> str | None:
     """Reject nested structures before UNO."""
     if not parsed_vals:
         return None
@@ -815,7 +814,7 @@ def _refuse_circular_py(
             )
 
 
-def _parse_json_array_string(s: str) -> list[Any] | None:
+def parse_json_array_string(s: str) -> list[Any] | None:
     """Return the list when *s* is a JSON array string (semicolons outside quotes read as commas), else None.
 
     A model often sends the array as a JSON string, sometimes with Calc-style
@@ -850,7 +849,7 @@ def _parse_json_array_string(s: str) -> list[Any] | None:
     return None
 
 
-def _delimited_text_message(range_name: str, s: str, *, single_cell: bool) -> str | None:
+def delimited_text_message(range_name: str, s: str, *, single_cell: bool) -> str | None:
     """Return the refusal text when a plain string would be ambiguous as one value, else None."""
     # A plain string is one cell value. A model that sends a whole table as one
     # delimited string would otherwise see that text land in one cell, or repeated
@@ -1143,7 +1142,7 @@ class CellManipulator:
         # The schema's minimum is not enforced and the tool cannot know the width, so both
         # bounds for every key are checked here before any undo group exists (a refusal must
         # not sort an earlier range or clear Redo).
-        width_error = _sort_keys_width_error(range_str, keys, width)
+        width_error = sort_keys_width_error(range_str, keys, width)
         if width_error is not None:
             raise CalcError(width_error, code="INVALID_PARAM")
         return SortPlan(range_str, cell_range, height, keys)
@@ -1191,9 +1190,9 @@ class CellManipulator:
         cell_range.sort(tuple(sort_desc))
         if key_columns() == before:
             log.info("Range %s: key columns unchanged by the sort (keys=%s); no rows moved.", range_str.upper(), keys)
-            return _sort_unchanged_message(range_str, keys)
+            return sort_unchanged_message(range_str, keys)
         log.info("Range %s sorted with keys=%s.", range_str.upper(), keys)
-        return _sort_done_message(range_str, keys)
+        return sort_done_message(range_str, keys)
 
     def _make_number_formatter(self, doc: Any) -> Any:
         """Attach a NumberFormatter to *doc* once per write invocation.
@@ -1732,11 +1731,11 @@ class CellManipulator:
             # A JSON array string becomes the array; other text is refused when it
             # would be ambiguous as one value.
             if isinstance(values, str):
-                parsed = _parse_json_array_string(values)
+                parsed = parse_json_array_string(values)
                 if parsed is not None:
                     values = parsed
                 else:
-                    refusal = _delimited_text_message(range_str, values, single_cell=start == end)
+                    refusal = delimited_text_message(range_str, values, single_cell=start == end)
                     if refusal:
                         raise CalcError(refusal, code="INVALID_PARAM")
             caller_list = isinstance(values, (list, tuple))
@@ -1747,14 +1746,14 @@ class CellManipulator:
             bad_row: int | None = None
             if rows_2d:
                 r_cnt, c_cnt = len(values), len(values[0])
-                bad_row = _first_ragged_row(values)
+                bad_row = first_ragged_row(values)
                 if total > 1 and (bad_row is not None or (r_cnt, c_cnt) != (num_rows, num_cols)):
-                    raise CalcError(_grid_mismatch_message(range_str, values, num_rows, num_cols, start, bad_row))
+                    raise CalcError(grid_mismatch_message(range_str, values, num_rows, num_cols, start, bad_row))
             elif caller_list and len(values) != total:
-                raise CalcError(_values_length_mismatch_message(range_str, len(values), total, num_rows, num_cols))
+                raise CalcError(values_length_mismatch_message(range_str, len(values), total, num_rows, num_cols))
 
             if check_cell_types and caller_list:
-                err = _write_values_grid_cell_error(list(values))
+                err = write_values_grid_cell_error(list(values))
                 if err:
                     raise CalcError(err)
 
@@ -1762,7 +1761,7 @@ class CellManipulator:
             if rows_2d:
                 if total == 1:
                     if bad_row is not None:
-                        raise CalcError(_grid_mismatch_message(range_str, values, 1, 1, start, bad_row))
+                        raise CalcError(grid_mismatch_message(range_str, values, 1, 1, start, bad_row))
                     end = (start[0] + c_cnt - 1, start[1] + r_cnt - 1)
                     _check_write_cap(r_cnt * c_cnt)
                     range_str = format_range(start[0], start[1], end[0], end[1])

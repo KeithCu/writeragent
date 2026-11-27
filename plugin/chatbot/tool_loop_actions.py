@@ -27,6 +27,7 @@ from plugin.chatbot.tool_loop_state import (
     ExitLoopEffect,
     LogAgentEffect,
     MessageRole,
+    NO_TEXT_FROM_MODEL_BANNER,
     OUTCOME_STATUS_TEXT,
     SpawnFinalStreamEffect,
     SpawnLLMWorkerEffect,
@@ -87,6 +88,10 @@ def _describe_empty_response_tool_calls(tool_calls: Any) -> str:
     if isinstance(tool_calls, list):
         return str(len(tool_calls))
     return "present"
+
+
+def _empty_model_debug_line(round_num: int, response: Mapping[str, Any]) -> str:
+    return "[Debug: %s]" % format_empty_model_response_debug(round_num, response)
 
 
 def format_empty_model_response_debug(round_num: int, response: Mapping[str, Any]) -> str:
@@ -212,7 +217,7 @@ def format_replaced_zero_debug_line(func_args_str: str) -> str:
 
 
 def is_replaced_zero_result(result_data: Mapping[str, Any]) -> bool:
-    """True when apply_content reported zero replacements (structured or legacy message)."""
+    """True when apply_content reported replaced_count == 0."""
     # crosshair: off
     # Plain dict/str only — isinstance(str) is true for CrossHair LazyIntSymbolicStr.
     # Only a real int zero counts. ``replaced_count == 0`` is also true
@@ -376,16 +381,14 @@ class TurnController:
     def take_stripper_tail(self) -> str:
         """Finish the HTML stripper and return any held fragment.
 
-        Stop aborts the turn before the drain's finalize runs. The fragment
-        was still in the stripper, so the stored answer dropped the tail of
-        an unclosed tag.
+        Stop aborts the turn before the drain's finalize runs, so this flushes
+        any unclosed-tag tail still held in the stripper before the answer is stored.
         """
         stripper = self.stripper
         self.stripper = None
         if stripper is None:
             return ""
-        leftover = best_effort(stripper.finalize, "stripper finalize on stop failed", default="")
-        return leftover if isinstance(leftover, str) else ""
+        return best_effort(stripper.finalize, "stripper finalize on stop failed", default="")
 
     def take_open_text(self, host: Any) -> str:
         """Finish the stripper, fold any leftover tail into the open row, and return the open text.
@@ -410,13 +413,10 @@ class TurnController:
         if not self.can_write(host):
             return
         assert self.session is not None
-        # A second call sees a finished stripper and a last row that is not
-        # _open_transcript, so open_text() is empty and it stores another
-        # "No response." plus another STOP_LINE (including when the first
-        # call had already stored the open row). send_handlers.on_stopped and
-        # tool_loop._handle_stream_stopped both call this; the drain invokes
-        # on_stopped once, and the turn did not. _stop_committed is not
-        # _stop_banner_appended.
+        # Both send_handlers.on_stopped and tool_loop._handle_stream_stopped call this.
+        # A second call would find a finished stripper and no open row, and would store
+        # another "No response." and another STOP_LINE. _stop_committed guards the
+        # stored rows; _stop_banner_appended guards the painted line.
         if self._stop_committed:
             return
         self._stop_committed = True
@@ -480,8 +480,7 @@ def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool =
 
     Skip HTML rerender after an API error. Drain ERROR appends ``[API error: …]``;
     rerender looks up the previous HTML assistant message and
-    ``rollback_rich_insert`` would delete that error line
-    (HTTP 429/500 errors looked like a leftover hello).
+    ``rollback_rich_insert`` would delete that error line.
 
     Skip rerender after Stop. The Stop path already stored the partial answer
     and the ``[Stopped by user]`` row, then painted that list. A second paint
@@ -509,10 +508,9 @@ def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool =
     if leftover and not replaced:
         listener._append_response(leftover, role="assistant")
 
-    # Append STOP_LINE to the control for this stopped turn. Skipping
-    # rerender keeps the ramble from painting over the banner, and
-    # close_stopped only persisted the line on session.messages, so the
-    # control never drew [Stopped by user].
+    # Append STOP_LINE to the control for this stopped turn. Skipping rerender
+    # keeps the ramble from painting over the banner, and close_stopped only
+    # persists the line on session.messages, so the control draws it here.
     stop_requested = getattr(listener, "stop_requested", False) or not allow_rerender
     if stop_requested and not send_outcome_is_error(listener):
         if turn is not None:
@@ -544,30 +542,23 @@ def assign_send_outcome(host: Any, outcome: SendOutcome | None) -> None:
         host._orphan_send_outcome = outcome
 
 
+def _send_outcome(host: Any) -> SendOutcome | None:
+    turn = current_turn(host)
+    return turn.outcome if turn is not None else host._orphan_send_outcome
+
+
 def send_outcome_terminal_display(host: Any) -> str:
     """Map the turn outcome to the status-line literals ``_close_turn_ui`` expects."""
-    turn = current_turn(host)
-    if turn is not None:
-        oc = turn.outcome
-    else:
-        oc = getattr(host, "_orphan_send_outcome", None)
-    if oc is None:
-        return ""
-    return OUTCOME_STATUS_TEXT[oc]
+    oc = _send_outcome(host)
+    return "" if oc is None else OUTCOME_STATUS_TEXT[oc]
 
 
 def send_outcome_is_error(host: Any) -> bool:
-    turn = current_turn(host)
-    if turn is not None:
-        return turn.outcome == "error"
-    return getattr(host, "_orphan_send_outcome", None) == "error"
+    return _send_outcome(host) == "error"
 
 
 def send_outcome_is_stopped(host: Any) -> bool:
-    turn = current_turn(host)
-    if turn is not None:
-        return turn.outcome == "stopped"
-    return getattr(host, "_orphan_send_outcome", None) == "stopped"
+    return _send_outcome(host) == "stopped"
 
 
 def abort_turn(host: Any) -> None:
@@ -598,7 +589,7 @@ def begin_send_turn(host: Any) -> TurnController:
     if previous is not None:
         previous.abort()
     turn = TurnController(host.session)
-    orphan = getattr(host, "_orphan_send_outcome", None)
+    orphan = host._orphan_send_outcome
     if orphan is not None:
         turn.outcome = orphan
         host._orphan_send_outcome = None
@@ -726,6 +717,14 @@ def _queue_tool_failure(call_id: str, func_name: str, func_args_str: str, exc: B
     put_for_turn(turn, (StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, json.dumps(formatted, default=str)))
 
 
+def typed_api_key(client: LlmClient | None) -> str | None:
+    """Return the trimmed API key from ``client.config``, or ``None`` if absent or blank."""
+    if client is None:
+        return None
+    key = str(client.config.get("api_key") or "").strip()
+    return key or None
+
+
 def drop_mcp_image_without_vision(res: dict[str, Any], turn: Any) -> dict[str, Any]:
     """Keep image_get's ``_mcp_image`` only when the turn's chat model is known to have vision.
 
@@ -738,9 +737,8 @@ def drop_mcp_image_without_vision(res: dict[str, Any], turn: Any) -> dict[str, A
     vision = False
     if isinstance(turn, TurnController) and turn.text_model:
         model_id = turn.text_model
-        config = getattr(turn.active_client, "config", None)
-        typed_key = str(config.get("api_key") or "").strip() if isinstance(config, dict) else ""
-        vision = has_native_vision(model_id, turn.endpoint, api_key_override=typed_key or None) is True
+        typed_key = typed_api_key(turn.active_client)
+        vision = has_native_vision(model_id, turn.endpoint, api_key_override=typed_key) is True
     if vision:
         return res
     stripped = {key: value for key, value in res.items() if key != "_mcp_image"}
@@ -857,8 +855,8 @@ def build_tool_execute_fn(
 
                 if not put_for_turn(captured_turn, (StreamQueueKind.APPROVAL_REQUIRED, query_for_engine, tool_name, event)):
                     return (False, None)
-                # event.wait() ignored Stop. Sidebar close latches the
-                # checker and never sets the event, so this worker parked.
+                # wait_for_approval also wakes on Stop: sidebar close latches the
+                # scope and never sets the event.
                 if not wait_for_approval(event, send_cancellation) or not getattr(event, "approved", False):
                     put_for_turn(captured_turn, (StreamQueueKind.STOPPED,))
                     return (False, None)
@@ -968,7 +966,7 @@ class ToolLoopEffectInterpreter:
                 return True
             turn, q = target
             host._tool_calling._refresh_active_tools_for_session()
-            host._tool_calling._spawn_llm_worker(q, turn.active_client, turn.active_max_tokens, turn.active_tools or [], effect.round_num, query_text=turn.active_query_text)
+            host._tool_calling._spawn_llm_worker(q, turn.active_client, turn.active_max_tokens, turn.active_tools or [], effect.round_num)
         elif isinstance(effect, UpdateActivityStateEffect):
             update_activity_state(effect.phase, round_num=effect.round_num, tool_name=effect.tool_name)
         elif isinstance(effect, CleanupAudioEffect):
@@ -998,7 +996,6 @@ class ToolLoopEffectInterpreter:
             host._set_status("Error")
             return True
 
-        doc = None
         try:
             # The frame document is the live snapshot. The model captured on
             # the turn is what tool workers run against. Every action host has
@@ -1042,7 +1039,7 @@ class ToolLoopEffectInterpreter:
             if effect.func_name == "apply_content" and is_replaced_zero_result(result_data):
                 host._append_response(format_replaced_zero_debug_line(effect.func_args_str))
         elif effect.kind == UIEffectKind.EMPTY_MODEL_DEBUG:
-            debug = "[Debug: %s]" % format_empty_model_response_debug(effect.round_num, effect.response or {})
+            debug = _empty_model_debug_line(effect.round_num, effect.response or {})
             host._append_response("\n" + debug + "\n")
             log.warning("Tool loop: no assistant text from model: %s", debug.strip())
         elif effect.kind == UIEffectKind.DEBUG:
@@ -1051,9 +1048,8 @@ class ToolLoopEffectInterpreter:
     def _add_message(self, effect: AddMessageEffect) -> None:
         content = effect.content
         if effect.role == MessageRole.ASSISTANT and content is None and effect.response is not None:
-            banner = "[No text from model; any tool changes were still applied.]"
-            debug = "[Debug: %s]" % format_empty_model_response_debug(effect.round_num, effect.response)
-            content = banner + "\n" + debug
+            debug = _empty_model_debug_line(effect.round_num, effect.response)
+            content = NO_TEXT_FROM_MODEL_BANNER + "\n" + debug
 
         if effect.role == MessageRole.ASSISTANT:
             persist_assistant_on_turn(
@@ -1121,7 +1117,7 @@ class ToolLoopEffectInterpreter:
 
         # image_generate alone reads the image model combobox; getText failures must not
         # abort unrelated tool workers or become stream errors.
-        if effect.func_name == "image_generate" and isinstance(func_args, dict) and host.image_model_selector:
+        if effect.func_name == "image_generate" and host.image_model_selector:
             image_model_override = best_effort(
                 lambda: main.call(lambda: host.image_model_selector.getText()),
                 "image model selector unusable; image_generate keeps its arguments",

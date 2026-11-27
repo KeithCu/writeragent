@@ -855,10 +855,6 @@ def _copy_formatted_from_hidden_doc_to_control(
             if not inserted:
                 return "no_content_inserted"
             log_rich_scroll("copy_done", role=role)
-            log.info(
-                "_copy_formatted_from_hidden_doc_to_control: ok role=%s",
-                role,
-            )
             return None
         except Exception:
             log.exception("_copy_formatted_from_hidden_doc_to_control failed role=%s", role)
@@ -1154,10 +1150,6 @@ def append_formatted_row(
         )
         if direct_reason is None:
             inserted = True
-            log.info(
-                "append_formatted_row: insert ok via=direct_copy role=%s",
-                role,
-            )
         else:
             log.warning(
                 "append_formatted_row: formatted copy failed direct_copy_reason=%s role=%s",

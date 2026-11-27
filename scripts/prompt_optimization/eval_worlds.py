@@ -29,15 +29,15 @@ from plugin.calc.formula_fill import expand_single_formula
 from plugin.calc.inspector import grid_to_rows
 from plugin.calc.manipulator import (
     SortKey,
-    _delimited_text_message,
-    _first_ragged_row,
-    _grid_mismatch_message,
-    _parse_json_array_string,
-    _sort_done_message,
-    _sort_keys_width_error,
-    _sort_unchanged_message,
-    _values_length_mismatch_message,
-    _write_values_grid_cell_error,
+    delimited_text_message,
+    first_ragged_row,
+    grid_mismatch_message,
+    parse_json_array_string,
+    sort_done_message,
+    sort_keys_width_error,
+    sort_unchanged_message,
+    values_length_mismatch_message,
+    write_values_grid_cell_error,
     parse_then_by,
 )
 from plugin.writer.search import case_ladder, parse_non_negative_int, prepare_old_content
@@ -1005,7 +1005,7 @@ class CalcWorld:
             c0, r0, c1, r1 = parse_a1_range(range_str)
             width = c1 - c0 + 1
             keys: list[SortKey] = [(col_idx, ascending), *then_by]
-            width_error = _sort_keys_width_error(range_str, keys, width)
+            width_error = sort_keys_width_error(range_str, keys, width)
             if width_error is not None:
                 return make_tool_error(width_error, code="INVALID_PARAM")
             parsed_ranges.append((range_str, c0, r0, c1, r1, keys))
@@ -1018,7 +1018,7 @@ class CalcWorld:
             data_r0 = r0 + first_data_row
             data_r1 = min(r1, len(self._grid) - 1)
             if data_r1 - data_r0 < 1:
-                results.append(_sort_unchanged_message(range_str, keys))
+                results.append(sort_unchanged_message(range_str, keys))
                 continue
 
             slices = [
@@ -1045,9 +1045,9 @@ class CalcWorld:
             total_sorted_rows += len(slices)
 
             if after == before:
-                results.append(_sort_unchanged_message(range_str, keys))
+                results.append(sort_unchanged_message(range_str, keys))
             else:
-                results.append(_sort_done_message(range_str, keys))
+                results.append(sort_done_message(range_str, keys))
 
         if self._grid:
             self._headers = [str(c) if c is not None else "" for c in self._grid[0]]
@@ -1072,9 +1072,9 @@ class CalcWorld:
         scalar = False
         values: Any = raw_values
         if isinstance(values, str):
-            parsed = _parse_json_array_string(values)
+            parsed = parse_json_array_string(values)
             if parsed is None:
-                refusal = _delimited_text_message(rng, values, single_cell=(c0 == c1 and r0 == r1))
+                refusal = delimited_text_message(rng, values, single_cell=(c0 == c1 and r0 == r1))
                 if refusal:
                     return make_tool_error(refusal, code="INVALID_PARAM")
                 values = [values]
@@ -1091,19 +1091,19 @@ class CalcWorld:
         bad_row: int | None = None
         if rows_2d:
             r_cnt, c_cnt = len(values), len(values[0])
-            bad_row = _first_ragged_row(values)
+            bad_row = first_ragged_row(values)
             if total > 1 and (bad_row is not None or (r_cnt, c_cnt) != (num_rows, num_cols)):
                 return make_tool_error(
-                    _grid_mismatch_message(rng, values, num_rows, num_cols, (c0, r0), bad_row),
+                    grid_mismatch_message(rng, values, num_rows, num_cols, (c0, r0), bad_row),
                     code="CALC_ERROR",
                 )
         elif len(values) != total and not scalar:
             return make_tool_error(
-                _values_length_mismatch_message(rng, len(values), total, num_rows, num_cols),
+                values_length_mismatch_message(rng, len(values), total, num_rows, num_cols),
                 code="CALC_ERROR",
             )
         if not scalar:
-            cell_err = _write_values_grid_cell_error(values)
+            cell_err = write_values_grid_cell_error(values)
             if cell_err:
                 return make_tool_error(cell_err, code="CALC_ERROR")
         if not rows_2d:
@@ -1111,7 +1111,7 @@ class CalcWorld:
         if total == 1:
             if bad_row is not None:
                 return make_tool_error(
-                    _grid_mismatch_message(rng, values, 1, 1, (c0, r0), bad_row),
+                    grid_mismatch_message(rng, values, 1, 1, (c0, r0), bad_row),
                     code="CALC_ERROR",
                 )
             c1 = c0 + c_cnt - 1

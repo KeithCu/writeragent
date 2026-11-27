@@ -24,11 +24,11 @@ from contextvars import ContextVar
 from types import SimpleNamespace
 from typing import Any, Callable
 
-log = logging.getLogger(__name__)
-
 from plugin.scripting import writeragent_namespace
 from plugin.scripting.domain_registry import SCRIPT_ORIGIN_DOCUMENT, SCRIPT_ORIGIN_USER
 from plugin.scripting.host_tool_call import call_host_tool
+
+log = logging.getLogger(__name__)
 
 _NAMED_SCRIPT_MAX_BYTES = 200_000
 _IDENT_NON_ALNUM = re.compile(r"[^0-9A-Za-z]+")
@@ -43,7 +43,7 @@ LIST_NAMED_PYTHON_SCRIPTS = "list_named_python_scripts"
 
 def python_identifier_from_script_name(name: str) -> str:
     """Turn a picker title into a Python identifier (tweak here, not call sites)."""
-    raw = (name or "").strip()
+    raw = name.strip()
     ident = _IDENT_NON_ALNUM.sub("_", raw).strip("_")
     if not ident:
         ident = "_script"
@@ -66,7 +66,6 @@ def _import_time_has(node: ast.AST, kinds: tuple[type[ast.AST], ...]) -> bool:
     """True when *node* contains *kinds* outside nested function/class bodies and lambda bodies.
 
     Lambda defaults run while the library loads and are scanned; lambda bodies stay deferred.
-    Lambda bodies are not walked so import-time scanning does not treat deferred lambda code as load-time side effects.
     """
     pending: list[ast.AST] = [node]
     while pending:
@@ -266,7 +265,7 @@ def extract_library_source(code: str) -> str:
 
 # Caches stamped on the shared executor have two lifetimes:
 # _named_script_checked and _named_script_listing reset on every run in bind_named_scripts_executor;
-# _named_script_cache, _named_script_user_lib, and _named_script_doc_lib persist across runs.
+# _named_script_cache, _named_scripts_library and _named_doc_library persist across runs.
 def _executor_slot(executor: Any, attr: str, factory: Callable[[], Any]) -> Any:
     value = getattr(executor, attr, None)
     if value is None:
@@ -355,15 +354,10 @@ class ScriptLibrary:
         self._executor: Any | None = None
 
     def _resolve_executor(self) -> Any:
-        """Executor for this lookup.
+        """Executor for this lookup: the ContextVar when set, else the executor this library was created for.
 
-        One module-level ScriptLibrary stored ``_executor``, and
-        ``bind_named_scripts_executor`` overwrote it. ``__getattr__`` used
-        that field and ignored the ContextVar, so the next run stole lookups
-        that still held the old library object. ``writeragent`` is one
-        process-global module. Each executor keeps its own ScriptLibrary. The
-        timeout pool copies context, and ``self._executor`` is only for a lookup
-        whose ContextVar was never set.
+        ``writeragent`` is one process-global module, so the library object cannot be the source of truth;
+        the timeout pool copies context, and ``self._executor`` covers a lookup whose ContextVar was never set.
         """
         return _current_executor.get() or self._executor
 
@@ -444,10 +438,8 @@ def attach_named_script_libraries(executor: Any) -> None:
     alias = sys.modules.get("writeragent")
     if alias is not None and alias not in mods:
         mods.append(alias)
-    # Bind this execute's libraries onto the executor and point the alias
-    # module at those objects. Do not retarget a library another run still
-    # holds: one module-level ScriptLibrary meant a second document's run
-    # redirected the first run's object.
+    # Each executor owns its libraries; the alias module is pointed at them.
+    # A library another run still holds is never retargeted.
     scripts = _library_for_executor(executor, SCRIPT_ORIGIN_USER)
     doc = _library_for_executor(executor, SCRIPT_ORIGIN_DOCUMENT)
     for mod in mods:
@@ -460,10 +452,8 @@ def bind_named_scripts_executor(executor: Any) -> Any:
 
     Returns the ContextVar token so callers can reset it on completion.
 
-    Set the ContextVar only after attach succeeds. Attach stamps the executor
-    onto the library and does not read the var. Setting the var first meant a
-    raise in attach never reached ``_run_on_executor``'s finally, so the var
-    stayed bound to this executor on the thread.
+    Set the ContextVar only after attach succeeds: a raise in attach then
+    leaves no token for the caller's finally to reset.
     """
     executor._named_script_checked = set()
     executor._named_script_listing = None
@@ -472,11 +462,7 @@ def bind_named_scripts_executor(executor: Any) -> Any:
 
 
 def reset_named_scripts_executor(token: Any) -> None:
-    """Reset the ContextVar token from bind_named_scripts_executor.
-
-    Reset the ContextVar with the token from bind. Leaving it set leaked the
-    executor to later code on the same thread.
-    """
+    """Reset the ContextVar with the token from bind_named_scripts_executor, so the executor is not visible to later code on this thread."""
     _current_executor.reset(token)
 
 
@@ -514,6 +500,6 @@ def host_get_named_python_script(
     if len(code.encode("utf-8")) > _NAMED_SCRIPT_MAX_BYTES:
         raise RuntimeError(f"Named script {name!r} is too large to import as a library")
     digest = script_body_hash(code)
-    if known_hash and known_hash == digest:
+    if known_hash == digest:
         return {"unchanged": True, "hash": digest, "name": name, "origin": origin}
     return {"unchanged": False, "hash": digest, "name": name, "origin": origin, "code": code}

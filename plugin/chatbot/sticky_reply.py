@@ -26,8 +26,6 @@ if TYPE_CHECKING:
 STATUS_OK = "ok"
 STATUS_ERROR = "error"
 STATUS_INCOMPLETE = "incomplete"
-STATUS_FINISHED = "finished"
-STATUS_SWITCH_MODE = "switch_mode"
 
 
 def interpret_sticky_final_answer(output: Any, *, leave_status: str) -> dict[str, Any]:
@@ -115,6 +113,6 @@ class StickyReplyToUserTool(ToolBase):
                 "message": answer_text,
             }
             if self.mode.tracks_spec_saved:
-                payload["spec_saved"] = bool(self.spec_saved)
+                payload["spec_saved"] = self.spec_saved
             return payload
         return {"status": STATUS_OK, "result": answer_text}

@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+from plugin import _manifest
 from plugin.chatbot.dialogs import (
     get_checkbox_state,
     get_control_text,
@@ -35,11 +36,7 @@ ControlIdStyle = Literal["flat", "prefixed"]
 
 def find_module_manifest(module_name: str) -> dict[str, Any] | None:
     """Return the MODULES entry for *module_name*, or None if missing."""
-    try:
-        from plugin._manifest import MODULES
-    except ImportError:
-        return None
-    for m in cast("list[dict[str, Any]]", MODULES):
+    for m in cast("list[dict[str, Any]]", _manifest.MODULES):
         if str(m.get("name", "")) == module_name:
             return m
     return None

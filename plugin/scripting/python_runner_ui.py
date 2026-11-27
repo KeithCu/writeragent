@@ -24,11 +24,43 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from typing import Any, Callable, Literal
+from plugin.framework.config import get_config, save
+from plugin.framework.errors import is_disposal, resolve_exception_message
+from plugin.framework.i18n import _
 from plugin.framework.uno_listeners import (
     BaseActionListener,
     BaseItemListener,
     BaseTopWindowListener,
 )
+from plugin.framework.worker_pool import run_in_background
+from plugin.chatbot.dialogs import (
+    load_writeragent_dialog_detail,
+    msgbox,
+    set_control_enabled,
+    set_control_text,
+    show_approval_dialog,
+)
+from plugin.scripting.document_scripts import (
+    attach_document_script,
+    build_xdl_script_picker_state,
+    delete_script_from_origin,
+    document_script_display_name,
+    get_document_scripts,
+    get_user_scripts,
+    read_only_helper_message,
+    resolve_run_script_name_config_key,
+    resolve_script_picker_entry,
+    save_script_to_origin,
+    save_user_script,
+    script_origin_is_writable,
+    script_saved_message,
+)
+from plugin.scripting.domain_registry import SCRIPT_ORIGIN_DOCUMENT, SCRIPT_ORIGIN_USER
+from plugin.scripting.editor_errors import exception_traceback
+from plugin.scripting.script_dialogs import show_new_script_dialog
+from plugin.scripting.venv_worker import warm_venv_worker
+
+log = logging.getLogger("writeragent.scripting")
 
 
 class _FnListener(BaseActionListener, BaseItemListener):
@@ -69,40 +101,6 @@ def close_modeless_dialog(dlg: Any, *, toolkit_teardown: bool = False, log_label
         dlg.dispose()
     except Exception:
         log.debug("%s: dispose failed", log_label, exc_info=True)
-
-
-from plugin.framework.config import get_config, save
-from plugin.framework.errors import is_disposal, resolve_exception_message
-from plugin.framework.i18n import _
-from plugin.chatbot.dialogs import (
-    load_writeragent_dialog_detail,
-    msgbox,
-    set_control_enabled,
-    set_control_text,
-    show_approval_dialog,
-)
-from plugin.scripting.script_dialogs import show_new_script_dialog
-from plugin.framework.worker_pool import run_in_background
-from plugin.scripting.document_scripts import (
-    attach_document_script,
-    build_xdl_script_picker_state,
-    delete_script_from_origin,
-    document_script_display_name,
-    get_document_scripts,
-    get_user_scripts,
-    read_only_helper_message,
-    resolve_run_script_name_config_key,
-    resolve_script_picker_entry,
-    save_script_to_origin,
-    save_user_script,
-    script_origin_is_writable,
-    script_saved_message,
-)
-from plugin.scripting.domain_registry import SCRIPT_ORIGIN_DOCUMENT, SCRIPT_ORIGIN_USER
-from plugin.scripting.editor_errors import exception_traceback
-from plugin.scripting.venv_worker import warm_venv_worker
-
-log = logging.getLogger("writeragent.scripting")
 
 
 @dataclass(frozen=True)
@@ -255,7 +253,7 @@ class NativePythonScriptDialog:
             select_ctrl = dlg.getControl("ScriptSelect")
             self._select_ctrl = select_ctrl
 
-            # Re-initialize picker items and selection cleanly
+            # Fill the picker and select the last-used script.
             self._refresh_script_dropdown()
             self._wire_listeners(dlg, select_ctrl)
 
@@ -386,7 +384,7 @@ class NativePythonScriptDialog:
                     try:
                         _report_run_outcome(ctx, lbl, outcome)
                         if not outcome.get("ok"):
-                            set_control_text(lbl, str(outcome.get("message") or _("Execution Error")))
+                            set_control_text(lbl, str(outcome.get("message") or _("Unknown error")))
                         elif save_res.channel == "builtin" and save_res.text:
                             set_control_text(lbl, save_res.text)
                     finally:
@@ -426,8 +424,8 @@ class NativePythonScriptDialog:
                 )
 
                 prompted = show_new_script_dialog(
-                    self._ctx,
-                    doc=self._doc,
+                    ctx,
+                    doc=doc,
                     default_name=real_curr,
                     title=_("Save Script As"),
                     default_attach=(curr_origin == SCRIPT_ORIGIN_DOCUMENT),
@@ -477,7 +475,7 @@ class NativePythonScriptDialog:
 
         def _on_new() -> None:
             try:
-                prompted = show_new_script_dialog(self._ctx, doc=self._doc)
+                prompted = show_new_script_dialog(ctx, doc=doc)
                 if prompted is None:
                     return
                 name, attach_to_document = prompted
@@ -544,15 +542,14 @@ def show_python_input_dialog(
 def _report_run_outcome(ctx: Any, lbl: Any | None, outcome: dict[str, Any]) -> None:
     """Update native dialog status / msgboxes after Run."""
     if not outcome.get("ok"):
-        msgbox(ctx, _("Execution Error"), outcome.get("message", _("Unknown error")))
+        msgbox(ctx, _("Execution Error"), outcome.get("message") or _("Unknown error"))
         return
     status_text = outcome.get("status_ok_text", _("Script executed successfully."))
     if outcome.get("no_output"):
         msgbox(ctx, _("Success"), status_text)
     elif outcome.get("stdout"):
-        # Printed text belongs in this box even when the script also returned
-        # a value. The result is inserted into the document; requiring
-        # result is None hid that stdout.
+        # Printed text is shown here even when the script also returned a value;
+        # the value goes into the document.
         msgbox(ctx, _("Output"), outcome.get("stdout"))
     if lbl is not None:
         set_control_text(lbl, status_text)

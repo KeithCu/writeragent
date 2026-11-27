@@ -85,10 +85,10 @@ class VenvProbeProgressDialog:
             assert dlg is not None
 
             def on_display(text: str) -> None:
-                main.post(lambda body=text: self.set_display(body))
+                main.post(self.set_display, text)
 
             def on_status(text: str) -> None:
-                main.post(lambda status=text: self.set_status(status))
+                main.post(self.set_status, text)
 
             def post_finish(success: bool, body: str | None) -> None:
                 def ui() -> None:
@@ -106,7 +106,7 @@ class VenvProbeProgressDialog:
                     post_finish(ok, msg)
                 except BaseException as exc:
                     log.exception("Scripting venv probe failed")
-                    err_msg = str(exc) or ""
+                    err_msg = str(exc)
 
                     def fail_ui() -> None:
                         self.set_display(err_msg)
@@ -144,9 +144,7 @@ class VenvProbeProgressDialog:
         return True
 
     def _parent_progress_dialog(self, dlg: Any) -> None:
-        """Parent this modal to Settings before execute().
-
-        Parents the modal to Settings via createPeer so the progress window is anchored to the
+        """Parents the modal to Settings via createPeer so the progress window is anchored to the
         settings dialog instead of floating as a separate top-level window.
         """
         parent = _dialog_parent_for_child(self._ctx, self._parent_dlg)
