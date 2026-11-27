@@ -206,9 +206,9 @@ def cache_put_sentence(
 
     if doc_id:
         p = get_persistence(doc_id)
-        assert p is not None
-        _align_persistence_identity(p, ident)
-        p.put(entry.fingerprint, locale_key, entry.errors)
+        if p is not None:
+            _align_persistence_identity(p, ident)
+            p.put(entry.fingerprint, locale_key, entry.errors)
         # With a doc_id, the incomplete-prefix compaction below is skipped;
         # L1 is already warm from _populate_memory_cache_only.
         return

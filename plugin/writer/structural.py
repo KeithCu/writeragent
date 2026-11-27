@@ -53,6 +53,7 @@ if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
 log = logging.getLogger(__name__)
+_VIEW_CURSOR_ERR = "Cannot resolve view cursor page: %s"
 
 
 def _at_page_anchor_page(obj: Any) -> Any | None:
@@ -127,12 +128,11 @@ class GetPageObjects(ToolBase):
             if page >= total:
                 return self._tool_error(page_not_found_message(page, total))
             lo_page = page + 1
-        view_cursor_err = "Cannot resolve view cursor page: %s"
         try:
             vc = doc.getCurrentController().getViewCursor()
         except Exception as exc:
             reraise_if_disposed(exc)
-            return self._tool_error(view_cursor_err % exc)
+            return self._tool_error(_VIEW_CURSOR_ERR % exc)
 
         if page is None:
             locator = kwargs.get("locator")
@@ -154,7 +154,7 @@ class GetPageObjects(ToolBase):
                     lo_page = vc.getPage()
                 except Exception as exc:
                     reraise_if_disposed(exc)
-                    return self._tool_error(view_cursor_err % exc)
+                    return self._tool_error(_VIEW_CURSOR_ERR % exc)
             if lo_page <= 0:
                 return self._tool_error("Cannot resolve page: invalid page %s" % lo_page)
 

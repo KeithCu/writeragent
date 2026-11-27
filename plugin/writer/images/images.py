@@ -59,10 +59,6 @@ from plugin.framework.config_schema import DEFAULT_IMAGE_BASE_SIZE
 from plugin.framework.client.base_provider_shim import canonical_aspect_ratio, closest_aspect_label
 from plugin.framework.client.model_fetcher import get_image_model
 from plugin.framework.model_lru import update_lru_history
-
-# Queue pickup bound for document mutations when bytes are already in hand.
-# Independent of the HTTP read budget so a short network timeout doesn't drop an insert.
-_DOCUMENT_MARSHAL_TIMEOUT_SEC = 120.0
 from plugin.doc.document_research import list_nearby_files
 from plugin.doc.paragraph_search import paragraph_entries
 from plugin.doc import visual_helpers
@@ -79,6 +75,10 @@ from .image_tools import (
     insert_image_into_header_footer,
     replace_graphic_source,
 )
+
+# Queue pickup bound for document mutations when bytes are already in hand.
+# Independent of the HTTP read budget so a short network timeout doesn't drop an insert.
+_DOCUMENT_MARSHAL_TIMEOUT_SEC = 120.0
 
 log = logging.getLogger("writeragent.writer")
 

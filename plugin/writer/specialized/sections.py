@@ -123,7 +123,7 @@ def _password_matches(key: Any, password: str) -> bool:
     return any(key == d for d in digests)
 
 
-def _section_summary(name: str, section: Any, *, is_visible: bool | None = None) -> dict[str, Any]:
+def _section_summary(name: str, section: Any) -> dict[str, Any]:
     is_index = section.getPropertyValue("DocumentIndex") is not None
     prot_key = section.getPropertyValue("ProtectionKey")
     has_password = bool(prot_key)
@@ -131,7 +131,7 @@ def _section_summary(name: str, section: Any, *, is_visible: bool | None = None)
     column_count = max(1, int(cols.getColumnCount())) if cols is not None else 1
     return {
         "name": name,
-        "is_visible": section.IsVisible if is_visible is None else is_visible,
+        "is_visible": section.IsVisible,
         "is_protected": section.IsProtected,
         "is_index": is_index,
         "has_password": has_password,
@@ -139,9 +139,10 @@ def _section_summary(name: str, section: Any, *, is_visible: bool | None = None)
     }
 
 
-def _own_shown(section: Any) -> bool:
+def _own_shown(section: Any, visible: bool | None = None) -> bool:
     """True when *section* itself is shown (ignoring ancestor section visibility)."""
-    visible = bool(section.getPropertyValue("IsVisible"))
+    if visible is None:
+        visible = bool(section.getPropertyValue("IsVisible"))
     # IsCurrentlyVisible is !IsCondHidden, which starts False on fresh sections without a
     # condition (section.cxx constructor), so only the OR reflects this section's own state.
     return visible or bool(section.getPropertyValue("IsCurrentlyVisible"))
@@ -151,7 +152,7 @@ def _visibility_fields(section: Any) -> dict[str, Any]:
     visible = bool(section.getPropertyValue("IsVisible"))
     # SwSection::CalcHiddenFlag (sw/source/core/docnode/section.cxx) hides a section when it
     # or any ancestor section is hidden.
-    shown = visible or bool(section.getPropertyValue("IsCurrentlyVisible"))
+    shown = _own_shown(section, visible)
     parent = section.getParentSection()
     while shown and parent is not None:
         shown = _own_shown(parent)
@@ -290,7 +291,7 @@ class SectionGetInfo(ToolWriterSectionBase):
         vis = _visibility_fields(section)
         return {
             "status": "ok",
-            **_section_summary(name, section, is_visible=vis["is_visible"]),
+            **_section_summary(name, section),
             **vis,
             **_margin_fields(section),
             "parent_section": parent.getName() if parent is not None else None,

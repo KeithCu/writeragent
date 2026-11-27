@@ -570,6 +570,7 @@ beans = _create_mock_module("com.sun.star.beans")
 setattr(beans, "PropertyValue", MockPropertyValue)
 setattr(beans, "NamedValue", MockPropertyValue)
 setattr(beans, "XPropertySet", MockXPropertySet)
+setattr(beans, "UnknownPropertyException", type("UnknownPropertyException", (Exception,), {}))
 
 sheet = _create_mock_module("com.sun.star.sheet")
 setattr(sheet, "ConditionOperator", MockBase)

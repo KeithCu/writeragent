@@ -94,7 +94,8 @@ class HarperProofreader(WriterAgentAiGrammarProofreader):  # pyright: ignore[rep
         if skip_register_ui:
             return
         # LibreHarper has no OnStartApp job; start harper-ls only once the profile path exists
-        # (an empty path would resolve harper/ relative to soffice cwd and FAIL).
+        # (an empty path would resolve harper/ relative to soffice cwd and FAIL, blocking
+        # doProofreading for the fail cooldown).
         try:
             init_config(ctx)
             ucd = user_config_dir() or ""

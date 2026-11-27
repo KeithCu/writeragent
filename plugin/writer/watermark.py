@@ -180,13 +180,13 @@ def _update_inactive_watermarks(doc: Any, text: str) -> None:
             and shape.getString() == text
         ):
             model = shape
-    if not inactive or model is None:
+    if not inactive:
         return
     with UndoLock(doc):
         for shape in inactive:
             shape.setString(text)
             for name in _WATERMARK_LOOK_PROPS:
-                shape.setPropertyValue(name, model.getPropertyValue(name))
+                shape.setPropertyValue(name, cast("Any", model).getPropertyValue(name))
 
 
 def _public_watermark(state: dict[str, Any]) -> dict[str, Any] | None:

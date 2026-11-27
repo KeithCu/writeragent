@@ -245,7 +245,7 @@ _SINGLE_SENTENCE_PROVIDERS: dict[str, _ProviderSpec] = {
 }
 
 
-def _get_paragraph_text_for_range(model: Any, rng: Any) -> str | None:
+def _get_paragraph_text_for_range(rng: Any) -> str | None:
     """Return the entire paragraph string containing rng, or None."""
     try:
         # A Writer range always has a parent text (SwXTextRange::getText).
@@ -280,7 +280,7 @@ def apply_language_change(
         new_locale = uno.createUnoStruct("com.sun.star.lang.Locale", Language=lang, Country=country)
 
         def _paragraph_ok(rng: Any) -> bool:
-            return not paragraph_text or _get_paragraph_text_for_range(model, rng) == paragraph_text
+            return not paragraph_text or _get_paragraph_text_for_range(rng) == paragraph_text
 
         ctrl = model.getCurrentController()
         view_cursor = ctrl.getViewCursor() if ctrl is not None else None

@@ -30,8 +30,7 @@ import logging
 from typing import Any, Callable, cast
 
 import uno
-# com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK
-_PARAGRAPH_BREAK = 0
+from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK  # type: ignore
 
 from plugin.doc.text_helpers import TrackedDeletions, iter_elements, iter_portions
 from plugin.doc.undo import commit_or_rollback_mutation
@@ -308,7 +307,10 @@ class IndexesUpdateAll(ToolWriterIndexBase):
         count = indexes.getCount()
         # sw/source/core/doc/doctxm.cxx:SwTOXBaseSection::Update calls DeleteRedline on
         # the whole index section whether or not Track Changes is recording.
-        entries = [(indexes.getByIndex(i), _index_name(indexes.getByIndex(i), i)) for i in range(count)]
+        entries = []
+        for i in range(count):
+            idx = indexes.getByIndex(i)
+            entries.append((idx, _index_name(idx, i)))
         dirty = [
             name for idx, name in entries
             if range_has_tracked_insert_or_delete(doc, idx.getAnchor())
@@ -434,7 +436,7 @@ def toc_match(
 def _locate_toc_entry(
     tool: Any,
     doc: Any,
-    old_content: Any,
+    old_content: str,
     index: Any,
     occurrence: Any,
     *,
@@ -447,7 +449,7 @@ def _locate_toc_entry(
     if err is not None:
         return None, None, None, err
     found, find_error = toc_match(
-        doc, anchor, str(old_content).strip(), occ, case_sensitive=case_sensitive
+        doc, anchor, old_content.strip(), occ, case_sensitive=case_sensitive
     )
     if find_error:
         return None, None, None, tool._tool_error(find_error, code="NOT_FOUND")
@@ -758,13 +760,13 @@ def _insert_toc_paragraph(
     if position == "before":
         cursor = text.createTextCursorByRange(ref_para.getStart())
         cursor.gotoStartOfParagraph(False)
-        text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+        text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
         if cursor.gotoPreviousParagraph(False) is not True:
             raise RuntimeError("could not reach the inserted TOC paragraph")
     else:
         cursor = text.createTextCursorByRange(ref_para.getEnd())
         cursor.gotoEndOfParagraph(False)
-        text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+        text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
     text.insertString(cursor, new_text, False)
     para = _select_paragraph(cursor)
     para.setPropertyValue("ParaStyleName", style_name)
@@ -869,10 +871,9 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
         crossing_err = crossing_match_error(doc, found, recorded=edit_is_recorded(doc))
         if crossing_err is not None:
             return crossing_err
-        preview, preview_error = self._preview(found, content, override)
-        if preview_error is not None:
-            return preview_error
-        assert preview is not None
+        preview = self._preview(found, content, override)
+        if preview.get("status") == "error":
+            return preview
         return self._write(
             ctx, doc, idx, found, content, override, preview, bool(kwargs.get("dry_run"))
         )
@@ -884,17 +885,17 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
                 code="INVALID_PARAM")
         return None
 
-    def _preview(self, found: Any, content: str, override: Any) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    def _preview(self, found: Any, content: str, override: Any) -> dict[str, Any]:
         snapshot = capture_outline_hyperlinks(found)
         err = self._override_error(override, snapshot)
         if err is not None:
-            return None, err
+            return err
         plans = plan_outline_updates(snapshot.links, snapshot.matched, content, override)
         reports = public_hyperlink_reports(plans)
         before, after = _entry_before(found, content)
         preview: dict[str, Any] = {"text": before, "text_after": after}
         preview.update(hyperlink_fields(reports))
-        return preview, None
+        return preview
 
     def _write(
         self,
@@ -1088,7 +1089,7 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
         if url_error:
             return self._tool_error(url_error, code="INVALID_PARAM")
         position = kwargs["position"]
-        old_content = kwargs.get("old_content")
+        old_content: str | None = kwargs.get("old_content")
         occurrence, occurrence_error = parse_non_negative_int(kwargs.get("occurrence"))
         if position == "end":
             if old_content not in (None, ""):
@@ -1100,7 +1101,7 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
                     "occurrence is only used when position is before or after.",
                     code="INVALID_PARAM")
         else:
-            if not isinstance(old_content, str) or not old_content.strip():
+            if not old_content or not old_content.strip():
                 return self._tool_error(
                     "old_content is required when position is before or after.",
                     code="INVALID_PARAM")
@@ -1127,7 +1128,7 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
             found, find_error = toc_match(
                 doc,
                 anchor,
-                (old_content or "").strip(),
+                cast("str", old_content).strip(),
                 occurrence,
                 case_sensitive=kwargs.get("case_sensitive"),
             )

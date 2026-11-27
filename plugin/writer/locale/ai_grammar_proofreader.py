@@ -131,6 +131,14 @@ def _is_text_document(model: Any) -> bool:
     return uno_context.supports_service(model, _TEXT_DOCUMENT_SERVICE)
 
 
+def _harper_module() -> types.ModuleType:
+    """Return ``plugin.writer.locale.harper``, importing it on first use."""
+    # Weight: harper.py loads the harper-ls LSP client and binary downloader; import it only on the Harper path.
+    from plugin.writer.locale import harper
+
+    return harper
+
+
 # Starts with a private-use character, so no document paragraph equals it.
 _DOC_ID_PROBE_TEXT = "\ue000WriterAgent document id probe."
 
@@ -211,14 +219,6 @@ def _ensure_persistence_bound(ctx: Any, doc_id: str, locale: Any) -> Any | None:
     except Exception:
         log.exception("[grammar] persistence bind failed")
         return None
-
-
-def _harper_module() -> types.ModuleType:
-    """Return ``plugin.writer.locale.harper``, importing it on first use."""
-    # Weight: harper.py loads the harper-ls LSP client and binary downloader; import it only on the Harper path.
-    from plugin.writer.locale import harper
-
-    return harper
 
 
 def _ignore_rule_on_main(doc_id: str, rule_identifier: str) -> None:
@@ -309,10 +309,11 @@ def ensure_writeragent_proofreader_configured(ctx: Any) -> None:
         ucd = user_config_dir() or ""
     except Exception:
         ucd = ""
+    # Empty profile path would resolve harper/ relative to soffice cwd and FAIL,
+    # blocking doProofreading for the fail cooldown (Writer will not walk again).
     if not ucd:
         log.debug("[grammar] skip harper warmup: user config dir not ready")
         return
-    # Empty profile path would resolve harper/ relative to soffice cwd and FAIL.
     try:
         _harper_module().maybe_start_harper_async(ucd)
     except Exception as e:

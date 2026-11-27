@@ -29,7 +29,9 @@ import time
 from typing import Any, NoReturn
 import unicodedata
 
-from plugin.framework.errors import ToolExecutionError, is_disposal
+from com.sun.star.beans import UnknownPropertyException  # type: ignore
+
+from plugin.framework.errors import ToolExecutionError
 from plugin.framework.grammar_rule_ids import ISO_TO_SNOWBALL
 from plugin.framework.service import ServiceBase
 from plugin.doc.document_helpers import is_cacheable_doc_key
@@ -79,6 +81,8 @@ def _normalized_stop_words(snowball_lang: str) -> frozenset[str]:
 
 def _locale_language(loc: Any) -> str | None:
     """ISO language of a UNO Locale, lowercased; 'zxx' (no linguistic content) is ignored."""
+    if loc is None:
+        return None
     raw = loc.Language.strip().lower()
     iso = raw.replace("-", "_").split("_")[0]
     if len(iso) not in (2, 3) or iso == "zxx":
@@ -198,9 +202,8 @@ class IndexService(ServiceBase):
                 iso = _locale_language(doc.getPropertyValue(prop))
                 if iso is not None:
                     return iso
-            except Exception as exc:  # not every document model exposes all three
-                if is_disposal(exc):
-                    raise
+            except UnknownPropertyException:  # not every document model exposes all three
+                pass
         text_obj = doc.getText()
         enum = text_obj.createEnumeration()
         state = TrackedDeletions(doc).state_at(text_obj)
@@ -211,9 +214,7 @@ class IndexService(ServiceBase):
                 continue
             try:
                 loc = el.getPropertyValue("CharLocale")
-            except Exception as exc:  # missing CharLocale property falls through to next paragraph
-                if is_disposal(exc):
-                    raise
+            except UnknownPropertyException:  # missing CharLocale property falls through to next paragraph
                 continue
             iso = _locale_language(loc)
             if iso is not None:

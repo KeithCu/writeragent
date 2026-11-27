@@ -738,9 +738,9 @@ def resolve_agent_change(
         return ResolveResult(ResolveStatus.PARTIAL), after
     except Exception as exc:
         if is_disposal(exc) and not dispatched:
-            log.warning("inline_review: _resolve_multi_text_change aborted on disposed document for %s", token)
+            log.warning("inline_review: resolve_agent_change aborted on disposed document for %s", token)
             return ResolveResult(ResolveStatus.UNRELIABLE), before
-        log.exception("inline_review: _resolve_multi_text_change failed")
+        log.exception("inline_review: resolve_agent_change failed")
         return ResolveResult(ResolveStatus.PARTIAL if dispatched else ResolveStatus.UNRELIABLE), before
 
 
@@ -810,9 +810,9 @@ def _resolve_multi_text_change(
         return ResolveResult(ResolveStatus.PARTIAL), cur_view
     except Exception as exc:
         if is_disposal(exc) and not dispatched:
-            log.warning("inline_review: _resolve_multi_text_change aborted on disposed document for %s", token)
+            log.warning("inline_review: resolve_agent_change aborted on disposed document for %s", token)
             return ResolveResult(ResolveStatus.UNRELIABLE), before
-        log.exception("inline_review: _resolve_multi_text_change failed")
+        log.exception("inline_review: resolve_agent_change failed")
         return ResolveResult(ResolveStatus.PARTIAL if dispatched else ResolveStatus.UNRELIABLE), before
 
 
