@@ -329,7 +329,7 @@ class LlmClient:
 
             n_ctx = peek_live_ollama_num_ctx(self)
             log_http_500_request_diag(self, response, path, body, err_body, n_ctx=n_ctx)
-        err_msg = format_http_error_response(st, str(response.reason or ""), str(err_body), context_window=n_ctx)
+        err_msg = format_http_error_response(st, response.reason or "", err_body, context_window=n_ctx)
         return append_zai_unknown_model_hint(err_msg, err_body, path, self._get_provider(), request_model)
 
     def _wire_secrets(self) -> list[str]:
@@ -715,13 +715,11 @@ class LlmClient:
         slot: dict[str, Any] = {"pending": None, "body": body, "used": False, "unsupported": False}
         on_bad_request = self._effort_on_bad_request(active, slot)
 
-        prepared = accepted_effort_body(
+        body = accepted_effort_body(
             self._get_shim()._reasoning_provider(),
             self._endpoint(),
             body,
         )
-        assert isinstance(prepared, bytes)
-        body = prepared
 
         def consume(response: Any, budget: RetryBudget) -> str | None:
             # on_delta writes role, usage, and a buffered "<think" prefix into
@@ -1191,9 +1189,7 @@ class LlmClient:
                 except Exception as log_exc:
                     log.warning("Could not log redacted outgoing messages: %s", log_exc)
 
-            prepared_sync = accepted_effort_body(self._get_shim()._reasoning_provider(), self._endpoint(), body)
-            assert isinstance(prepared_sync, bytes)
-            body = prepared_sync
+            body = accepted_effort_body(self._get_shim()._reasoning_provider(), self._endpoint(), body)
             try:
                 result = self._exchange_json(
                     method,

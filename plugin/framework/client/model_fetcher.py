@@ -447,7 +447,7 @@ def endpoint_url_suitable_for_v1_models_fetch(endpoint: str) -> bool:
         p = urllib.parse.urlparse(endpoint.strip())
         # Accessing .port raises ValueError on invalid port strings (e.g. '1a') or out-of-range ints (>65535).
         # Reject bad port values at the suitability gate.
-        p.port  # raises ValueError for a bad port
+        p.port
     except ValueError:
         return False
     if p.scheme not in ("http", "https"):
@@ -1499,7 +1499,6 @@ def has_native_vision(model_id: Any, endpoint: Any, *, api_key_override: str | N
         if on_ui_thread:
             _schedule_vision_lookup(support_key, model_id_str, raw_ep, api_key_override)
         else:
-            assert not main.is_current()
             if provider == "ollama":
                 query_ollama_show(raw_ep, model_id_str)
             elif _vision_list_url(provider, raw_ep):
@@ -1677,22 +1676,22 @@ def cached_v1_context_tokens(endpoint: str, model_id: str, provider: str | None 
         return None
     memo = _get_catalog_memo(endpoint, api_key_override)
     lengths = memo.context_tokens
-    if not isinstance(lengths, dict) or not lengths:
+    if not lengths:
         return None
     mid = str(model_id).strip()
     tokens = lengths.get(mid)
-    if isinstance(tokens, int) and tokens > 0:
+    if tokens:
         return tokens
     if provider == "openrouter":
         for cached_id, cached_tokens in lengths.items():
-            if isinstance(cached_tokens, int) and cached_tokens > 0 and openrouter_model_ids_equivalent(cached_id, mid):
+            if cached_tokens and openrouter_model_ids_equivalent(cached_id, mid):
                 return cached_tokens
     return None
 
 
 def resolve_context_window(client: Any, model_id: str | None = None) -> int | None:
     """Ollama: live ``num_ctx`` only. Else cached /v1/models, then catalog. None → skip compact."""
-    model_id = str(model_id or (client.config or {}).get("model") or "").strip() or None
+    model_id = str(model_id or client.config.get("model") or "").strip() or None
     if not model_id:
         return None
     provider = best_effort(lambda: client._get_provider(), "resolve_context_window: provider")
@@ -1702,15 +1701,12 @@ def resolve_context_window(client: Any, model_id: str | None = None) -> int | No
         # Missing num_ctx → None; do not fall back to v1 cache or catalog.
         if not endpoint:
             return None
-        num_ctx = query_ollama_runtime_num_ctx(endpoint, model_id)
-        if isinstance(num_ctx, int) and num_ctx > 0:
-            return num_ctx
-        return None
+        return query_ollama_runtime_num_ctx(endpoint, model_id)
     if endpoint:
         # Harvest-only: Settings/sidebar already fetched. Do not GET /v1/models here.
-        typed_key = str((client.config or {}).get("api_key") or "").strip()
-        live = cached_v1_context_tokens(endpoint, model_id, provider, api_key_override=typed_key if typed_key else None)
-        if isinstance(live, int) and live > 0:
+        typed_key = str(client.config.get("api_key") or "").strip()
+        live = cached_v1_context_tokens(endpoint, model_id, provider, api_key_override=typed_key or None)
+        if live:
             return live
     for row in DEFAULT_MODELS:
         rid = resolve_model_id(row, provider)

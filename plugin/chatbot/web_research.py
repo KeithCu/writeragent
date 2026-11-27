@@ -30,7 +30,7 @@ from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Callable, Protocol, final
 
-from plugin.framework.errors import ToolExecutionError, best_effort, format_error_payload
+from plugin.framework.errors import ToolExecutionError, best_effort, format_error_payload, user_stopped_payload
 from plugin.framework.logging import redact_sensitive_payload_for_log
 from plugin.framework.send_cancellation import SendCancellation, unpack_approval
 from plugin.framework.i18n import _
@@ -489,8 +489,6 @@ WEB_SEARCH_STOPPED_MSG = "Web search stopped by user."
 
 
 def _user_stopped_payload() -> dict[str, Any]:
-    from plugin.framework.errors import user_stopped_payload
-
     return user_stopped_payload(WEB_SEARCH_STOPPED_MSG)
 
 

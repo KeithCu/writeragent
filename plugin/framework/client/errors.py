@@ -108,22 +108,21 @@ def format_http_error_response(
     become a plain sentence (issue #570). The raw dict stays in ERROR logs.
     Missing ``context_window`` is fine — the sentence still explains overflow.
     """
-    status_num = status
     reason_str = str(reason or "")
-    if status_num == 500 and err_body and is_local_model_server_crash(err_body):
+    if status == 500 and err_body and is_local_model_server_crash(err_body):
         return local_model_overflow_message(context_window)
     body = err_body.strip()
-    mapped = http_status_message(status_num) if (status_num == 429 or not body) else None
+    mapped = http_status_message(status) if (status == 429 or not body) else None
     label = source or _("AI Provider")
     if mapped is not None:
         base = mapped
     elif not reason_str:
-        formatted = _("HTTP Error {0} from {1}: {2}").format(status_num, label, "").rstrip()
+        formatted = _("HTTP Error {0} from {1}: {2}").format(status, label, "").rstrip()
         if formatted.endswith((":", "：")):
             formatted = formatted[:-1].rstrip()
         base = formatted
     else:
-        base = _("HTTP Error {0} from {1}: {2}").format(status_num, label, reason_str)
+        base = _("HTTP Error {0} from {1}: {2}").format(status, label, reason_str)
     if not body:
         return base
     data = safe_json_loads(err_body)

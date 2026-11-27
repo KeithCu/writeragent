@@ -72,7 +72,7 @@ def effort_payload(provider: str | None, level: str | None) -> dict[str, Any]:
     if req != LOWEST_SENTINEL and req not in OUR_EFFORTS:
         return {}
     prov = str(provider or "").strip().lower()
-    vocab = _PROVIDER_EFFORTS.get(prov, OUR_EFFORTS)
+    vocab = _provider_efforts(prov)
     value = vocab[0] if req == LOWEST_SENTINEL else _effort_order(vocab, req)[0]
     if prov == "openrouter":
         return {"reasoning": {"effort": value}}
@@ -167,7 +167,7 @@ def _effort_key(endpoint: str, body: bytes | str) -> tuple[str, str, str] | None
     return (endpoint, str(data.get("model") or ""), holder[key])
 
 
-def accepted_effort_body(provider: str | None, endpoint: str, body: bytes | str) -> bytes | str:
+def accepted_effort_body(provider: str | None, endpoint: str, body: bytes) -> bytes:
     """*body* with the effort a retry earlier found accepted for this endpoint and model."""
     if not _ACCEPTED_EFFORT and not _EFFORT_UNSUPPORTED:
         return body

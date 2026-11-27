@@ -561,8 +561,6 @@ def save(patch: dict[str, Any], *, event_key: str | None = None) -> None:
     if not patch:
         return
     path = get_config_file_path()
-    if not path:
-        raise ConfigError("Config path is empty", code="CONFIG_PATH_ERROR")
 
     effective: list[tuple[str, Any, Any]] = []
     with _config_write_lock:

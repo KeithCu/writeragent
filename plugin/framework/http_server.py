@@ -50,6 +50,7 @@ PORT_IN_USE_GUIDANCE = (
 # errno.EADDRINUSE is 98 (Linux) / 48 (macOS); Windows uses winerror 10048 (WSAEADDRINUSE).
 _PORT_IN_USE_ERRNOS = frozenset({98, 48, 10048})
 _WARN_THROTTLE_SEC = 1.0
+_LISTEN_BACKLOG = 128
 _DEFAULT_MAX_QUEUED = 128
 _INITIAL_ACCEPT_BACKOFF_SEC = 0.05
 
@@ -265,7 +266,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
     The request handler sets the read deadline (MCP: ``GenericRequestHandler.timeout``; compute: ``DeadlineRequestHandler``).
     """
 
-    request_queue_size: int = _DEFAULT_MAX_QUEUED
+    request_queue_size: int = _LISTEN_BACKLOG
     allow_reuse_address: bool = os.name != "nt"
     park_idle_connections: bool = False
 
@@ -429,10 +430,16 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         if not done.wait(timeout):
             log.warning("HTTP request drain exceeded %.0fs; abandoning in-flight handlers", timeout)
 
-    def _warn_due(self, attr: str, now: float) -> bool:
-        if now - getattr(self, attr) < _WARN_THROTTLE_SEC:
+    def _accept_warn_due(self, now: float) -> bool:
+        if now - self._last_accept_error_warn < _WARN_THROTTLE_SEC:
             return False
-        setattr(self, attr, now)
+        self._last_accept_error_warn = now
+        return True
+
+    def _queue_warn_due(self, now: float) -> bool:
+        if now - self._last_queue_full_warn < _WARN_THROTTLE_SEC:
+            return False
+        self._last_queue_full_warn = now
         return True
 
     def _wake_accept(self) -> None:
@@ -480,7 +487,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
             return
         except OSError as e:
             now = time.monotonic()
-            if self._warn_due("_last_accept_error_warn", now):
+            if self._accept_warn_due(now):
                 log.warning("Accept error (errno %s): %s; backing off", e.errno, e)
             self._accept_pause_until = now + self._accept_backoff_sec
             self._accept_backoff_sec = min(1.0, self._accept_backoff_sec * 2.0)
@@ -602,29 +609,29 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         with self._queued_lock:
             self._queued.pop(fut, None)
 
+    def _close_rejected(self, request: Any) -> None:
+        try:
+            self.shutdown_request(request)
+        except Exception:
+            log.exception("Failed to close accepted connection")
+
     def process_request(self, request: Any, client_address: Any, *, established: bool = False) -> None:
         """Submit incoming request to the thread pool executor."""
         try:
             fut = self.executor.submit(self.process_request_thread, request, client_address, established=established)
         except _AcceptQueueFull as exc:
             now = time.monotonic()
-            if self._warn_due("_last_queue_full_warn", now):
+            if self._queue_warn_due(now):
                 log.warning(
                     "Accept queue full (%d pending, cap %d); closing connection",
                     exc.pending,
                     exc.limit,
                 )
-            try:
-                self.shutdown_request(request)
-            except Exception:
-                log.exception("Failed to close accepted connection")
+            self._close_rejected(request)
             return
         except Exception:
             log.exception("Failed to submit accepted connection")
-            try:
-                self.shutdown_request(request)
-            except Exception:
-                log.exception("Failed to close accepted connection")
+            self._close_rejected(request)
             return
         # Register before the done callback. The worker can finish during
         # submit; add_done_callback then runs immediately and pops the entry.

@@ -19,6 +19,7 @@ from __future__ import annotations
 import datetime
 from enum import IntFlag
 import os
+from typing import Any
 
 from plugin.framework.deal_shim import deal
 
@@ -52,7 +53,7 @@ CHAT_DOCUMENT_CONTEXT_MAX_CHARS = 8000
 CHAT_DOCUMENT_TRUNCATED_MARKER = "\n\n[... document truncated ...]"
 
 
-def truncate_chat_context(text: str, limit: int) -> str:
+def truncate_chat_context(text: str, limit: Any) -> str:
     """Truncate text to limit with standard chat document truncation marker."""
     lim = max(0, limit) if isinstance(limit, int) and not isinstance(limit, bool) else 0
     if len(text) > lim:

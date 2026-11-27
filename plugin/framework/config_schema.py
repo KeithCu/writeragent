@@ -482,6 +482,13 @@ def _strict_bool_ok(value: Any) -> bool:
     return False
 
 
+def _schema_validation_error(schema: dict[str, Any], generic_msg: str, details: dict[str, Any]) -> ConfigValidationError:
+    msg = schema.get("message")
+    if msg:
+        return ConfigValidationError(_(msg), code=schema.get("code", "CONFIG_INVALID_VALUE"), details=details)
+    return ConfigValidationError(generic_msg, code="CONFIG_INVALID_VALUE", details=details)
+
+
 def validate(data: dict[str, Any]) -> dict[str, Any]:
     """Pure config validator.
 
@@ -557,19 +564,12 @@ def validate(data: dict[str, Any]) -> dict[str, Any]:
         schema_type = _normalize_schema_type(schema.get("type"))
 
         if schema_type in ("int", "float"):
-            schema_dict: dict[str, Any] = schema
-
-            def _schema_validation_error(generic_msg: str, details: dict[str, Any]) -> ConfigValidationError:
-                msg = schema_dict.get("message")
-                if msg:
-                    return ConfigValidationError(_(msg), code=schema_dict.get("code", "CONFIG_INVALID_VALUE"), details=details)
-                return ConfigValidationError(generic_msg, code="CONFIG_INVALID_VALUE", details=details)
-
             parser = parse_int_robust if schema_type == "int" else parse_float_robust
             try:
                 coerced_val = parser(val)
             except ValueError as exc:
                 raise _schema_validation_error(
+                    schema,
                     f"Invalid configuration value for {key}: not an {'integer' if schema_type == 'int' else 'number'}",
                     {"key": key, "value": val, "reason": "parse"},
                 ) from exc
@@ -587,6 +587,7 @@ def validate(data: dict[str, Any]) -> dict[str, Any]:
 
             if out_of_range:
                 raise _schema_validation_error(
+                    schema,
                     f"Invalid configuration value for {key}: out of range",
                     {"key": key, "value": val},
                 )

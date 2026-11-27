@@ -55,20 +55,6 @@ def _same_frame(left: Any, right: Any) -> bool:
     return uno_same(left, right)
 
 
-def _uno_available(*awt_names: str) -> bool:
-    try:
-        import unohelper
-        from com.sun.star.lang import XEventListener
-        if awt_names:
-            awt = __import__("com.sun.star.awt", fromlist=awt_names)
-            for name in awt_names:
-                getattr(awt, name)
-    except (ImportError, AttributeError):
-        return False
-    del unohelper, XEventListener
-    return True
-
-
 def session_for_frame(frame: Any) -> FrameSession | None:
     """The open session for *frame*, or None."""
     if frame is None:
@@ -267,7 +253,9 @@ class FrameSession:
         frame = self.frame
         if frame is None or not hasattr(frame, "addEventListener"):
             return False
-        if not _uno_available():
+        from plugin.framework.uno_listeners import HAVE_UNO
+
+        if not HAVE_UNO:
             return False
 
         session = self
@@ -481,10 +469,10 @@ class FrameSession:
         if self._query_listener is not None:
             self._remove(self._query_control, "removeFocusListener", self._query_listener)
             self.forget_listener(self._query_listener)
-        if not _uno_available("XFocusListener"):
-            return
+        from plugin.framework.uno_listeners import BaseFocusListener, HAVE_UNO
 
-        from plugin.framework.uno_listeners import BaseFocusListener
+        if not HAVE_UNO:
+            return
 
         session = self
 
@@ -518,10 +506,10 @@ class FrameSession:
         for existing, _mouse, _focus in self._leave:
             if _same_frame(existing, control):
                 return
-        if not _uno_available("XFocusListener", "XMouseListener"):
-            return
+        from plugin.framework.uno_listeners import BaseFocusListener, BaseMouseListener, HAVE_UNO
 
-        from plugin.framework.uno_listeners import BaseFocusListener, BaseMouseListener
+        if not HAVE_UNO:
+            return
 
         session = self
 
@@ -577,7 +565,9 @@ class FrameSession:
         ``getCurrentComponent()`` returned leaves a later window unsubscribed,
         so its clicks do not stop stream ``setFocus``.
         """
-        if not _uno_available("XMouseClickHandler"):
+        from plugin.framework.uno_listeners import BaseMouseClickHandler, HAVE_UNO
+
+        if not HAVE_UNO:
             return
 
         controller = self._controller()
@@ -588,8 +578,6 @@ class FrameSession:
         if self._click_handler is not None:
             self._remove(self._click_controller, "removeMouseClickHandler", self._click_handler)
             self.forget_listener(self._click_handler)
-
-        from plugin.framework.uno_listeners import BaseMouseClickHandler
 
         session = self
 

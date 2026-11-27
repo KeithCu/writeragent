@@ -34,8 +34,7 @@ from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_TOKEN, ascii_
 def is_name_call_expr(node: ast.Expr, names: frozenset[str]) -> bool:
     """True if *node* is an expression-statement call to one of *names*."""
     # crosshair: off
-    # getattr: CrossHair may synthesize Expr() without .value; real ast.Expr always has it.
-    value = getattr(node, "value", None) if isinstance(node, ast.Expr) else None
+    value = node.value if isinstance(node, ast.Expr) else None
     if not isinstance(value, ast.Call):
         return False
     func = value.func

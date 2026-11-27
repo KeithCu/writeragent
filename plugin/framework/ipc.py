@@ -1166,13 +1166,11 @@ def exchange_tool_call(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
             write_pickle_frame(
                 get_child_ipc_stream(),
                 request,
-                max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
             )
             stdin = get_child_ipc_stdin()
             response = read_pickle_frame(
                 stdin,
                 require_dict=True,
-                max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
                 frame_label="tool_call response",
             )
             # Drain while _tool_call_lock is still held. Releasing it first

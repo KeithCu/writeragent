@@ -778,7 +778,6 @@ def test_exchange_tool_call_returns_result_when_id_matches(monkeypatch):
         written["message"] = message
 
     def _read(stream, **kwargs):
-        assert kwargs["max_payload_bytes"] == DEFAULT_MAX_PAYLOAD_BYTES
         assert kwargs["require_dict"] is True
         message = written["message"]
         assert isinstance(message, dict)
