@@ -305,7 +305,7 @@ def _create_ask_peer_listbox(
     try:
         host = toolkit.createWindow(host_desc)
     except Exception:
-        log.debug("createWindow floatingwindow FAILED", exc_info=True)
+        log.debug("slash popup: createWindow floatingwindow failed", exc_info=True)
         host = None
     if host is None:
         log.warning("slash popup: overlay window could not be created")
@@ -314,7 +314,7 @@ def _create_ask_peer_listbox(
     try:
         win = toolkit.createWindow(desc)
     except Exception:
-        log.debug("createWindow listbox FAILED", exc_info=True)
+        log.debug("slash popup: createWindow listbox failed", exc_info=True)
         win = None
     # Ask control, not its peer: controls stay accessible on LibreOffice 26.2.
     ctx = getattr(send_listener, "ctx", None)
@@ -327,13 +327,10 @@ def _create_ask_peer_listbox(
     return win, host, offset
 
 
-def _make_slash_key_handler(host: Any, label: str) -> BaseKeyHandler:
+def _make_slash_key_handler(host: Any) -> BaseKeyHandler:
     class _Handler(BaseKeyHandler):
         def on_key_pressed(self, e: Any) -> bool:
-            code = e.KeyCode
-            mods = e.Modifiers
-            ch = e.KeyChar
-            return host.handle_key(code, mods, ch, from_overlay=False)
+            return host.handle_key(e.KeyCode, e.Modifiers, e.KeyChar, from_overlay=False)
 
     return _Handler()
 
@@ -675,7 +672,7 @@ class SlashPopupController:
         add = getattr(target, "addKeyHandler", None)
         if not callable(add):
             return None
-        handler = _make_slash_key_handler(self, label)
+        handler = _make_slash_key_handler(self)
         try:
             add(handler)
             return handler

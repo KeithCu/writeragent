@@ -556,10 +556,11 @@ def sync_rich_control_bounds(rich_control: Any, root_window: Any, placeholder_ct
                     rich_control.getPosSize().Height,
                     bh,
                 )
+        # Gate here so retail skips the getPosSize UNO read.
         if RICH_SCROLL_VERBOSE_DEBUG and placeholder_rect is not None:
             cur = rich_control.getPosSize()
             log_rich_scroll(
-                "sync_bounds",
+                "sync_bounds_final",
                 placeholder_rect=placeholder_rect,
                 w=cur.Width,
                 h=cur.Height,
