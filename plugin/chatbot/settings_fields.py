@@ -308,9 +308,8 @@ def read_settings_control(ctrl: Any, field: dict[str, Any] | None = None) -> Any
 def stored_select_value(val: Any, options: Any) -> Any:
     """Map a combo's visible text back to the option value.
 
-    Map the visible caption back to the option value. ``getText()`` is
-    the translated label; matching only the English spec label leaves
-    "Shared kernel" and Dutch "Uit" as captions instead of ``shared`` /
+    ``getText()`` is the translated label; matching only the English spec label
+    leaves "Shared kernel" and Dutch "Uit" as captions instead of ``shared`` /
     ``off``. A plain string option is its own id; the combo shows
     ``_(that string)``.
     """
@@ -333,7 +332,7 @@ def stored_select_value(val: Any, options: Any) -> Any:
     return val
 
 
-def changed_config_values(pending: dict[str, Any], read: Any) -> dict[str, Any]:
+def changed_config_values(pending: dict[str, Any], read: Callable[[str], Any]) -> dict[str, Any]:
     """Keys whose value is not already on disk.
 
     A value equal to the stored value, or to the schema default when the

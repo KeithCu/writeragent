@@ -23,6 +23,7 @@ document that already failed partway.
 from __future__ import annotations
 
 from collections import Counter
+from dataclasses import dataclass
 import logging
 import re
 from typing import TYPE_CHECKING, Any
@@ -53,13 +54,13 @@ _SIDEBAR_LIST_CSS = "ul, ol { margin-left: 0.2cm; padding-left: 0.3cm; }"
 
 # A body that opens with a list is imported behind a one-character paragraph.
 # Writer pastes the first imported paragraph into the paragraph at the cursor
-# (the one holding "Assistant: "), so the first <li> lost its list attributes.
+# (the one holding "Assistant: "), so the first <li> loses its list attributes.
 # The sentinel paragraph takes that merge instead and is deleted afterwards.
 _LIST_SENTINEL = "\u200b"
 _LEADING_LIST_RE = re.compile(r"^\s*<(?:ol|ul)\b", re.IGNORECASE)
 # Models also write a list as paragraphs with typed markers:
-# <p>1. ...</p><p>2. ...</p> (gpt-oss-20b). The first one then shared the
-# "Assistant:" line and the rest sat below it.
+# <p>1. ...</p><p>2. ...</p> (gpt-oss-20b). The first one then shares the
+# "Assistant:" line and the rest sit below it.
 _LEADING_MARKER_P_RE = re.compile(r"^\s*<p\b[^>]*>\s*(?:\d{1,3}[.)]|[\u2022*-])\s", re.IGNORECASE)
 
 
@@ -70,6 +71,7 @@ def _drop_list_sentinel(text_obj: Any, body_anchor: Any) -> None:
     probe.goRight(1, True)
     if probe.getString() == _LIST_SENTINEL:
         probe.setString("")
+
 
 CHAT_FONT_NAME = "Liberation Sans"
 CHAT_FONT_HEIGHT = 10.0
@@ -242,17 +244,13 @@ def link_plain_cell_refs(html: str, sheet_names: Collection[str]) -> str:
     return "".join(out)
 
 
+@dataclass(frozen=True)
 class ChatTheme:
     """Encapsulates theme-aware colors derived from StyleSettings."""
 
     bg_color: int
     user_color: int
     assistant_color: int
-
-    def __init__(self, bg_color: int, user_color: int, assistant_color: int) -> None:
-        self.bg_color = bg_color
-        self.user_color = user_color
-        self.assistant_color = assistant_color
 
     def role_color(self, role: str) -> int:
         return self.user_color if role == "user" else self.assistant_color
@@ -286,7 +284,7 @@ def _tighten_list_indent(body_range: Any) -> None:
             continue
         processed_levels.add(key)
 
-        def _tighten() -> bool:
+        def _tighten() -> None:
             rules = para.getPropertyValue("NumberingRules")
             props = list(rules.getByIndex(level))
             # Read the existing FirstLineOffset so we can position the bullet
@@ -303,7 +301,6 @@ def _tighten_list_indent(body_range: Any) -> None:
             any_props = uno_any("[]com.sun.star.beans.PropertyValue", tuple(props))
             uno.invoke(rules, "replaceByIndex", (level, any_props))
             para.NumberingRules = rules
-            return True
 
         best_effort(_tighten, f"_tighten_list_indent: failed for level {level}")
 
@@ -314,7 +311,7 @@ def contains_html_tag(text: str) -> bool:
     ``<String>``, ``<https://example.com>``, and ``<user@example.com>`` are
     not tags. ``<b>``, ``<i>``, and ``<script>`` are.
     """
-    return text_has_real_html_tag(text or "")
+    return text_has_real_html_tag(text)
 
 
 def role_prefix(role: str) -> str:
@@ -332,7 +329,7 @@ def span_matches_message(added: str, role: str, content: str) -> bool:
     """
     if contains_html_tag(added):
         return False
-    remainder = (added or "").lstrip()
+    remainder = added.lstrip()
     labels = ("You:",) if role == "user" else (_("Assistant:"), "Assistant:")
     matched_label: str | None = None
     for label in labels:
@@ -347,11 +344,11 @@ def span_matches_message(added: str, role: str, content: str) -> bool:
         return Counter(tok.casefold() for tok in re.findall(r"\w+", s))
 
     remainder_counter = _word_counts(remainder)
-    visible = strip_html_tags(content or "")
+    visible = strip_html_tags(content)
     # strip_html_tags joins adjacent blocks ("<li>a</li><li>b</li>" -> "ab")
-    # while Writer gives one paragraph each, so a compact list failed this
-    # check and the full repaint wrote it as plain "ab". Accept both splits.
-    spaced = strip_html_tags((content or "").replace("<", " <"))
+    # while Writer gives one paragraph each, so a compact list fails this
+    # check and the full repaint would write it as plain "ab". Accept both splits.
+    spaced = strip_html_tags(content.replace("<", " <"))
     return remainder_counter == _word_counts(visible) or remainder_counter == _word_counts(spaced)
 
 
@@ -382,12 +379,11 @@ def _append_rich_text_with_span(  # pyright: ignore[reportUnusedFunction]
     style_window: Any = None,
 ) -> tuple[bool, str, str]:
     """Append one message returning (ok, previous, added)."""
-    text_obj = None
     previous = ""
     added = ""
     try:
         text_obj = doc.getText()
-        previous = text_obj.getString() or ""
+        previous = text_obj.getString()
         cursor = text_obj.createTextCursor()
         cursor.gotoEnd(False)
 
@@ -395,7 +391,7 @@ def _append_rich_text_with_span(  # pyright: ignore[reportUnusedFunction]
 
         text = strip_legacy_ai_label(text) if role == "assistant" else text
         text = render_calc_cell_refs(text)
-        has_body = bool(text and text.strip())
+        has_body = bool(text.strip())
 
         # Park anchor before the insert point so added span includes separator and prefix.
         parked_anchor = None
@@ -424,7 +420,7 @@ def _append_rich_text_with_span(  # pyright: ignore[reportUnusedFunction]
         # Anchor on the prefix's last character, one before the insert point.
         # A range AT the insert point does not stay put: the HTML import
         # leaves it after the imported body (see html_import._parked_cursor),
-        # which made body_range empty and skipped list tightening. A position
+        # which leaves body_range empty and skips list tightening. A position
         # before the insert point is not moved by the insert.
         body_anchor = text_obj.createTextCursorByRange(cursor.getStart())
         body_anchor.goLeft(1, False)
@@ -459,9 +455,9 @@ def _append_rich_text_with_span(  # pyright: ignore[reportUnusedFunction]
             added_cur = text_obj.createTextCursorByRange(parked_anchor.getStart())
             added_cur.goRight(1, False)
             added_cur.gotoEnd(True)
-            added = added_cur.getString() or ""
+            added = added_cur.getString()
         else:
-            added = text_obj.getString() or ""
+            added = text_obj.getString()
 
         if has_body:
             # Start body_range one character after body_anchor (the end of

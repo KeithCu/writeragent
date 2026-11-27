@@ -58,7 +58,8 @@ log = logging.getLogger(__name__)
 
 WAV_HEADER_BYTES = 44
 
-# Matches plugin/scripting/venv/audio_recorder.py:19
+# Same value as MAX_RECORDING_DURATION_SEC in plugin/scripting/venv/audio_recorder.py
+# (the venv child cannot import this module).
 MAX_RECORDING_DURATION_SEC = 4 * 3600
 
 
@@ -91,8 +92,8 @@ def finalize_wav_header(path: str | None) -> bool:
 def _wav_file_has_bytes(path: str | None) -> bool:
     """True when the capture child has already written a non-empty WAV.
 
-    The child writes the file continuously. A stop handshake can still fail
-    after handshake failure, and on-disk bytes still represent the user's take.
+    The child writes the file continuously. The stop handshake can fail after
+    the child has written audio, and the bytes on disk are still the user's take.
     """
     if not path:
         return False
@@ -208,7 +209,7 @@ class AudioRecorder:
         # The recording's handoff is shared with stop. The monitor is the only stdout reader
         # after ready; stop waits on the handoff instead of reading the same pipe.
         recording.start_monitor(
-            on_auto_stopped=lambda path: self._notify_auto_stop(path),
+            on_auto_stopped=self._notify_auto_stop,
             on_silence_progress=self._notify_silence_progress,
             on_error=self._notify_recording_error,
         )
@@ -305,16 +306,14 @@ class AudioRecorder:
                     log.warning("Recording.finish failed: %s", exc)
             if path is None:
                 wav_candidate = auto_path or temp_path
-                finalized = finalize_wav_header(wav_candidate) if wav_candidate else False
+                finalized = finalize_wav_header(wav_candidate)
                 recording.terminate()
-                if finalized and wav_candidate:
+                if finalized:
                     if not auto_path:
                         log.warning("Stop handshake failed; using WAV already on disk")
                     path = wav_candidate
-                else:
-                    if temp_path:
-                        best_effort(lambda: os.remove(temp_path), "delete failed stop wav")
-                    path = None
+                elif temp_path:
+                    best_effort(lambda: os.remove(temp_path), "delete failed stop wav")
         finally:
             with self._lifecycle_lock:
                 discard = self._discard_take
@@ -437,7 +436,7 @@ class AudioRecorder:
                         # wav_file under the same lock before close, so a
                         # chunk cannot pass this check and then write a
                         # closed file.
-                        if self.state.status != "recording" or wav_obj is None:
+                        if self.state.status != AudioStatus.RECORDING or wav_obj is None:
                             return
                         try:
                             wav_obj.writeframes(pcm)
@@ -551,7 +550,7 @@ class AudioRecorder:
                     self.temp_filename = None
                     return
 
-                if recording is not None and temp_path and self.state.status != "error":
+                if recording is not None and temp_path and self.state.status != AudioStatus.ERROR:
                     if recording.is_alive() and monitor_started:
                         try:
                             recording.signal_stop()
@@ -567,11 +566,10 @@ class AudioRecorder:
                         temp_path,
                     )
                     return
-                else:
-                    if recording is not None:
-                        self._stop_job = self._background_rec_stop(recording.terminate)
+                if recording is not None:
+                    self._stop_job = self._background_rec_stop(recording.terminate)
 
-            if self.state.status == "error":
+            if self.state.status == AudioStatus.ERROR:
                 # An empty WAV from a failed start is deleted immediately here.
                 # A non-empty WAV stays on temp_filename until cleanup or the
                 # next take's _take_new_temp_wav cleans it up.
@@ -619,7 +617,7 @@ class AudioRecorder:
             self._discard_take = True
             self._commit_epoch = None
 
-        if self._recording is not None or self.stream is not None or self.state.status in ("initializing", "recording"):
+        if self._recording is not None or self.stream is not None or self.state.status in (AudioStatus.INITIALIZING, AudioStatus.RECORDING):
             try:
                 self._apply_event(StopRequestedEvent())
             except Exception:

@@ -773,7 +773,7 @@ setattr(_create_mock_module("com.sun.star.style.BreakType"), "PAGE_BEFORE", 4)
 _page_style_layout = _create_mock_module("com.sun.star.style.PageStyleLayout")
 for _idx, _layout_name in enumerate(("ALL", "LEFT", "RIGHT", "MIRRORED")):
     setattr(_page_style_layout, _layout_name, _idx)
-_create_mock_module("com.sun.star.ui.UIElementType")
+setattr(_create_mock_module("com.sun.star.ui.UIElementType"), "TOOLPANEL", 7)
 class MockXTransferable:
     pass
 

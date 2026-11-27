@@ -55,10 +55,10 @@ class EvalDashboard:
         set_control_text(endpoint_ctrl, get_config("endpoint"))
 
         model_ctrl = self._dlg.getControl("models")
-        current_model = str(get_text_model())
+        current_model = get_text_model()
         current_endpoint = str(get_config("endpoint") or "").strip()
-        # Same freeze as Settings: fetch_available_models before execute()
-        # blocked the UI on a dead endpoint. LRU now; the worker fills the list.
+        # Fill from the LRU; a catalog fetch before execute() would block the UI
+        # on a dead endpoint. The worker fills the list.
         populate_combobox_with_lru(
             model_ctrl, current_model, "model_lru", current_endpoint,
         )
@@ -67,17 +67,16 @@ class EvalDashboard:
         self._dlg.getControl("btn_run").addActionListener(EvalRunListener(self))
         self._dlg.getControl("btn_close").addActionListener(SimpleCloseListener(self._dlg))
 
-    def _apply_model_list(self, endpoint: str, current_model: str, models: Any) -> None:
+    def _apply_model_list(self, endpoint: str, current_model: str, models: list[str]) -> None:
         """Paint the model combo from a list already in hand. No catalog GET."""
         if self._closed or self._dlg is None:
             return
         ctrl = best_effort(lambda: self._dlg.getControl("models"), "Eval dashboard model combo unavailable")
         if ctrl is None:
             return
-        remote = models if isinstance(models, list) else None
         populate_combobox_with_lru(
             ctrl, current_model, "model_lru", endpoint,
-            remote_models=remote,
+            remote_models=models,
         )
 
     def _schedule_models_fetch(self, endpoint: str, current_model: str) -> None:
@@ -178,7 +177,7 @@ class EvalRunListener(BaseActionListener):
                 return
             with suppress_disposed("eval progress", logger=log):
                 area = self.dialog.getControl("log_area")
-                current = area.getText() if hasattr(area, "getText") else ""
+                current = area.getText()
                 area.setText(current + f"[{result.get('status')}] {result.get('name')}\n")
 
                 process_events_to_idle(self.ctx)

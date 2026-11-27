@@ -105,7 +105,7 @@ def _copy_patches(
     insert_side_effect=None,
 ):
     if theme is None:
-        theme = MagicMock(user_color=1, assistant_color=2)
+        theme = ChatTheme(0, 1, 2)
     len_kw = {"side_effect": len_side_effect} if len_side_effect is not None else {"return_value": text_len}
     insert_kw = {"side_effect": insert_side_effect} if insert_side_effect is not None else {}
     with ExitStack() as stack:
@@ -154,7 +154,7 @@ class TestPastePortionColor:
 
         user_color = 0x2A6099
         assistant_color = 0x1E293B
-        theme = MagicMock(user_color=user_color, assistant_color=assistant_color)
+        theme = ChatTheme(0, user_color, assistant_color)
 
         with _copy_patches(theme, insert_side_effect=_capture):
             reason = _copy_formatted_from_hidden_doc_to_control(
@@ -183,7 +183,7 @@ class TestPastePortionColor:
             def _capture(_model, _cursor, text, char_color=None, **_kw):
                 written.append((text, char_color))
 
-            theme = MagicMock(user_color=0x2A6099, assistant_color=0x1E293B)
+            theme = ChatTheme(0, 0x2A6099, 0x1E293B)
             with _copy_patches(theme, insert_side_effect=_capture):
                 reason = _copy_formatted_from_hidden_doc_to_control(
                     src_doc, control, MagicMock(), role=start_role,
@@ -364,7 +364,7 @@ class TestAppendRichTextViaClipboard:
         bad.createEnumeration.side_effect = RuntimeError("portion enum failed")
         bad.getString.side_effect = RuntimeError("getString failed")
         doc.getText.return_value.createEnumeration.return_value = _uno_enum([good, bad])
-        theme = MagicMock(user_color=1, assistant_color=2)
+        theme = ChatTheme(0, 1, 2)
         inserted: list[str] = []
 
         def _capture(_model, _cursor, text, char_color=None, **kwargs):
@@ -396,7 +396,7 @@ class TestAppendRichTextViaClipboard:
         bad.getString.return_value = "plain"
         good = _body_paragraph("kept")
         doc.getText.return_value.createEnumeration.return_value = _uno_enum([bad, good])
-        theme = MagicMock(user_color=1, assistant_color=2)
+        theme = ChatTheme(0, 1, 2)
         inserted: list[str] = []
 
         def _capture(_model, _cursor, text, char_color=None, **kwargs):
@@ -423,7 +423,7 @@ class TestAppendRichTextViaClipboard:
         doc = MagicMock()
         good = _body_paragraph("kept")
         doc.getText.return_value.createEnumeration.return_value = _uno_enum([good])
-        theme = MagicMock(user_color=1, assistant_color=2)
+        theme = ChatTheme(0, 1, 2)
 
         def _raise_on_insert(*args, **kwargs):
             raise RuntimeError("insert failed")
@@ -509,7 +509,7 @@ class TestHistoryMessageBatching:
         doc = MagicMock()
         items = [("user", "<p>Hello</p>"), ("assistant", "<p>it's done</p>")]
         written: list[tuple[str, Any, Any]] = []
-        theme = MagicMock(user_color=1, assistant_color=2)
+        theme = ChatTheme(0, 1, 2)
 
         def _capture(_model, _cursor, text, char_color=None, bold=None, **_kw):
             written.append((text, char_color, bold))
@@ -976,7 +976,7 @@ class TestPaintMessageItems:
         src_doc.getText.return_value = src_text
 
         with patch("plugin.chatbot.rich_text_paste.focus_preserved", _immediate_focus), \
-             patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve"), \
+             patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=ChatTheme(0, 1, 2)), \
              patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0), \
              patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=0):
             reason = _copy_formatted_from_hidden_doc_to_control(src_doc, control, MagicMock(), role="user")
@@ -1070,7 +1070,7 @@ class TestFlattenTextTableCopy:
                 _body_paragraph("after"),
             ]
         )
-        theme = MagicMock(user_color=1, assistant_color=2)
+        theme = ChatTheme(0, 1, 2)
         inserted: list[str] = []
         header_flags: list[tuple[str, bool, bool]] = []
 
@@ -1103,7 +1103,7 @@ class TestFlattenTextTableCopy:
         label = _body_paragraph("Assistant: ")
         item = _body_paragraph("alpha")
         src_doc.getText.return_value.createEnumeration.return_value = _uno_enum([label, item])
-        theme = MagicMock(user_color=1, assistant_color=2)
+        theme = ChatTheme(0, 1, 2)
         calls: list[tuple[str, object, object]] = []
 
         def _capture(_model, _cursor, text, char_color=None, **kwargs):
@@ -1135,7 +1135,7 @@ class TestFlattenTextTableCopy:
         src_doc.getText.return_value.createEnumeration.return_value = _uno_enum(
             [_body_table(cells)]
         )
-        theme = MagicMock(user_color=1, assistant_color=2)
+        theme = ChatTheme(0, 1, 2)
         applied: list[tuple[int, ...]] = []
 
         with _copy_patches(theme, text_len=1), \
@@ -1166,7 +1166,7 @@ class TestFlattenTextTableCopy:
         src_doc.getText.return_value.createEnumeration.return_value = _uno_enum(
             [_body_table(cells)]
         )
-        theme = MagicMock(user_color=1, assistant_color=2)
+        theme = ChatTheme(0, 1, 2)
         pads: list[tuple[int, int]] = []
 
         def _capture_vpad(cursor, *, top=0, bottom=0):
@@ -1195,7 +1195,7 @@ class TestFlattenTextTableCopy:
         src_doc.getText.return_value.createEnumeration.return_value = _uno_enum(
             [_body_table([["only"]])]
         )
-        theme = MagicMock(user_color=1, assistant_color=2)
+        theme = ChatTheme(0, 1, 2)
 
         with _copy_patches(theme, text_len=1):
             reason = _copy_formatted_from_hidden_doc_to_control(
@@ -1224,7 +1224,7 @@ class TestFlattenTextTableCopy:
         p2 = _para([_portion("Sheet1.A1")])
 
         src_doc.getText.return_value.createEnumeration.return_value = _uno_enum([p1, p2])
-        theme = MagicMock(user_color=1, assistant_color=2)
+        theme = ChatTheme(0, 1, 2)
 
         from plugin.calc.navigation import cell_link_registry
         cell_link_registry.clear(control)
@@ -1277,7 +1277,7 @@ class TestFlattenTextTableCopy:
         para = _para([_portion(txt, href=href) for txt, href in portions_spec])
         src_doc.getText.return_value.createEnumeration.return_value = _uno_enum([para])
 
-        theme = MagicMock(user_color=1, assistant_color=2)
+        theme = ChatTheme(0, 1, 2)
 
         cell_link_registry.clear(control)
         try:
@@ -1312,7 +1312,7 @@ class TestFlattenTextTableCopy:
             ]
         )
         src_doc.getText.return_value.createEnumeration.return_value = _uno_enum([para])
-        theme = MagicMock(user_color=1, assistant_color=2)
+        theme = ChatTheme(0, 1, 2)
 
         cell_link_registry.clear(control)
         try:

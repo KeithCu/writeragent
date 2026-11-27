@@ -32,8 +32,9 @@ _BOTTOM_MARGIN = 20
 _MIN_RESPONSE_HEIGHT = 30
 _RIGHT_MARGIN = 4
 
-# Send/Record, Stop, Clear share one row. XDL widths are AppFont, so at 2x the
-# three buttons need ~500px and Clear was clamped to 20px under Stop.
+# Send/Record, Stop, Clear share one row. XDL widths are AppFont: at 2x the
+# three buttons need ~500px, more than a ~300px column, so the row is shared
+# out in _share_button_row.
 _BUTTON_ROW = ("send", "stop", "clear")
 
 # Controls below the chat transcript — anchored as one block toward the panel bottom.
@@ -110,8 +111,9 @@ def compute_chat_panel_layout(
     cluster_delta = bottom_top_new - bottom_top_initial
     response_h = max(_MIN_RESPONSE_HEIGHT, bottom_top_new - _XDL_GAP_BELOW_RESPONSE - response_y)
 
-    # Fill the column. Shrinking width-only left HiDPI Clear/indicator X past
-    # the viewport (deck H-bar). Move X too so nothing extends past the column.
+    # Fill the column and move X as well as width: shrinking width alone
+    # leaves the HiDPI Clear button and indicator past the viewport and the
+    # deck shows a horizontal scrollbar.
     layouts: dict[str, ControlRect] = {}
     for name, (ox, oy, ow, oh) in snapshot.items():
         if name in _OVERLAY_CONTROLS or name == "backend_indicator":
@@ -133,7 +135,7 @@ def compute_chat_panel_layout(
         if hamb is not None:
             ind_x = hamb.x + hamb.width + _INDICATOR_GAP
         else:
-            ind_x = snapshot.get("btn_hamburger", (_ix, 0, 0, 0))[0] + _INDICATOR_GAP
+            ind_x = _ix + _INDICATOR_GAP
         col_right = width - right_margin
         ind_w = col_right - ind_x
         if ind_w < 8:
@@ -222,10 +224,9 @@ def _fit_model_selector_row(
 ) -> None:
     """Split the model row between model_selector and reasoning_effort dropdown."""
     ms = layouts.get("model_selector")
-    re = layouts.get("reasoning_effort_selector")
-    if ms is None or re is None:
-        return
     re_name = "reasoning_effort_selector"
+    if ms is None or re_name not in layouts:
+        return
     re_w = snapshot[re_name][2]
     col_right = width - right_margin
     gap = 3
@@ -414,17 +415,14 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
     def set_control(self, name: str, ctrl: Any) -> None:
         self._c[name] = ctrl
 
-    def get_control(self, name: str) -> Any:
-        return self._c.get(name)
-
     def invalidate_measurements(self) -> None:
         self._snapshot = None
         self._preferred.clear()
 
     def disposing(self, Source: Any) -> None:
         # VCL calls this on deck close. ChatPanelElement.disposing is not
-        # invoked then, so the in-flight send stayed running. Do not
-        # removeWindowListener here: this listener is already disposing.
+        # invoked then, so this callback is what stops an in-flight send. Do
+        # not removeWindowListener here: this listener is already disposing.
         callback = self._on_dispose
         self._on_dispose = None
         self._root_window = None

@@ -1058,7 +1058,7 @@ class ToolCallingMixin:
     def _on_tool_loop_approval_required(self, item: Any) -> None:
         """Main-thread handler: show inline Accept/Reject and unblock the tool worker."""
         if item[3] is not None:
-            self._panel._events.begin_inline_web_approval(item[1], item[2], item[3])
+            self._panel._events.begin_inline_web_approval(item[1], item[3])
         log.info("tool_loop on_approval_required: tool=%s (inline Accept/Change/Reject)", item[2])
 
     def _start_tool_calling_async(self, client: "LlmClient", model: Any, max_tokens: int, tools: list[dict[str, Any]], execute_tool_fn: Callable[..., Any], max_tool_rounds: int, query_text: str | None = None) -> None:

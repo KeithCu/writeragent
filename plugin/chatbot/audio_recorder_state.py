@@ -81,7 +81,7 @@ def _audio_transition_invariants(
     if result.state.status not in _VALID_AUDIO_STATUSES:
         return False
     if isinstance(event, ErrorOccurredEvent):
-        if result.state.status != "error":
+        if result.state.status != AudioStatus.ERROR:
             return False
         if not any(isinstance(e, ReportErrorEffect) for e in result.effects):
             return False
@@ -105,17 +105,17 @@ def next_state(state: AudioRecorderState, event: AudioRecorderEvent) -> FsmTrans
             return FsmTransition(new_state, [StopRecordingEffect(), ReportErrorEffect(msg)])
 
         case StartRequestedEvent():
-            if state.status in ("idle", "error"):
+            if state.status in (AudioStatus.IDLE, AudioStatus.ERROR):
                 return FsmTransition(AudioRecorderState(status=AudioStatus.INITIALIZING), [InitializeDeviceEffect()])
             return FsmTransition(state, [])
 
         case DeviceReadyEvent():
-            if state.status == "initializing":
+            if state.status == AudioStatus.INITIALIZING:
                 return FsmTransition(AudioRecorderState(status=AudioStatus.RECORDING), [StartRecordingEffect()])
             return FsmTransition(state, [])
 
         case StopRequestedEvent():
-            if state.status in ("initializing", "recording"):
+            if state.status in (AudioStatus.INITIALIZING, AudioStatus.RECORDING):
                 return FsmTransition(AudioRecorderState(status=AudioStatus.IDLE), [StopRecordingEffect()])
             return FsmTransition(state, [])
 

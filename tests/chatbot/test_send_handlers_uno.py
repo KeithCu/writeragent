@@ -33,6 +33,8 @@ class _DirectImageHost(SendHandlersMixin):
         self._send_cancellation = None
         self._active_mode = ""
         self._mode_topic = ""
+        self.cached_doc_type = "writer"
+        self.cached_uno_services = None
         self.responses = []
         self.status_history = []
         self.session = MagicMock(messages=[])

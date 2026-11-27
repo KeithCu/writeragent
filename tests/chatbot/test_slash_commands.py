@@ -512,7 +512,7 @@ def test_slash_compact_sync_passes_tool_schema_list():
     cancel = SendCancellation()
     session = MagicMock()
     session.messages = [{"role": "user", "content": "hi"}]
-    client = MagicMock()
+    client = MagicMock(config={"endpoint": "http://localhost:11434/v1"})
     schema_list = [{"name": "read_range"}]
     with patch("plugin.framework.config.get_config", return_value=True):
         with patch("plugin.chatbot.compaction.compact_session") as compact_mod:
@@ -543,7 +543,7 @@ def test_slash_compact_lane_status_callback_is_lane_safe() -> None:
     cancel = SendCancellation()
     session = MagicMock()
     session.messages = [{"role": "user", "content": "hi"}]
-    client = MagicMock()
+    client = MagicMock(config={"endpoint": "http://localhost:11434/v1"})
 
     saved_callback: list[Any] = []
 
@@ -600,7 +600,7 @@ def test_run_slash_compact_resolves_document_on_main_thread_only():
     registry.get_schemas.return_value = schema_list
 
     with patch("plugin.framework.uno_context.get_toolkit", side_effect=RuntimeError("no uno")):
-        with patch("plugin.chatbot.selection.create_validated_client", return_value=MagicMock()):
+        with patch("plugin.chatbot.selection.create_validated_client", return_value=MagicMock(config={"endpoint": "http://localhost:11434/v1"})):
             with patch("plugin.framework.config.get_config", return_value=True):
                 with patch("plugin.chatbot.compaction.compact_session") as compact_mod:
                     compact_mod.return_value = MagicMock(compacted=True, reason="ok")
