@@ -363,15 +363,15 @@ class SettingsDialog:
 
         port_ctrl = get_optional(self._dlg, "mcp__mcp_port")
         if port_ctrl:
-            self._attach(port_ctrl, "Text", McpPortTextListener(self._dlg))
+            self._attach(port_ctrl, "Text", McpSnippetListener(self._dlg))
 
         tunnel_enabled_ctrl = get_optional(self._dlg, "mcp__tunnel_enabled")
         if tunnel_enabled_ctrl:
-            self._attach(tunnel_enabled_ctrl, "Item", McpTunnelEnabledListener(self._dlg))
+            self._attach(tunnel_enabled_ctrl, "Item", McpSnippetListener(self._dlg))
 
         provider_ctrl = get_optional(self._dlg, "mcp__tunnel_provider")
         if provider_ctrl:
-            self._attach_combo(provider_ctrl, McpTunnelProviderListener(self._dlg))
+            self._attach_combo(provider_ctrl, McpSnippetListener(self._dlg))
 
     def _populate_fields(self, field_specs: list[dict[str, Any]], current_endpoint: str) -> None:
         raw_api_key = next((str(f.get("value") or "") for f in field_specs if f.get("name") == "api_key"), "")
@@ -1507,9 +1507,7 @@ class DownloadAudioListener(_CtxDlgActionListener):
 
 from plugin.mcp_server.mcp_ui import (
     CopyMcpConfigListener,
-    McpPortTextListener,
-    McpTunnelEnabledListener,
-    McpTunnelProviderListener,
+    McpSnippetListener,
     TestTunnelListener,
     clear_active_settings_dialog,
     set_active_settings_dialog,

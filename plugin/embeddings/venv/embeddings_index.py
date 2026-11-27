@@ -5,7 +5,7 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-"""Trusted venv module: embeddings encode + sqlite-vec index/search facades.
+"""Trusted venv module: embeddings encode + sqlite-vec/LlamaIndex/zvec/LanceDB index & search facades.
 
 Invoked from the LO host through fixed RPC stubs — not from LLM-submitted code.
 See docs/embeddings.md and docs/enabling_numpy_in_libreoffice.md.
@@ -19,9 +19,10 @@ from pathlib import Path
 from collections.abc import Callable
 from typing import Any
 
-log = logging.getLogger(__name__)
-
+from plugin.embeddings.venv.embeddings_sqlite import DEFAULT_NEAR_SLOP
 from plugin.embeddings.venv.langdetect_rpc import LANGDETECT_VERSION
+
+log = logging.getLogger(__name__)
 
 EMBEDDINGS_VENV_PIP_INSTALL = f"pip install sentence-transformers numpy sqlite-vec pysqlite3 langgraph langchain-core langchain-text-splitters envwrap psutil odfpy pandas openpyxl xlrd python-docx llama-index-core zvec icu4py defusedxml langdetect=={LANGDETECT_VERSION}"
 
@@ -128,7 +129,7 @@ def embed_texts(model_name: str, texts: list[str], *, normalize: bool = True, en
 
 
 def index_paragraphs(db_path: str, meta_path: str, model_name: str, rows: list[dict[str, Any]], *, build_fts: bool = False, build_vectors: bool = True, search_mode: str = "hybrid", heartbeat_fn: Any | None = None) -> dict[str, Any]:
-    """Batch-embed *rows* and persist into corpus.db via the LangGraph or LlamaIndex ingest pipeline."""
+    """Batch-embed *rows* and persist into the configured backend (sqlite-vec, LlamaIndex, zvec, or LanceDB)."""
     if search_mode == "llama_index":
         from plugin.embeddings.venv.embeddings_llama_index import llama_index_ingest
 
@@ -200,13 +201,11 @@ def _is_garbage_hit(hit: dict[str, Any]) -> bool:
     snippet = str(hit.get("snippet") or "").strip()
     if not snippet:
         return True
-    if not any(c.isalnum() for c in snippet):
-        return True
-    return False
+    return not any(c.isalnum() for c in snippet)
 
 
 def knn_search(db_path: str, query_text: str, k: int, *, model_name: str, doc_url_filter: str | None = None, use_mmr: bool = True, rerank_model: str | None = None, search_mode: str = "embeddings") -> dict[str, Any]:
-    """Semantic search via the LangGraph or LlamaIndex search pipeline."""
+    """Semantic search via the configured backend (sqlite-vec, LlamaIndex, zvec, or LanceDB)."""
     if search_mode == "llama_index":
         from plugin.embeddings.venv.embeddings_llama_index import llama_index_knn_search
 
@@ -225,12 +224,11 @@ def knn_search(db_path: str, query_text: str, k: int, *, model_name: str, doc_ur
 
         res = search_embeddings_graph(db_path, query_text, k, model_name=model_name, doc_url_filter=doc_url_filter)
 
-    if isinstance(res, dict) and "hits" in res:
-        res["hits"] = [h for h in res["hits"] if not _is_garbage_hit(h)]
+    res["hits"] = [h for h in res["hits"] if not _is_garbage_hit(h)]
     return res
 
 
-def hybrid_search(db_path: str, query_text: str, k: int, *, model_name: str, near_slop: int = 10, doc_url_filter: str | None = None, use_mmr: bool = True, rerank_model: str | None = None, search_mode: str = "hybrid") -> dict[str, Any]:
+def hybrid_search(db_path: str, query_text: str, k: int, *, model_name: str, near_slop: int = DEFAULT_NEAR_SLOP, doc_url_filter: str | None = None, use_mmr: bool = True, rerank_model: str | None = None, search_mode: str = "hybrid") -> dict[str, Any]:
     """Hybrid FTS + vector search with reciprocal rank fusion."""
     if search_mode == "llama_index":
         from plugin.embeddings.venv.embeddings_llama_index import llama_index_hybrid_search
@@ -249,8 +247,7 @@ def hybrid_search(db_path: str, query_text: str, k: int, *, model_name: str, nea
 
         res = hybrid_corpus_search(db_path, query_text, k, model_name=model_name, near_slop=near_slop, doc_url_filter=doc_url_filter, use_mmr=use_mmr, rerank_model=rerank_model)
 
-    if isinstance(res, dict) and "hits" in res:
-        res["hits"] = [h for h in res["hits"] if not _is_garbage_hit(h)]
+    res["hits"] = [h for h in res["hits"] if not _is_garbage_hit(h)]
     return res
 
 
@@ -279,7 +276,7 @@ def collection_stats(db_path: str, meta_path: str, *, model_name: str = "") -> d
     storage = meta.get("storage_backend", "")
     if not storage:
         # If we were given a dir that exists, guess zvec/lancedb; else sqlite_vec default in meta write
-        if db.exists() and db.is_dir():
+        if db.is_dir():
             if "lancedb" in db.name.lower():
                 storage = "lancedb"
             else:

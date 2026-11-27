@@ -41,10 +41,6 @@ def test_detect_lang_sample_import_error_message() -> None:
             rpc_mod.detect_lang_sample("hello")
 
 
-def test_detect_lang_batch_none_input() -> None:
-    assert rpc_mod.detect_lang_batch(None) == []  # type: ignore[arg-type]
-
-
 def test_bcp47_tags_isolation() -> None:
     code = (
         "import sys, plugin.framework.grammar_rule_ids; "

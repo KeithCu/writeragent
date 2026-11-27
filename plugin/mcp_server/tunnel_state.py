@@ -29,6 +29,7 @@ DEFAULT_INITIAL_BACKOFF: float = 1.0
 DEFAULT_BACKOFF_FACTOR: float = 2.0
 DEFAULT_MAX_RETRIES: int = 5
 DEFAULT_MAX_BACKOFF: float = 30.0
+DEFAULT_MCP_PORT: int = 18765
 # A connection up this long counts as healthy: its drop starts a fresh retry budget.
 STABLE_CONNECTION_SECONDS: float = 120.0
 
@@ -47,7 +48,7 @@ class TunnelStatus(Enum):
 @dataclasses.dataclass(frozen=True)
 class TunnelState(BaseState):
     status: TunnelStatus = TunnelStatus.STOPPED
-    port: int = 18765
+    port: int = DEFAULT_MCP_PORT
     provider: str = "cloudflare"
     provider_token: str = dataclasses.field(default="", repr=False)
     public_url: Optional[str] = None

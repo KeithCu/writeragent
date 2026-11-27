@@ -115,7 +115,7 @@ class McpServersEditor:
         raw = get_config(SERVERS_KEY)
         servers = raw if isinstance(raw, dict) else {}
         editor = cls(controls, servers)
-        editor._load(next(iter(editor._dict_names()), None))
+        editor._load(editor._current)
         attach(controls["server"], "Item", _ServerItemListener(editor, controls["server"]))
         attach(controls["add_server"], "Action", _AddServerListener(editor))
         attach(controls["remove_server"], "Action", _RemoveServerListener(editor))
@@ -198,6 +198,10 @@ class McpServersEditor:
             if keystore.is_ref(token_text):
                 self._start_token_read(self._current, raw_token, token_text)
 
+    @staticmethod
+    def _duplicate_name_error(raw_name: str) -> str:
+        return _("A server named {name} already exists.").format(name=raw_name)
+
     def _commit(self) -> None:
         """Write current field values back into ``self._servers``, creating or renaming as needed."""
         raw_name = get_control_text(self._controls["name"]).strip()
@@ -210,8 +214,7 @@ class McpServersEditor:
             if not raw_name and not url:
                 return
             if raw_name and raw_name in self._servers:
-                msg = _("A server named {name} already exists.").format(name=raw_name)
-                set_control_text(self._controls["status"], msg)
+                set_control_text(self._controls["status"], self._duplicate_name_error(raw_name))
                 return
             created = raw_name or self._unique_name()
             if not raw_name:
@@ -229,8 +232,7 @@ class McpServersEditor:
         # Write enabled/trust only when they differ from the effective value so hand-written entries stay byte-identical on OK.
         if enabled != server_enabled(entry):
             entry["enabled"] = enabled
-        current_trusted = server_trusted(entry)
-        if trusted != current_trusted:
+        if trusted != server_trusted(entry):
             entry["trust"] = TRUST_FULL if trusted else TRUST_UNTRUSTED
         if token:
             entry["token"] = token
@@ -240,7 +242,7 @@ class McpServersEditor:
         if raw_name and raw_name != old:
             if raw_name in self._servers:
                 self._servers[old] = entry
-                msg = _("A server named {name} already exists.").format(name=raw_name)
+                msg = self._duplicate_name_error(raw_name)
                 self._status[old] = msg
                 set_control_text(self._controls["status"], msg)
                 return
@@ -365,6 +367,6 @@ class McpServersEditor:
     def close(self) -> None:
         """Mark the editor closed and cancel any in-flight probe requests."""
         self._closed = True
-        for _gen, cancel in list(self._inflight.values()):
+        for _gen, cancel in self._inflight.values():
             cancel.cancel()
         self._inflight.clear()

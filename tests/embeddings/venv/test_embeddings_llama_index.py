@@ -113,7 +113,7 @@ def test_writer_agent_vector_store_delete_delegates_to_sqlite():
     mock_conn.execute.return_value.fetchall.return_value = mock_rows
 
     with patch("plugin.embeddings.venv.embeddings_sqlite.connect_corpus_db", return_value=mock_conn), patch(
-        "plugin.embeddings.venv.embeddings_sqlite._delete_chunk_ids"
+        "plugin.embeddings.venv.embeddings_sqlite.delete_chunk_ids"
     ) as mock_delete:
         store = embeddings_llama_index.WriterAgentVectorStore(
             db_path="/tmp/fake.db",

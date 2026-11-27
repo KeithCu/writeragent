@@ -100,21 +100,20 @@ def merge_hybrid_hits(
                 elif key not in existing or existing.get(key) in (None, "", 0):
                     existing[key] = value
 
-    fts_ids = {int(h["chunk_id"]) for h in fts_hits if h.get("chunk_id") is not None}
-    vec_ids = {int(h["chunk_id"]) for h in vec_hits if h.get("chunk_id") is not None}
+    fts_rows = _fts_results_for_rrf(fts_hits)
+    vec_rows = _vec_results_for_rrf(vec_hits)
+    fts_ids = {row[0] for row in fts_rows}
+    vec_ids = {row[0] for row in vec_rows}
 
     fused = reciprocal_rank_fusion(
-        _fts_results_for_rrf(fts_hits),
-        _vec_results_for_rrf(vec_hits),
+        fts_rows,
+        vec_rows,
         k=rrf_k,
     )
 
     hits: list[dict[str, Any]] = []
     for chunk_id, rrf_score in fused[: max(1, int(k))]:
-        base = by_id.get(int(chunk_id))
-        if base is None:
-            continue
-        out = dict(base)
+        out = dict(by_id[int(chunk_id)])
         out["score"] = float(rrf_score)
         out["matched_by"] = _matched_by(int(chunk_id), fts_ids, vec_ids)
         hits.append(out)
