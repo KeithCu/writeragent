@@ -37,6 +37,7 @@ from plugin.scripting.domain_registry import (
     PICKER_WIRING,
     SCRIPT_ORIGIN_DOCUMENT,
     SCRIPT_ORIGIN_USER,
+    PickerWiring,
     domain_template_entries,
     is_reserved_script_name,
     parse_picker_display_name,
@@ -56,13 +57,12 @@ _CALC_INIT_SCRIPT_NAMES = frozenset({"INIT", "Init"})
 
 
 class DocumentScriptErrorCode(str, Enum):
-    """Distinguishable error codes for document and user script persistence."""
+    """Error codes for script persistence; shipped callers show the message, and tests read ``.code``."""
 
     NO_DOCUMENT = "no_document"
     TOO_LARGE = "too_large"
     READONLY = "readonly"
     RESERVED_NAME = "reserved_name"
-    ALREADY_EXISTS = "already_exists"
     EMPTY_NAME = "empty_name"
     NOT_FOUND = "not_found"
     UNREADABLE = "unreadable"
@@ -283,13 +283,11 @@ def new_script_name_error(name: str, *, attach: bool) -> DocumentScriptError | N
     return None
 
 
-def attach_document_script(
-    doc: Any,
-    name: str,
-    code: str,
-    *,
-    overwrite: bool = False,
-) -> DocumentScriptError | None:
+def save_document_script(doc: Any, name: str, code: str) -> DocumentScriptError | None:
+    """Store *code* under *name* in the document, replacing a script of the same name.
+
+    Callers ask before overwriting; this function does not.
+    """
     name = name.strip()
     name_err = new_script_name_error(name, attach=True)
     if name_err is not None:
@@ -297,18 +295,13 @@ def attach_document_script(
     scripts, err = _load_document_script_map(doc)
     if err:
         return err
-    if name in scripts and not overwrite:
-        return DocumentScriptError(
-            _("A script named '{0}' already exists in this document.").format(name),
-            DocumentScriptErrorCode.ALREADY_EXISTS,
-        )
     scripts[name] = code
     return set_document_scripts(doc, scripts)
 
 
 def delete_document_script(doc: Any, name: str) -> DocumentScriptError | None:
     # INIT shares this property map with named scripts and the picker hides it.
-    # Deleting it by storage name is refused, as in attach_document_script, so the workbook init script is not removed by accident.
+    # Deleting it by storage name is refused, as in save_document_script, so the workbook init script is not removed by accident.
     if is_calc_init_script_name(name):
         return new_script_name_error(name, attach=True)
     scripts, err = _load_document_script_map(doc)
@@ -323,10 +316,6 @@ def delete_document_script(doc: Any, name: str) -> DocumentScriptError | None:
         )
     del scripts[name]
     return set_document_scripts(doc, scripts)
-
-
-def save_document_script(doc: Any, name: str, code: str) -> DocumentScriptError | None:
-    return attach_document_script(doc, name, code, overwrite=True)
 
 
 def document_script_display_name(name: str) -> str:
@@ -387,7 +376,7 @@ def resolve_script_picker_entry(display_name: str, origin_map: dict[str, str]) -
 def _picker_state_from_parts(
     user_scripts: dict[str, str],
     doc_scripts: dict[str, str],
-    domain_entries: list[tuple[Any, dict[str, str]]],
+    domain_entries: list[tuple[PickerWiring, dict[str, str]]],
 ) -> tuple[list[str], dict[str, str], dict[str, str]]:
     origin_map: dict[str, str] = {}
     merged: dict[str, str] = {}
@@ -692,7 +681,7 @@ def _validate_script_target(
     *,
     session_doc: Any | None = None,
     session_doc_url: str | None = None,
-    action_label: str = "delete",
+    saving: bool = False,
 ) -> tuple[str, str] | None:
     name = str(msg.get("name") or "").strip()
     origin = str(msg.get("origin") or "").strip()
@@ -704,7 +693,7 @@ def _validate_script_target(
         return None
     if origin == SCRIPT_ORIGIN_DOCUMENT:
         if session_doc is None:
-            err = _("No document is open to save scripts.") if action_label == "save" else _("No document is open.")
+            err = _("No document is open to save scripts.") if saving else _("No document is open.")
             send_list(status_error_text=err)
             return None
         if document_scripts_write_is_stale(session_doc, session_doc_url):
@@ -728,7 +717,7 @@ def _on_save_script(
         send_list,
         session_doc=session_doc,
         session_doc_url=session_doc_url,
-        action_label="save",
+        saving=True,
     )
     if target is None:
         return True

@@ -23,15 +23,11 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Callable, Literal
+from typing import Any, Literal
 from plugin.framework.config import get_config, save
 from plugin.framework.errors import is_disposal, resolve_exception_message
 from plugin.framework.i18n import _
-from plugin.framework.uno_listeners import (
-    BaseActionListener,
-    BaseItemListener,
-    BaseTopWindowListener,
-)
+from plugin.framework.uno_listeners import BaseTopWindowListener, CallbackListener
 from plugin.framework.worker_pool import run_in_background
 from plugin.chatbot.dialogs import (
     load_writeragent_dialog_detail,
@@ -41,7 +37,6 @@ from plugin.chatbot.dialogs import (
     show_approval_dialog,
 )
 from plugin.scripting.document_scripts import (
-    attach_document_script,
     build_xdl_script_picker_state,
     delete_script_from_origin,
     document_script_display_name,
@@ -50,6 +45,7 @@ from plugin.scripting.document_scripts import (
     read_only_helper_message,
     resolve_run_script_name_config_key,
     resolve_script_picker_entry,
+    save_document_script,
     save_script_to_origin,
     save_user_script,
     script_origin_is_writable,
@@ -61,20 +57,6 @@ from plugin.scripting.script_dialogs import show_new_script_dialog
 from plugin.scripting.venv_worker import warm_venv_worker
 
 log = logging.getLogger("writeragent.scripting")
-
-
-class _FnListener(BaseActionListener, BaseItemListener):
-    _fn: Callable[[], Any]
-
-    def __init__(self, fn: Callable[[], Any]) -> None:
-        super().__init__()
-        self._fn = fn
-
-    def on_action_performed(self, rEvent: Any) -> None:
-        self._fn()
-
-    def on_item_state_changed(self, rEvent: Any) -> None:
-        self._fn()
 
 
 class ModelessWindowClosingListener(BaseTopWindowListener):
@@ -109,15 +91,11 @@ class _ScriptSaveResult:
     channel: Literal["builtin", "modal"] | None
 
 
-def _report_script_dialog_error(ctx: Any, dlg: Any, exc: BaseException, where: str) -> None:
+def _report_script_dialog_error(dlg: Any, exc: BaseException, where: str) -> None:
     """Show Save / Save As / Delete / New failures in the dialog label, not only in the log."""
     log.exception("%s failed in dialog", where)
     text = _("The document is no longer open.") if is_disposal(exc) else resolve_exception_message(exc)
-    lbl = dlg.getControl("InstructionLbl")
-    if lbl is not None:
-        set_control_text(lbl, text)
-        return
-    msgbox(ctx, _("Error"), text)
+    set_control_text(dlg.getControl("InstructionLbl"), text)
 
 
 def native_run_script_modeless_enabled() -> bool:
@@ -183,7 +161,8 @@ class NativePythonScriptDialog:
         self._doc = initial_doc
         self._modeless = modeless
         self._dlg: Any | None = None
-        self._select_ctrl: Any | None = None
+        # ScriptSelect is looked up in _open before the picker is filled or any listener is wired.
+        self._select_ctrl: Any = None
         self._current_scripts: dict[str, str] = {}
         self._script_origin_map: dict[str, str] = {}
         self._closed = False
@@ -207,8 +186,6 @@ class NativePythonScriptDialog:
 
     def _refresh_script_dropdown(self, select_display: str | None = None) -> None:
         select_ctrl = self._select_ctrl
-        if select_ctrl is None:
-            return
         names, merged, origin_map = build_xdl_script_picker_state(self._doc, get_user_scripts())
         self._current_scripts = merged
         self._script_origin_map = origin_map
@@ -225,9 +202,7 @@ class NativePythonScriptDialog:
             _picker_select_name(select_ctrl, selected_name, names)
             save({config_key: selected_name})
         if dlg is not None:
-            code_ctrl = dlg.getControl("CodeEdit")
-            if code_ctrl is not None:
-                code_ctrl.setText(merged.get(selected_name, "") if selected_name else "")
+            dlg.getControl("CodeEdit").setText(merged.get(selected_name, "") if selected_name else "")
 
     def _open(self) -> str | None:
         ctx = self._ctx
@@ -258,7 +233,7 @@ class NativePythonScriptDialog:
             self._wire_listeners(dlg, select_ctrl)
 
             code_ctrl = dlg.getControl("CodeEdit")
-            if code_ctrl is not None and not self._modeless:
+            if not self._modeless:
                 code_ctrl.setFocus()
 
             if self._modeless:
@@ -266,8 +241,7 @@ class NativePythonScriptDialog:
                 dlg.addTopWindowListener(self._top_listener)
                 dlg.setVisible(True)
                 # Focus CodeEdit after setVisible(True) so the modeless script dialog accepts keyboard input.
-                if code_ctrl is not None:
-                    code_ctrl.setFocus()
+                code_ctrl.setFocus()
                 return None
             dlg.execute()
             self._closed = True
@@ -280,10 +254,7 @@ class NativePythonScriptDialog:
             return exception_traceback(exc)
 
     def _save_current_script(self, t: str, *, only_if_changed: bool = False) -> _ScriptSaveResult:
-        select_ctrl = self._select_ctrl
-        if select_ctrl is None:
-            return _ScriptSaveResult(None, None)
-        display_name = _picker_selected_name(select_ctrl)
+        display_name = _picker_selected_name(self._select_ctrl)
         if not display_name:
             return _ScriptSaveResult(None, None)
         real_name, origin = resolve_script_picker_entry(display_name, self._script_origin_map)
@@ -330,7 +301,7 @@ class NativePythonScriptDialog:
         if exists and not show_approval_dialog(ctx, prompt, dialog_title):
             return False
         if attach_to_document and doc is not None:
-            err = attach_document_script(doc, name, code, overwrite=True)
+            err = save_document_script(doc, name, code)
         else:
             err = save_user_script(name, code)
         if err:
@@ -410,7 +381,7 @@ class NativePythonScriptDialog:
                 if res.text:
                     set_control_text(lbl, res.text)
             except Exception as exc:
-                _report_script_dialog_error(ctx, dlg, exc, "Save")
+                _report_script_dialog_error(dlg, exc, "Save")
 
         def _on_save_as() -> None:
             try:
@@ -443,7 +414,7 @@ class NativePythonScriptDialog:
                     user_success_msg=_("Script '%s' saved to My Scripts."),
                 )
             except Exception as exc:
-                _report_script_dialog_error(ctx, dlg, exc, "Save As")
+                _report_script_dialog_error(dlg, exc, "Save As")
 
         def _on_delete() -> None:
             try:
@@ -471,7 +442,7 @@ class NativePythonScriptDialog:
                     self._refresh_script_dropdown()
                     set_control_text(lbl, _("Script '%s' deleted.") % real_name)
             except Exception as exc:
-                _report_script_dialog_error(ctx, dlg, exc, "Delete")
+                _report_script_dialog_error(dlg, exc, "Delete")
 
         def _on_new() -> None:
             try:
@@ -489,11 +460,9 @@ class NativePythonScriptDialog:
                     doc_success_msg=_("Script '%s' created in this document."),
                     user_success_msg=_("Script '%s' created in My Scripts."),
                 ):
-                    ec = dlg.getControl("CodeEdit")
-                    if ec is not None:
-                        set_control_text(ec, starter_code)
+                    set_control_text(dlg.getControl("CodeEdit"), starter_code)
             except Exception as exc:
-                _report_script_dialog_error(ctx, dlg, exc, "New script")
+                _report_script_dialog_error(dlg, exc, "New script")
 
         def _on_cancel() -> None:
             log.debug("native script dialog: BtnCancel")
@@ -502,7 +471,7 @@ class NativePythonScriptDialog:
             else:
                 dlg.endDialog(0)
 
-        select_ctrl.addItemListener(_FnListener(_on_select))
+        select_ctrl.addItemListener(CallbackListener(_on_select))
         for btn_name, handler in (
             ("BtnRun", _on_run),
             ("BtnSave", _on_save),
@@ -511,9 +480,7 @@ class NativePythonScriptDialog:
             ("BtnDelete", _on_delete),
             ("BtnCancel", _on_cancel),
         ):
-            btn = dlg.getControl(btn_name)
-            if btn is not None:
-                btn.addActionListener(_FnListener(handler))
+            dlg.getControl(btn_name).addActionListener(CallbackListener(handler))
 
 
 def show_python_input_dialog(
@@ -539,7 +506,7 @@ def show_python_input_dialog(
         return False, exception_traceback(exc)
 
 
-def _report_run_outcome(ctx: Any, lbl: Any | None, outcome: dict[str, Any]) -> None:
+def _report_run_outcome(ctx: Any, lbl: Any, outcome: dict[str, Any]) -> None:
     """Update native dialog status / msgboxes after Run."""
     if not outcome.get("ok"):
         msgbox(ctx, _("Execution Error"), outcome.get("message") or _("Unknown error"))
@@ -551,5 +518,4 @@ def _report_run_outcome(ctx: Any, lbl: Any | None, outcome: dict[str, Any]) -> N
         # Printed text is shown here even when the script also returned a value;
         # the value goes into the document.
         msgbox(ctx, _("Output"), outcome["stdout"])
-    if lbl is not None:
-        set_control_text(lbl, status_text)
+    set_control_text(lbl, status_text)

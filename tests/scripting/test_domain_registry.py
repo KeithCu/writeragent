@@ -19,6 +19,13 @@ from plugin.scripting.domain_registry import (
 from plugin.scripting.helper_domain import _RUN_DATA_BINDING_CALLS
 
 
+def test_sheet_runner_rows_set_every_field_the_sheet_runner_reads():
+    sheet_rows = [w for w in WIRING_TABLE if w.runner == "sheet"]
+    assert sheet_rows
+    for w in sheet_rows:
+        assert w.error_code and w.helper_domain and w.rpc_domain and w.empty_data_message, w.id
+
+
 def test_registry_module_attr_targets_resolve():
     # These modules import without a live LibreOffice (vision_egress, vision_runner,
     # vision_templates, viz, symbolic, units, text_analytics, quant_egress,

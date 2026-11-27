@@ -37,32 +37,26 @@ def test_report_run_outcome_sets_status_via_set_control_text():
 
 
 def test_report_script_dialog_error_shows_the_exception():
-    ctx = MagicMock()
     dlg = MagicMock()
     lbl = MagicMock()
     dlg.getControl.return_value = lbl
-    with (
-        patch.object(ui, "set_control_text") as mock_set_text,
-        patch.object(ui, "msgbox") as mock_box,
-    ):
-        ui._report_script_dialog_error(ctx, dlg, RuntimeError("disk full"), "Save")
+    with patch.object(ui, "set_control_text") as mock_set_text:
+        ui._report_script_dialog_error(dlg, RuntimeError("disk full"), "Save")
     mock_set_text.assert_called_once_with(lbl, "disk full")
-    mock_box.assert_not_called()
 
 
 def test_report_script_dialog_error_disposed_document():
-    ctx = MagicMock()
     dlg = MagicMock()
-    dlg.getControl.return_value = None
+    lbl = MagicMock()
+    dlg.getControl.return_value = lbl
 
-    with patch.object(ui, "msgbox") as mock_box:
-        ui._report_script_dialog_error(ctx, dlg, DisposedException("disposed"), "Delete")
-    mock_box.assert_called_once()
-    assert "no longer open" in mock_box.call_args.args[2]
+    with patch.object(ui, "set_control_text") as mock_set_text:
+        ui._report_script_dialog_error(dlg, DisposedException("disposed"), "Delete")
+    mock_set_text.assert_called_once()
+    assert "no longer open" in mock_set_text.call_args.args[1]
 
 
 def test_report_script_dialog_error_bare_runtime_exception_shows_its_text():
-    ctx = MagicMock()
     dlg = MagicMock()
     lbl = MagicMock()
     dlg.getControl.return_value = lbl
@@ -73,7 +67,7 @@ def test_report_script_dialog_error_bare_runtime_exception_shows_its_text():
     MockRuntimeException.__name__ = "RuntimeException"
 
     with patch.object(ui, "set_control_text") as mock_set_text:
-        ui._report_script_dialog_error(ctx, dlg, MockRuntimeException("live error"), "Save")
+        ui._report_script_dialog_error(dlg, MockRuntimeException("live error"), "Save")
     mock_set_text.assert_called_once_with(lbl, "live error")
 
 

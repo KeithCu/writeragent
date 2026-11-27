@@ -31,6 +31,7 @@ from plugin.scripting.payload_codec import (
     is_multi_data,
     is_split_grid,
     numpy_scalar_item,
+    type_module_root,
 )
 
 log = logging.getLogger(__name__)
@@ -449,12 +450,7 @@ def is_pandas_frame_or_series(obj: Any) -> bool:
 
     Host LibreOffice Python has no pandas.
     """
-    for cls in type(obj).__mro__:
-        if cls.__name__ in ("DataFrame", "Series"):
-            mod = getattr(cls, "__module__", None)
-            if isinstance(mod, str) and (mod == "pandas" or mod.startswith("pandas.")):
-                return True
-    return False
+    return any(cls.__name__ in ("DataFrame", "Series") and type_module_root(cls) == "pandas" for cls in type(obj).__mro__)
 
 
 @deal.pre(lambda inner: _deal_materialize_inner_ok(inner))
@@ -585,8 +581,7 @@ def _host_ndarray_as_list(value: Any) -> list[Any] | None:
     one cell, and ``to_calc_compatible`` then returns the array's text.
     Pandas objects are left alone (their module is not ``numpy``).
     """
-    module = getattr(type(value), "__module__", "")
-    if not (isinstance(module, str) and (module == "numpy" or module.startswith("numpy."))):
+    if type_module_root(type(value)) != "numpy":
         return None
     tolist = getattr(value, "tolist", None)
     if not callable(tolist):

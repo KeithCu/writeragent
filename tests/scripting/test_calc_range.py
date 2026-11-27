@@ -673,3 +673,14 @@ def test_calc_range_packing_contracts(raw_val) -> None:
     if cr.values:
         assert cr.ncols == len(cr.values[0])
     assert cr.shape == (cr.nrows, cr.ncols)
+
+
+def test_pandas_frame_subclass_is_found_through_the_mro():
+    from plugin.scripting.calc_range import is_pandas_frame_or_series
+
+    frame = type("DataFrame", (), {"__module__": "pandas.core.frame"})
+    user_frame = type("MyFrame", (frame,), {"__module__": "user_code"})
+    lookalike = type("DataFrame", (), {"__module__": "pandasish"})
+
+    assert is_pandas_frame_or_series(user_frame())
+    assert not is_pandas_frame_or_series(lookalike())

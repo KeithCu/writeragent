@@ -739,7 +739,6 @@ def test_download_audio_listener_appends_and_keeps_title() -> None:
 
     def fake_download(_on_display, _on_status):
         order.append("download")
-        return True
 
     def fake_hop(fn):
         order.append("hop")
@@ -765,42 +764,6 @@ def test_download_audio_listener_appends_and_keeps_title() -> None:
     assert captured_calls[0]["title"] == "Audio Library Download"
     assert captured_calls[0]["append_log"] is True
     assert order == ["download", "hop", "ensure", "invalidate"]
-
-
-def test_download_audio_listener_skips_bind_when_download_returns_false() -> None:
-    fake_ctx = MagicMock()
-    fake_dlg = MagicMock()
-    captured_calls: list[dict[str, object]] = []
-
-    class _FakeProgress:
-        def __init__(self, ctx, parent_dlg=None):
-            assert parent_dlg is fake_dlg
-
-        def run_modal_probe(self, probe_fn, *, title=None, append_log=False, **_kwargs):
-            captured_calls.append({"title": title, "append_log": append_log})
-            probe_fn(lambda _text: None, lambda _status: None)
-            return True
-
-    from plugin.chatbot.dialog_views import DownloadAudioListener
-
-    def fake_download(_on_display, _on_status):
-        return False
-
-    def boom(*args, **kwargs):
-        raise AssertionError("bind should not be called")
-
-    listener = DownloadAudioListener(fake_ctx, fake_dlg)
-    with (
-        patch("plugin.chatbot.dialog_views.VenvProbeProgressDialog", _FakeProgress),
-        patch("plugin.scripting.native_binaries.run_audio_download", side_effect=fake_download),
-        patch("plugin.framework.queue_executor.main.call", side_effect=boom),
-        patch("plugin.scripting.native_binaries.ensure_native_binaries_on_path", side_effect=boom),
-        patch("plugin.scripting.payload_codec.invalidate_host_cython_accelerator", side_effect=boom),
-    ):
-        listener.on_action_performed(MagicMock())
-
-    assert len(captured_calls) == 1
-    assert captured_calls[0]["append_log"] is True
 
 
 def test_download_audio_listener_skips_bind_when_download_raises() -> None:

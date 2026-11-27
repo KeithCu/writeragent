@@ -105,8 +105,13 @@ from plugin.framework.uno_listeners import (
     BaseActivationEventListener, # override on_active_spreadsheet_changed(self, aEvent) for Calc sheets
     BaseModifyListener,      # override on_modified(self, aEvent) for document/sheet changes
     BaseTerminateListener,   # override on_query_termination(self, Event), on_notify_termination(self, Event)
+    CallbackListener,        # CallbackListener(fn): calls fn() on a click or an item change
 )
 ```
+
+For a button or list that only needs to call a function, use `CallbackListener(fn)` instead of a one-off subclass. Do not wrap `fn` in its own `try`/`except Exception`: the base class already logs ordinary failures and lets disposal and vetoes through. To end a modal dialog from a button, use `DismissDialogListener(dlg, status)` from `plugin.chatbot.dialogs`.
+
+Dialogs built from one shipped XDL call `dlg.getControl(name)` directly, with no `None` check, because the XDL defines every control the code names. Keep the `None` check after `load_writeragent_dialog` (loading can fail), and on modeless dialogs check `self._dlg is None` before touching a control (the user may have closed the dialog). `get_optional` is for dialogs assembled at runtime, such as Settings.
 
 ---
 

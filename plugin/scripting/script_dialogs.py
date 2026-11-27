@@ -11,6 +11,7 @@ import logging
 from typing import Any
 
 from plugin.chatbot.dialogs import (
+    DismissDialogListener,
     get_checkbox_state,
     get_control_text,
     load_writeragent_dialog,
@@ -64,18 +65,15 @@ def show_new_script_dialog(
             dlg.getModel().Title = dialog_title
 
             edit = dlg.getControl("NameEdit")
-            if edit is not None:
-                set_control_text(edit, default_name)
+            set_control_text(edit, default_name)
 
             chk = dlg.getControl("ChkAttach")
-            if chk is not None:
-                initial_attach = default_attach and can_attach
-                if not can_attach:
-                    reason = attach_unavailable_label(no_document=doc is None)
-                    set_control_text(chk, reason)
-                    chk.getModel().HelpText = reason
-                set_checkbox_state(chk, 1 if initial_attach else 0)
-                set_control_enabled(chk, can_attach)
+            if not can_attach:
+                reason = attach_unavailable_label(no_document=doc is None)
+                set_control_text(chk, reason)
+                chk.getModel().HelpText = reason
+            set_checkbox_state(chk, 1 if default_attach and can_attach else 0)
+            set_control_enabled(chk, can_attach)
 
             outcome: tuple[str, bool] | None = None
 
@@ -88,7 +86,7 @@ def show_new_script_dialog(
                     # A disabled box can still report State 1. can_attach is the
                     # same predicate that disabled it.
                     attach = can_attach and get_checkbox_state(cc) == 1
-                    # new_script_name_error blocks reserved init names before attach, matching attach_document_script rejection for INIT/Init.
+                    # new_script_name_error blocks reserved init names before attach, matching save_document_script rejection for INIT/Init.
                     message = new_script_name_error(t, attach=attach)
                     if message is not None:
                         peer = None
@@ -105,23 +103,14 @@ def show_new_script_dialog(
                     outcome = (t, attach)
                     dlg.endDialog(1)
 
-            class _CancelListener(BaseActionListener):
-                def on_action_performed(self, rEvent: Any) -> None:
-                    dlg.endDialog(0)
+            dlg.getControl("BtnOK").addActionListener(_OkListener())
+            dlg.getControl("BtnCancel").addActionListener(DismissDialogListener(dlg, 0))
 
-            btn_ok = dlg.getControl("BtnOK")
-            if btn_ok is not None:
-                btn_ok.addActionListener(_OkListener())
-            btn_cancel = dlg.getControl("BtnCancel")
-            if btn_cancel is not None:
-                btn_cancel.addActionListener(_CancelListener())
-
-            if edit is not None:
-                try:
-                    edit.setFocus()
-                except Exception:
-                    # setFocus failure is logged only; execute() and dispose still run so the dialog is not leaked.
-                    log.debug("show_new_script_dialog: setFocus failed", exc_info=True)
+            try:
+                edit.setFocus()
+            except Exception:
+                # setFocus failure is logged only; execute() and dispose still run so the dialog is not leaked.
+                log.debug("show_new_script_dialog: setFocus failed", exc_info=True)
             dlg.execute()
             return outcome
         finally:

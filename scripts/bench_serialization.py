@@ -22,7 +22,6 @@ sys.path.insert(0, str(project_root))
 
 from plugin.scripting.payload_codec import (  # noqa: E402
     BINARY_MIN_CELLS,
-    MAX_BENCH_CELLS,
     ForceBinary,
     cell_count,
     child_pack_result,
@@ -37,6 +36,9 @@ from tests.scripting.payload_codec_test_support import (  # noqa: E402
     legacy_b64_host_pack_split_grid,
     legacy_b64_host_unpack_split_grid,
 )
+
+# Largest grid this benchmark builds; the production cap is scripting.python_max_data_cells.
+MAX_BENCH_CELLS = 100_000
 
 
 def child_materialize_list(wire: Any) -> Any:

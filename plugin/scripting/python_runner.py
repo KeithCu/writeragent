@@ -21,7 +21,7 @@ Monaco on_save checks and updates it on the UI thread only. It is not locked.
 from dataclasses import dataclass
 import logging
 import time
-from typing import TYPE_CHECKING, Any, Callable, TypeGuard
+from typing import Any, Callable, TypeGuard
 
 from plugin.framework.uno_context import get_ctx, get_desktop, get_runtime_uid
 from plugin.framework.config import get_config
@@ -72,9 +72,9 @@ from plugin.scripting.helper_domain import (
     rps_insert_failed_outcome,
     rps_ok_outcome,
 )
-
-if TYPE_CHECKING:
-    from plugin.vision.vision_egress import VisionInsertOutcome
+from plugin.vision.vision_common import merge_vision_params
+from plugin.vision.vision_egress import VisionInsertOutcome, insert_vision_item, ocr_found_content, source_image_note
+from plugin.vision.vision_runner import run_and_insert_vision_for_selection, supports_vision_manual
 
 log = logging.getLogger("writeragent.scripting")
 
@@ -284,10 +284,6 @@ def _prepare_vision(ctx: Any, doc: Any, facts: ScriptFacts, t0: float) -> Prepar
     if "run_vision" not in facts.code or not facts.calls("run_vision"):
         return None
 
-    # Weight: plugin.vision brings the vision client, trusted RPC and graphic export; only a run_vision script needs them.
-    from plugin.vision.vision_common import merge_vision_params
-    from plugin.vision.vision_runner import supports_vision_manual
-
     if not supports_vision_manual(doc):
         return EarlyOutcome(
             outcome=rps_error_outcome(_("Vision helpers require a Writer, Calc, Draw, or Impress document."), t0=None)
@@ -373,9 +369,6 @@ def _prepare_rps_execution(
 def _run_prepared_rps(prepared: PreparedRun) -> dict[str, Any]:
     """Blocking venv IPC. Callers must not touch the document model here."""
     if isinstance(prepared, PreparedVision):
-        # Weight: only vision runs load plugin.vision (see _prepare_vision).
-        from plugin.vision.vision_runner import run_and_insert_vision_for_selection
-
         # run_and_insert_vision_for_selection safely marshals document operations to the main thread
         # while keeping the OCR wait, which can take minutes, on this background thread.
         found: list[tuple[str, Any | None]] = []
@@ -401,13 +394,10 @@ def _run_prepared_rps(prepared: PreparedRun) -> dict[str, Any]:
 
 def _finish_vision_execution(prepared: PreparedVision, response: dict[str, Any]) -> dict[str, Any]:
     """Main-thread result insert for vision helpers."""
-    # Weight: only vision runs load plugin.vision (see _prepare_vision).
-    from plugin.vision.vision_egress import insert_vision_item, ocr_found_content, source_image_note
-
     t0 = prepared.t0
     result = response.get("vision_selection_result") or {}
 
-    outcomes: list["VisionInsertOutcome"] = []
+    outcomes: list[VisionInsertOutcome] = []
     if not is_draw(prepared.doc):
         # Perform UNO document mutations on main thread
         indiv_results = result.get("individual_results", [])

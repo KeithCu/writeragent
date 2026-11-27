@@ -141,7 +141,6 @@ def test_download_vec_pack_listener_runs_vec_only_download() -> None:
     def fake_download(_on_display, _on_status, **kwargs):
         order.append("download")
         assert kwargs == {}
-        return True
 
     def fake_execute(fn, *args, **kwargs):
         order.append("hop")
@@ -169,7 +168,7 @@ def test_download_vec_pack_listener_runs_vec_only_download() -> None:
     assert order == ["download", "hop", "ensure", "invalidate"]
 
 
-def test_download_vec_pack_listener_skips_bind_when_download_fails() -> None:
+def test_download_vec_pack_listener_skips_bind_when_download_raises() -> None:
     order: list[str] = []
     captured_kwargs: dict[str, object] = {}
 
@@ -179,12 +178,13 @@ def test_download_vec_pack_listener_skips_bind_when_download_fails() -> None:
 
         def run_modal_probe(self, probe_fn, *, title=None, append_log=False, **_kwargs):
             captured_kwargs["append_log"] = append_log
-            probe_fn(lambda _text: None, lambda _status: None)
+            with pytest.raises(RuntimeError, match="download failed"):
+                probe_fn(lambda _text: None, lambda _status: None)
 
     def fake_download(_on_display, _on_status, **kwargs):
         order.append("download")
         assert kwargs == {}
-        return False
+        raise RuntimeError("download failed")
 
     listener = _DownloadVecPackListener(MagicMock(), MagicMock())
     with (
