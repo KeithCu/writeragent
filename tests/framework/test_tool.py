@@ -17,7 +17,6 @@
 """Tests for consolidated plugin.framework.tool."""
 
 import pytest
-import sys
 import threading
 import time
 import types
@@ -82,12 +81,20 @@ def test_tool_context_derive():
 
 def test_selection_pin_applies_to_second_wrapper_of_same_document():
     """PyUNO can hand out a second wrapper for one document; the pin still applies to it."""
-    doc_a = object()
-    doc_a_wrapper = object()
+
+    class _DocWrapper:
+        def __init__(self, key: str) -> None:
+            self.key = key
+
+        def __eq__(self, other: object) -> bool:
+            return isinstance(other, _DocWrapper) and self.key == other.key
+
+    doc_a = _DocWrapper("a")
+    doc_a_wrapper = _DocWrapper("a")
+    assert doc_a is not doc_a_wrapper
     pin = SelectionPin(object(), doc_a)
-    with patch.object(sys.modules["uno"], "isSame", side_effect=lambda a, b: {a, b} == {doc_a, doc_a_wrapper}):
-        assert pin.applies_to(doc_a_wrapper) is True
-        assert pin.applies_to(object()) is False
+    assert pin.applies_to(doc_a_wrapper) is True
+    assert pin.applies_to(object()) is False
 
 
 # ── Tool Base Tests ──────────────────────────────────────────────────
@@ -1880,6 +1887,8 @@ def test_tool_get_parameters_value_error_returns_registry_error() -> None:
 
     assert result["status"] == "error"
     assert result.get("code") == "TOOL_REGISTRY_ERROR"
+    assert result["details"]["original_error"] == "Intentional crash"
+    assert result["details"]["error_type"] == "ValueError"
     assert "Intentional crash" in str(result)
 
 

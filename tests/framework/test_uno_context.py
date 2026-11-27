@@ -302,35 +302,11 @@ def test_uno_same_eq_when_not_same_ref():
     assert uno_same(AlwaysEq(), AlwaysEq()) is True
 
 
-@pytest.mark.parametrize(
-    "return_value, expected",
-    [
-        pytest.param(True, True, id="test_uno_same_issame_when_is_and_eq_fail"),
-        pytest.param(False, False, id="test_uno_same_false_when_all_paths_differ"),
-    ],
-)
-def test_uno_same_issame_when_is_and_eq_fail(return_value, expected):
+def test_uno_same_false_when_is_and_eq_fail():
     from plugin.framework.uno_context import uno_same
 
     a, b = _NeverEq(), _NeverEq()
-    with patch.object(sys.modules["uno"], "isSame", return_value=return_value):
-        assert uno_same(a, b) is expected
-
-def test_uno_same_false_when_issame_missing():
-    from plugin.framework.uno_context import uno_same
-
-    a, b = _NeverEq(), _NeverEq()
-    with patch.object(sys.modules["uno"], "isSame", None):
-        assert uno_same(a, b) is False
-
-
-def test_uno_same_mocked_issame_is_not_treated_as_true():
-    """A session-wide MagicMock ``uno.isSame`` is truthy; must not collapse every pair to same."""
-    from plugin.framework.uno_context import uno_same
-
-    a, b = _NeverEq(), _NeverEq()
-    with patch.object(sys.modules["uno"], "isSame", MagicMock()):
-        assert uno_same(a, b) is False
+    assert uno_same(a, b) is False
 
 
 def test_uno_same_proxy_eq_unwraps_target():
@@ -347,28 +323,7 @@ def test_uno_same_proxy_eq_unwraps_target():
     assert uno_same(real, proxy) is True
 
 
-def test_uno_same_issame_unwraps_proxy_first():
-    """``uno.isSame`` must see the real PyUNO target, not the viral proxy wrapper."""
-    from plugin.framework import thread_guard as tg
-    from plugin.framework.uno_context import uno_same
-    from tests.harness.strip_bundle import skip_if_release_build
-
-    skip_if_release_build("GUARD_ON thread guard proxy stripped in release bundle")
-    real_a, real_b = object(), object()
-    proxy_a = tg._UnoThreadGuardProxy(real_a)
-    seen: list[tuple[object, object]] = []
-
-    def _issame(left: object, right: object) -> bool:
-        seen.append((left, right))
-        return left is real_a and right is real_b
-
-    with patch.object(sys.modules["uno"], "isSame", _issame):
-        # ``==`` is False (distinct objects / proxy target ≠ other), so ladder hits isSame.
-        assert uno_same(proxy_a, real_b) is True
-    assert seen == [(real_a, real_b)]
-
-
-def test_uno_same_off_thread_raises_on_thread_issame_still_works(monkeypatch):
+def test_uno_same_off_thread_raises_on_thread_still_works(monkeypatch):
     from plugin.framework import thread_guard as tg
     from plugin.framework.uno_context import uno_same
     from tests.harness.strip_bundle import skip_if_release_build
@@ -376,8 +331,8 @@ def test_uno_same_off_thread_raises_on_thread_issame_still_works(monkeypatch):
     skip_if_release_build("release bundles stub main_thread_only")
     monkeypatch.setenv("WRITERAGENT_TESTING", "1")
     a, b = _NeverEq(), _NeverEq()
-    with patch.object(sys.modules["uno"], "isSame", return_value=True):
-        assert uno_same(a, b) is True
+    assert uno_same(a, a) is True
+    assert uno_same(a, b) is False
 
     was = tg.GUARD_ON
     tg.GUARD_ON = True
@@ -617,33 +572,26 @@ def test_get_extension_url_returns_empty_on_all_failures():
         assert get_extension_url(extension_id="test.id") == "file:///path/to/ext"
 
 
-def test_iter_open_models_unwraps_models_and_frames():
+def test_iter_open_models_skips_non_model_elements():
     from plugin.framework.uno_context import iter_open_models
 
     desktop = MagicMock()
     comps = MagicMock()
     desktop.getComponents.return_value = comps
 
-    # Direct model with getURL
     model1 = MagicMock()
     model1.getURL.return_value = "file:///tmp/doc1.odt"
 
-    # Frame with getController().getModel()
-    frame = MagicMock()
-    del frame.getURL  # Ensure it doesn't look like a model
-    controller = MagicMock()
-    model2 = MagicMock()
-    model2.getURL.return_value = "file:///tmp/doc2.odt"
-    controller.getModel.return_value = model2
-    frame.getController.return_value = controller
+    controller = MagicMock(spec=["getModel"])
+    window = MagicMock(spec=[])
 
     enum = MagicMock()
-    enum.hasMoreElements.side_effect = [True, True, False]
-    enum.nextElement.side_effect = [model1, frame]
+    enum.hasMoreElements.side_effect = [True, True, True, False]
+    enum.nextElement.side_effect = [controller, window, model1]
     comps.createEnumeration.return_value = enum
 
     models = list(iter_open_models(desktop))
-    assert models == [model1, model2]
+    assert models == [model1]
 
 
 def test_iter_open_models_stops_on_next_element_error():
@@ -765,22 +713,15 @@ def test_iter_open_models_skips_scratch_documents(monkeypatch):
     scratch_model.getURL.return_value = "private:factory/swriter"
     scratch_model.getRuntimeUID.return_value = "scratch-1"
 
-    frame = MagicMock()
-    del frame.getURL
-    frame_model = MagicMock()
-    frame_model.getURL.return_value = "file:///tmp/research_copy.odt"
-    frame_model.getRuntimeUID.return_value = "scratch-2"
-    frame.getController.return_value.getModel.return_value = frame_model
-
     enum = MagicMock()
-    enum.hasMoreElements.side_effect = [True, True, True, False]
-    enum.nextElement.side_effect = [scratch_model, frame, user_model]
+    enum.hasMoreElements.side_effect = [True, True, False]
+    enum.nextElement.side_effect = [scratch_model, user_model]
     comps = MagicMock()
     comps.createEnumeration.return_value = enum
     desktop = MagicMock()
     desktop.getComponents.return_value = comps
 
-    monkeypatch.setattr(scratch_writer, "_scratch_uids", {"scratch-1", "scratch-2"})
+    monkeypatch.setattr(scratch_writer, "_scratch_uids", {"scratch-1"})
     assert list(iter_open_models(desktop)) == [user_model]
 
 
@@ -930,15 +871,13 @@ def test_match_by_url_doc_type_calc():
     assert doc_type == "calc"
 
 
-def test_match_via_getController_getModel_branch():
-    # An enumerated element that exposes getController().getModel() (a frame) instead of getURL
-    # directly -- the desktop-enumeration path the URL/uid mocks otherwise skip.
-    inner = _resolve_model("file:///docs/c.odt", "uid-c")
-    frame = MagicMock(spec=["getController"])  # no getURL attr -> forces the getController branch
-    frame.getController.return_value.getModel.return_value = inner
-    doc, doc_type = _resolve_by_url([frame], "file:///docs/c.odt")
-    assert doc is inner
-    assert doc_type == "writer"
+def test_skips_controller_and_window_elements():
+    # OComponentAccess::impl_getFrameComponent yields a controller or window when a frame
+    # has no model; neither has getURL, so desktop resolution skips both.
+    controller = MagicMock(spec=["getModel"])
+    controller.getModel.return_value = _resolve_model("file:///docs/c.odt", "uid-c")
+    window = MagicMock(spec=[])
+    assert _resolve_by_url([controller, window], "file:///docs/c.odt") == (None, None)
 
 
 def test_match_by_uid_when_target_is_not_a_url():

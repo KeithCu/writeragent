@@ -357,7 +357,7 @@ def _claim_container(
     """True if a snapshot match is still in ``_listener_refs``.
 
     Container comparisons run outside ``_lock``: ``uno_same`` falls back to
-    ``==`` and ``uno.isSame`` UNO calls, while ``on_disposing`` and
+    ``==`` UNO calls, while ``on_disposing`` and
     document-event handlers take ``_lock`` when already holding SolarMutex, so
     comparing under ``_lock`` would risk a lock-order inversion. This snapshots
     ``_listener_refs`` under ``_lock``, compares containers outside ``_lock``

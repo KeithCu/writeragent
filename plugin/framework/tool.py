@@ -1079,7 +1079,7 @@ class ToolRegistry:
 
         except Exception as e:
             log.exception("Tool execution failed: %s", tool_name)
-            return make_tool_error(f"Failed to execute tool '{tool_name}'", code="TOOL_REGISTRY_ERROR", tool_name=tool_name, error=str(e), type=type(e).__name__)
+            return make_tool_error(f"Failed to execute tool '{tool_name}'", code="TOOL_REGISTRY_ERROR", tool_name=tool_name, original_error=resolve_exception_message(e), error_type=type(e).__name__)
 
     @property
     def tool_names(self) -> list[str]:

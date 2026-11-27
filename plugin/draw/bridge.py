@@ -888,7 +888,7 @@ def get_draw_context_for_chat(model: Any, max_context: int) -> str:
         ctx_str = "%s: %s\n" % (doc_type, uno_call(lambda: model.getURL(), "Get document URL") or "Untitled")
         ctx_str += "Total %s: %d\n" % ("Slides" if is_impress_doc else "Pages", page_count)
 
-        # Compare with uno_same: PyUNO can hand out two wrappers for one page, so ``==`` can miss.
+        # Compare with uno_same: PyUNO can hand out two wrappers for one page, so ``is`` can miss.
         # -1 means the controller's page is not in the deck.
         active_page_idx = -1
         for i in range(page_count):
