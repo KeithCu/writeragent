@@ -26,6 +26,7 @@ from plugin.scripting.venv.calc_functions_util import (
     approx_floor,
     as_nonzero,
     build_holiday_set,
+    cell_text,
     calc_function,
     collect_a_values,
     criteria_reduce,
@@ -757,3 +758,13 @@ def test_criterion_error_whole_number_and_py_str():
     assert py_str(None) == ""
     assert py_str(CalcRange([[None]])) == ""
     assert py_str(CalcRange([[7]])) == "7"
+
+
+def test_cell_text_drops_the_point_zero_of_a_whole_number_float():
+    assert cell_text(111.0) == "111"
+    assert cell_text(CalcRange([[5.0]])) == "5"
+    assert cell_text(1.5) == "1.5"
+    assert cell_text(float("nan")) == "nan"
+    assert cell_text(float("inf")) == "inf"
+    assert cell_text(None) == ""
+    assert cell_text(" 7 ") == " 7 "

@@ -402,20 +402,12 @@ def _inject_session_duckdb(
     except ImportError:
         return
 
-    # Capture the host folder at inject time — after bindings, before user
-    # code — and do not read executor.state["scoped_dir"] again. The cell can
-    # assign scoped_dir before calling run_sql, and resolve_flat_file_path
-    # would then accept files under that folder. run_sandboxed_code drops a
-    # previous execute's scoped_dir before bindings, so this value is only the
-    # folder this execute actually bound.
-
-    def run_sql_bound(
-        sql: str,
-        con: Any | None = None,
-        **kwargs: Any,
-    ) -> Any:
-        return run_sql(sql, con, **kwargs)
-
+    # query_folder_df always reads host_scoped_dir, the host folder captured
+    # at inject time (after bindings, before user code), and ignores any
+    # scoped_dir the cell passes or assigns to executor.state. Otherwise the
+    # cell could point resolve_flat_file_path at a folder of its choosing.
+    # run_sandboxed_code drops a previous execute's scoped_dir before
+    # bindings, so host_scoped_dir is only the folder this execute bound.
     def query_folder_df_bound(
         sql: str,
         files: list[str] | dict[str, str] | None = None,
@@ -436,7 +428,7 @@ def _inject_session_duckdb(
     helpers = {
         "session_duckdb": session_duckdb,
         "invalidate_session_tables": invalidate_session_tables,
-        "run_sql": run_sql_bound,
+        "run_sql": run_sql,
         "query_folder_df": query_folder_df_bound,
     }
     executor.send_variables(helpers)
