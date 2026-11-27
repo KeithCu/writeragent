@@ -155,13 +155,10 @@ def resolve_allowed_tools(python_tool_domain: str | None) -> frozenset[str] | No
 
 def _proxy_methods_by_tool(api: ModuleType) -> dict[str, tuple[str, Any]]:
     """Map each ``TOOL_METHODS`` tool name to ``(wa_namespace, proxy_method)``."""
-    found: dict[str, tuple[str, Any]] = {}
-    for tool_name, (namespace, method_name) in api.TOOL_METHODS.items():
-        proxy = getattr(api, namespace, None)
-        method = getattr(proxy, method_name, None)
-        if callable(method):
-            found[tool_name] = (namespace, method)
-    return found
+    return {
+        tool_name: (namespace, getattr(getattr(api, namespace), method_name))
+        for tool_name, (namespace, method_name) in api.TOOL_METHODS.items()
+    }
 
 
 # Dunder proxy methods in COLLECTION_NAMESPACES are displayed as Python container
@@ -224,8 +221,6 @@ def _format_script_api_catalog_cached(domains_tuple: tuple[str, ...]) -> str:
         return ""
     tools: dict[str, list[str]] = api.DOMAIN_TOOLS
     methods = _proxy_methods_by_tool(api)
-    if not methods:
-        return ""
     domains = [n for n in dict.fromkeys(("core", *domains_tuple)) if n in tools]
     blocks: list[str] = []
     for domain in domains:

@@ -2528,7 +2528,7 @@ def test_run_with_logging_deadline_errors_before_headers() -> None:
         return (_Admission(deadline=Deadline(5.0), parsed={"id": "early"}, req_id="early"), None)
 
     sem = threading.Semaphore(1)
-    route = _Route("POST", prepare, handle, default_timeout_sec=5, busy_code="WORKER_POOL_BUSY", busy_message="busy")
+    route = _Route(prepare, handle, default_timeout_sec=5, busy_code="WORKER_POOL_BUSY", busy_message="busy")
     body = _gated({"PATH_INFO": "/v1/execute", "HTTP_HOST": "127.0.0.1"}, start_response, ComputeSettings(), sem, route)
     assert calls == ["500 Internal Server Error"]
     assert b"INTERNAL_ERROR" in b"".join(body)
@@ -2938,7 +2938,7 @@ def test_gated_prepare_exception_is_json_internal_error() -> None:
         return []
 
     sem = threading.Semaphore(1)
-    route = _Route("POST", prepare, handle, default_timeout_sec=5, busy_code="WORKER_POOL_BUSY", busy_message="busy")
+    route = _Route(prepare, handle, default_timeout_sec=5, busy_code="WORKER_POOL_BUSY", busy_message="busy")
     body = _gated({"PATH_INFO": "/v1/execute", "HTTP_HOST": "127.0.0.1"}, start_response, ComputeSettings(), sem, route)
     assert statuses == ["500 Internal Server Error"]
     assert b"INTERNAL_ERROR" in b"".join(body)
@@ -3243,7 +3243,7 @@ def test_reset_queue_timeout_closes_connection() -> None:
     sem = threading.Semaphore(1)
     env = {"REQUEST_METHOD": "POST", "PATH_INFO": "/v1/session/reset", "QUERY_STRING": "session_id=abc", "HTTP_TRANSFER_ENCODING": "chunked", "HTTP_HOST": "127.0.0.1", "wsgi.input": stream}
     request_conn(env).accept_time = 0.0
-    route = _Route("POST", prepare, handle, default_timeout_sec=1, busy_code="WORKER_POOL_BUSY", busy_message="busy")
+    route = _Route(prepare, handle, default_timeout_sec=1, busy_code="WORKER_POOL_BUSY", busy_message="busy")
     res = _gated(env, start_response, ComputeSettings(), sem, route)
     payload = json.loads(b"".join(res).decode("utf-8"))
     assert statuses[0].startswith("503")

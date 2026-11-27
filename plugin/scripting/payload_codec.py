@@ -1859,49 +1859,42 @@ def child_pack_split_grid(arr: Any) -> dict[str, Any]:
     # crosshair: off
     import numpy as np
 
-    try:
-        if not isinstance(arr, np.ndarray):
-            arr = np.asarray(arr)
-        _reject_temporal_ndarray(arr)
-        # Rank 0 and rank 3+ must not be written: the detector accepts only
-        # rank 1 or 2, so host_unpack would treat a shape=[] or
-        # shape=[d0,d1,d2] envelope as a plain metadata dict, raw bytes
-        # included.
-        if arr.ndim not in (1, 2):
-            raise ValueError(f"split_grid supports rank 1 or 2, got ndim {arr.ndim}")
-        kind = arr.dtype.kind
-        if not is_numeric_wire_kind(kind):
-            raise ValueError(
-                f"split_grid float64 lane accepts dtype kinds i/u/f/b, got {kind!r}"
-            )
-        ncols = int(arr.shape[1]) if arr.ndim == 2 else 1
-        # A bool ndarray is not an integer dtype. Tag it "bool"; "float" would
-        # make host unpack restore 1.0/0.0 instead of True/False.
-        tag = {"b": "bool", "i": "int", "u": "int"}.get(kind, "float")
-        column_kinds = [tag] * ncols
-        wire_arr = np.ascontiguousarray(arr, dtype=np.float64)
-        envelope: dict[str, Any] = {
-            "__wa_payload__": PAYLOAD_SPLIT_GRID,
-            "dtype": SPLIT_GRID_WIRE_DTYPE,
-            "column_kinds": column_kinds,
-            "shape": list(wire_arr.shape),
-            "strings": {},
-            "buffer": wire_arr.tobytes(),
-        }
-        log.debug(
-            "payload_codec child_pack split_grid column_kinds=%s shape=%s cells=%s raw_bytes=%s",
-            column_kinds,
-            wire_arr.shape,
-            wire_arr.size,
-            len(envelope["buffer"]),
+    if not isinstance(arr, np.ndarray):
+        arr = np.asarray(arr)
+    _reject_temporal_ndarray(arr)
+    # Rank 0 and rank 3+ must not be written: the detector accepts only
+    # rank 1 or 2, so host_unpack would treat a shape=[] or
+    # shape=[d0,d1,d2] envelope as a plain metadata dict, raw bytes
+    # included.
+    if arr.ndim not in (1, 2):
+        raise ValueError(f"split_grid supports rank 1 or 2, got ndim {arr.ndim}")
+    kind = arr.dtype.kind
+    if not is_numeric_wire_kind(kind):
+        raise ValueError(
+            f"split_grid float64 lane accepts dtype kinds i/u/f/b, got {kind!r}"
         )
-        return envelope
-    except Exception:
-        log.exception(
-            "payload_codec child_pack split_grid failed for value %s",
-            describe_wire_value(arr),
-        )
-        raise
+    ncols = int(arr.shape[1]) if arr.ndim == 2 else 1
+    # A bool ndarray is not an integer dtype. Tag it "bool"; "float" would
+    # make host unpack restore 1.0/0.0 instead of True/False.
+    tag = {"b": "bool", "i": "int", "u": "int"}.get(kind, "float")
+    column_kinds = [tag] * ncols
+    wire_arr = np.ascontiguousarray(arr, dtype=np.float64)
+    envelope: dict[str, Any] = {
+        "__wa_payload__": PAYLOAD_SPLIT_GRID,
+        "dtype": SPLIT_GRID_WIRE_DTYPE,
+        "column_kinds": column_kinds,
+        "shape": list(wire_arr.shape),
+        "strings": {},
+        "buffer": wire_arr.tobytes(),
+    }
+    log.debug(
+        "payload_codec child_pack split_grid column_kinds=%s shape=%s cells=%s raw_bytes=%s",
+        column_kinds,
+        wire_arr.shape,
+        wire_arr.size,
+        len(envelope["buffer"]),
+    )
+    return envelope
 
 
 def _container_has_packable_nested(obj: Any, _depth: int = 0, *, _np: Any) -> bool:
@@ -1943,6 +1936,114 @@ def _needs_elementwise_pack(obj: Any, _depth: int = 0) -> bool:
     return any(_container_has_packable_nested(item, _depth=_depth + 1, _np=np) for item in obj)
 
 
+def _child_pack_result(
+    result: Any,
+    *,
+    min_cells: int = BINARY_MIN_CELLS,
+    force: ForceBinary = "auto",
+    _depth: int = 0,
+) -> Any:
+    """Recursive implementation of ``child_pack_result``."""
+    # crosshair: off
+    if _depth > _MAX_UNPACK_DEPTH:
+        raise ValueError("payload_codec: child_pack_result maximum recursion depth exceeded")
+    np = _optional_numpy()
+
+    if np is not None:
+        if isinstance(result, np.ndarray):
+            shape = tuple(int(x) for x in result.shape)
+            kind = result.dtype.kind
+            # Before either the split_grid cast or tolist(). Both rewrite dates.
+            _reject_temporal_ndarray(result)
+            if result.ndim > 2:
+                # A rank-3 tolist() looks like a rectangular 2D grid whose
+                # cells are rows. The list packer would then split_grid that
+                # outer plane and stringify the inner rows. Calc spill is
+                # 2D, so pack one axis at a time. A first-class ND envelope
+                # would need the detector and both unpackers together — do
+                # not write a rank-3 shape into this envelope.
+                return [
+                    _child_pack_result(
+                        result[i], min_cells=min_cells, force=force, _depth=_depth + 1
+                    )
+                    for i in range(int(result.shape[0]))
+                ]
+            # Only i/u/f/b kinds take the binary lane. A deny-list of text
+            # kinds would let complex (``c``) through, where astype(float64)
+            # drops the imaginary part, and void/structured, which raise
+            # inside the cast. Same kind rule (is_numeric_wire_kind) as the DataFrame path.
+            if (
+                result.ndim in (1, 2)
+                and is_numeric_wire_kind(kind)
+                and should_use_binary_envelope(shape, min_cells=min_cells, force=force)
+            ):
+                return child_pack_split_grid(result)
+            # Recurse on tolist() so the list path (grid_from_nested_list)
+            # goes on the wire. Returning the ndarray unchanged would give a
+            # DataFrame under 100 cells an ndarray body that
+            # result_to_calc_grid drops, and a bare multi-cell array would
+            # become one Calc string.
+            if log.isEnabledFor(logging.DEBUG):
+                log.debug(
+                    "payload_codec child_pack ndarray via list kind=%s shape=%s",
+                    kind,
+                    shape,
+                )
+            return _child_pack_result(result.tolist(), min_cells=min_cells, force=force, _depth=_depth + 1)
+        elif isinstance(result, np.integer):
+            return int(result)
+        elif isinstance(result, np.floating):
+            return float(result)
+        elif isinstance(result, np.bool_):
+            return bool(result)
+    if isinstance(result, dict):
+        used: set[str] = set()
+        packed_dict: dict[str, Any] = {}
+        for key, value in result.items():
+            sk = wire_str_key(key, used)
+            packed_dict[sk] = _child_pack_result(
+                value, min_cells=min_cells, force=force, _depth=_depth + 1
+            )
+        return packed_dict
+    if isinstance(result, (list, tuple)):
+        needs_each = _needs_elementwise_pack(result, _depth=_depth + 1)
+        row_like = False
+        if not needs_each:
+            row_like = bool(result) and type(result[0]) in (list, tuple)
+            if row_like:
+                # Strict rectangular 2D of scalar cells. A list of grids
+                # is rectangular outside but each cell is a row; split_grid
+                # would store str(cell). That case packs each row instead.
+                strict = all(
+                    isinstance(r, (list, tuple))
+                    and len(r) == len(result[0])
+                    and all(not isinstance(cell, (list, tuple)) for cell in r)
+                    for r in result
+                )
+                needs_each = not strict
+        if needs_each:
+            packed = [
+                _child_pack_result(x, min_cells=min_cells, force=force, _depth=_depth + 1)
+                for x in result
+            ]
+            return tuple(packed) if isinstance(result, tuple) else type(result)(packed)
+        if row_like:
+            grid = [list(row) for row in result]
+            grid_shape: tuple[int, ...] = (len(grid), max((len(r) for r in grid), default=0))
+        else:
+            grid = list(result)
+            grid_shape = (len(grid),)
+        if should_use_binary_envelope(grid_shape, min_cells=min_cells, force=force):
+            # Shared stdlib grid packer (also used by host_pack_data). The
+            # host_ name is historical; this path runs in the venv too.
+            return host_pack_split_grid(grid)
+        out = grid_from_nested_list(grid)
+        if log.isEnabledFor(logging.DEBUG):
+            log.debug("payload_codec child_pack json_list egress %s", describe_wire_value(out))
+        return out
+    return result
+
+
 @deal.raises(ValueError, TypeError, AttributeError)
 def child_pack_result(
     result: Any,
@@ -1960,104 +2061,10 @@ def child_pack_result(
     containers and datetime64/timedelta64 arrays first. ``float('nan')`` stays NaN.
     """
     # crosshair: off
-    if _depth > _MAX_UNPACK_DEPTH:
-        raise ValueError("payload_codec: child_pack_result maximum recursion depth exceeded")
-    np = _optional_numpy()
-
     try:
-        if np is not None:
-            if isinstance(result, np.ndarray):
-                shape = tuple(int(x) for x in result.shape)
-                kind = result.dtype.kind
-                # Before either the split_grid cast or tolist(). Both rewrite dates.
-                _reject_temporal_ndarray(result)
-                if result.ndim > 2:
-                    # A rank-3 tolist() looks like a rectangular 2D grid whose
-                    # cells are rows. The list packer would then split_grid that
-                    # outer plane and stringify the inner rows. Calc spill is
-                    # 2D, so pack one axis at a time. A first-class ND envelope
-                    # would need the detector and both unpackers together — do
-                    # not write a rank-3 shape into this envelope.
-                    return [
-                        child_pack_result(
-                            result[i], min_cells=min_cells, force=force, _depth=_depth + 1
-                        )
-                        for i in range(int(result.shape[0]))
-                    ]
-                # Only i/u/f/b kinds take the binary lane. A deny-list of text
-                # kinds would let complex (``c``) through, where astype(float64)
-                # drops the imaginary part, and void/structured, which raise
-                # inside the cast. Same kind rule (is_numeric_wire_kind) as the DataFrame path.
-                if (
-                    result.ndim in (1, 2)
-                    and is_numeric_wire_kind(kind)
-                    and should_use_binary_envelope(shape, min_cells=min_cells, force=force)
-                ):
-                    return child_pack_split_grid(result)
-                # Recurse on tolist() so the list path (grid_from_nested_list)
-                # goes on the wire. Returning the ndarray unchanged would give a
-                # DataFrame under 100 cells an ndarray body that
-                # result_to_calc_grid drops, and a bare multi-cell array would
-                # become one Calc string.
-                if log.isEnabledFor(logging.DEBUG):
-                    log.debug(
-                        "payload_codec child_pack ndarray via list kind=%s shape=%s",
-                        kind,
-                        shape,
-                    )
-                return child_pack_result(result.tolist(), min_cells=min_cells, force=force, _depth=_depth + 1)
-            elif isinstance(result, np.integer):
-                return int(result)
-            elif isinstance(result, np.floating):
-                return float(result)
-            elif isinstance(result, np.bool_):
-                return bool(result)
-        if isinstance(result, dict):
-            used: set[str] = set()
-            packed_dict: dict[str, Any] = {}
-            for key, value in result.items():
-                sk = wire_str_key(key, used)
-                packed_dict[sk] = child_pack_result(
-                    value, min_cells=min_cells, force=force, _depth=_depth + 1
-                )
-            return packed_dict
-        if isinstance(result, (list, tuple)):
-            needs_each = _needs_elementwise_pack(result, _depth=_depth + 1)
-            row_like = False
-            if not needs_each:
-                row_like = bool(result) and type(result[0]) in (list, tuple)
-                if row_like:
-                    # Strict rectangular 2D of scalar cells. A list of grids
-                    # is rectangular outside but each cell is a row; split_grid
-                    # would store str(cell). That case packs each row instead.
-                    strict = all(
-                        isinstance(r, (list, tuple))
-                        and len(r) == len(result[0])
-                        and all(not isinstance(cell, (list, tuple)) for cell in r)
-                        for r in result
-                    )
-                    needs_each = not strict
-            if needs_each:
-                packed = [
-                    child_pack_result(x, min_cells=min_cells, force=force, _depth=_depth + 1)
-                    for x in result
-                ]
-                return tuple(packed) if isinstance(result, tuple) else type(result)(packed)
-            if row_like:
-                grid = [list(row) for row in result]
-                grid_shape: tuple[int, ...] = (len(grid), max((len(r) for r in grid), default=0))
-            else:
-                grid = list(result)
-                grid_shape = (len(grid),)
-            if should_use_binary_envelope(grid_shape, min_cells=min_cells, force=force):
-                # Shared stdlib grid packer (also used by host_pack_data). The
-                # host_ name is historical; this path runs in the venv too.
-                return host_pack_split_grid(grid)
-            out = grid_from_nested_list(grid)
-            if log.isEnabledFor(logging.DEBUG):
-                log.debug("payload_codec child_pack json_list egress %s", describe_wire_value(out))
-            return out
-        return result
+        return _child_pack_result(
+            result, min_cells=min_cells, force=force, _depth=_depth
+        )
     except Exception:
         log.exception(
             "payload_codec child_pack_result failed for value %s",
