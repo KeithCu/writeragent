@@ -61,6 +61,7 @@ class FakeHost:
         self.image_model_selector = None
         self.audio_wav_path = None
         self._orphan_send_outcome = None
+        self.cached_uno_services = None
         self.appended = []
         self.statuses = []
         self.refreshed_tools = 0
@@ -77,7 +78,6 @@ class FakeHost:
         turn.active_tools = [{"function": {"name": "tool"}}]
         turn.active_execute_tool_fn = Mock(return_value='{"status": "ok"}')
         turn.active_query_text = "question"
-        turn.active_supports_status = False
 
     @property
     def _active_client(self):
@@ -133,17 +133,6 @@ class FakeHost:
         turn = current_turn(self)
         if turn is not None:
             turn.active_query_text = value
-
-    @property
-    def _active_supports_status(self):
-        turn = current_turn(self)
-        return turn.active_supports_status if turn else False
-
-    @_active_supports_status.setter
-    def _active_supports_status(self, value):
-        turn = current_turn(self)
-        if turn is not None:
-            turn.active_supports_status = value
 
 
     @property
@@ -404,6 +393,9 @@ def test_spawn_tool_worker_effect_runs_sync_tool_and_enqueues_result():
 
     assert kwargs["captured_turn"] is current_turn(host)
     assert item == (StreamQueueKind.TOOL_DONE, "call_1", "apply_content", '{"content": "hi"}', '{"status": "ok"}')
+    # Every tool call gets a status callback that posts STATUS on the captured turn.
+    kwargs["status_callback"]("working")
+    assert host._active_q.get(timeout=2) == (StreamQueueKind.STATUS, "working")
 
 
 def _install_fake_main_registry():
@@ -1982,7 +1974,7 @@ class TestFinalizeSidebarAssistantResponse:
         from plugin.chatbot.tool_loop_actions import finalize_sidebar_assistant_response
 
         send = _make_plain_send_listener()
-        send.rerender_rich_text_session = MagicMock()
+        send.rerender_rich_text_session = MagicMock(return_value=False)
 
         with patch("plugin.chatbot.panel.threading.current_thread", return_value=threading.main_thread()):
             # "<b" is buffered as a potential tag until finalize flushes it

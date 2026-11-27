@@ -72,6 +72,16 @@ class _ListBox:
     def getModel(self):
         return SimpleNamespace()
 
+    def getMinimumSize(self, _cols: int, lines: int):
+        # XTextLayoutConstrains on VCLXListBox: no horizontal scrollbar, classic row estimate.
+        return SimpleNamespace(Width=0, Height=_overlay_height(lines))
+
+    def addMouseListener(self, _listener) -> None:
+        pass
+
+    def addKeyListener(self, _listener) -> None:
+        pass
+
 
 class _Query:
     def __init__(self) -> None:
@@ -89,6 +99,13 @@ class _Query:
 
     def getModel(self):
         return SimpleNamespace(Text=self.text)
+
+    def getPeer(self):
+        # No VCL peer in unit tests, so no toolkit key handler is attached.
+        return None
+
+    def setFocus(self) -> None:
+        pass
 
 
 _orig_create_ask_peer_listbox = _create_ask_peer_listbox
@@ -151,6 +168,9 @@ def _controller(lru: list[str] | None = None) -> tuple[SlashPopupController, Any
         slash_popup=None,
         sync_has_text_from_query=MagicMock(),
         cached_doc_type=None,
+        dispatch=MagicMock(),
+        frame=None,
+        status_control=None,
     )
     with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=lru or []):
         popup = SlashPopupController(placeholder, send, query)
@@ -273,7 +293,6 @@ def test_chat_panel_xdl_uses_menulist_for_slash_popup():
 
 def test_create_ask_peer_listbox_none_without_peer():
     assert _create_ask_peer_listbox(_Query()) is None
-    assert _create_ask_peer_listbox(None) is None
 
 
 def test_combo_placeholder_is_hidden_and_not_used_as_menu():
@@ -916,7 +935,6 @@ def test_hscroll_height_only_when_rows_wider_than_list():
     assert _hscroll_height(narrow, 1, 1, 400) == 0
     # 7 matches in 6 rows: the VScroll eats width, so 395px text overflows 400.
     assert _hscroll_height(narrow, 6, 7, 310) == 12
-    assert _hscroll_height(SimpleNamespace(), 1, 1, 400) == 0
 
 
 def test_single_wide_match_list_is_tall_enough_for_row_and_hscroll():

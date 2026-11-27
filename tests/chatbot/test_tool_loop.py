@@ -65,6 +65,16 @@ class FakePanel(ToolCallingMixin):
         self._spawn_llm_worker = Mock()
         self._spawn_final_stream = Mock()
         self._get_document_model = Mock(return_value=None)
+        self.rich_text_widget = None
+        self.response_control = None
+        self.cached_doc_type = None
+        self.cached_uno_services = None
+
+    def rerender_rich_text_session(self) -> bool:
+        return False
+
+    def _run_rich_ui(self, fn, *args, **kwargs):
+        return fn(*args, **kwargs)
 
 
 def setup_mock_panel():
@@ -151,11 +161,11 @@ def test_control_state_on_sm_state(mock_get_config, mock_drain_loop):
 @patch("plugin.chatbot.tool_loop.run_stream_drain_loop")
 @patch("plugin.chatbot.tool_loop.get_config")
 def test_handle_stream_stopped_stores_partial_text(mock_get_config, mock_drain_loop):
-    from plugin.chatbot.tool_loop_actions import begin_send_turn, current_turn, note_stop_partial
+    from plugin.chatbot.tool_loop_actions import begin_send_turn, note_stop_partial
 
     panel, session = setup_mock_panel()
-    begin_send_turn(panel)
-    note_stop_partial(current_turn(panel), {"content": "kept tokens", "tool_calls": None})
+    turn = begin_send_turn(panel)
+    note_stop_partial(turn, {"content": "kept tokens", "tool_calls": None})
 
     def mock_drain_impl(q, toolkit, thinking_open, append_fn, on_stream_done=None, on_stopped=None, **kwargs):
         on_stopped()
@@ -973,7 +983,7 @@ def test_tool_done_refreshes_document_context_only_for_mutating_calls(
         event = ToolCallingMixin._create_event_from_stream_item(panel, item)
 
     assert event is not None
-    state = ToolLoopState(round_num=0, pending_tools=[], max_rounds=5, status="Ready")
+    state = ToolLoopState(round_num=0, pending_tools=[], max_rounds=5)
     tr = next_state(state, event)
 
     assert any(isinstance(e, UpdateDocumentContextEffect) for e in tr.effects) is expect_refresh

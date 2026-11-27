@@ -509,8 +509,8 @@ def _rich_control_needs_bounds(rich_control: Any, bx: int, by: int, bw: int, bh:
 
 
 def _invalidate_peer(control: Any) -> None:
-    peer = control.getPeer() if hasattr(control, "getPeer") else None
-    if peer is not None and hasattr(peer, "invalidate"):
+    peer = control.getPeer()
+    if peer is not None:
         peer.invalidate(0)
 
 
@@ -699,9 +699,7 @@ def _disable_rich_hscroll(control: Any) -> None:
 
 def _create_rich_control_peer(smgr: Any, ctx: Any, toolkit: Any, field_model: Any, parent_window: Any) -> Any | None:
     """Create a VCL peer for a form RichText TextField model."""
-    parent_peer = None
-    if hasattr(parent_window, "getPeer"):
-        parent_peer = parent_window.getPeer()
+    parent_peer = parent_window.getPeer()
 
     for service in (
         "com.sun.star.form.control.RichTextControl",
@@ -882,7 +880,7 @@ class RichTextControlListener(BaseWindowListener):
         self._begin_deferred_init()
 
     def _root_peer(self) -> Any | None:
-        if self.root_window is None or not hasattr(self.root_window, "getPeer"):
+        if self.root_window is None:
             return None
         return self.root_window.getPeer()
 
@@ -924,7 +922,7 @@ class RichTextControlListener(BaseWindowListener):
                 return
             self.rich_control = control
             self._sync_bounds()
-            visible = control.isVisible() if hasattr(control, "isVisible") else "?"
+            visible = control.isVisible()
             pos = control.getPosSize()
             bounds = "%sx%s@%s,%s" % (pos.Width, pos.Height, pos.X, pos.Y)
             log_rich_control_context(
@@ -965,11 +963,11 @@ def create_sidebar_rich_text_control(ctx: Any, root_window: Any, placeholder_ctr
             log.error("create_sidebar_rich_text_control: could not create TextField model")
             return None
 
-        impl = field_model.getImplementationName() if hasattr(field_model, "getImplementationName") else "?"
+        impl = field_model.getImplementationName()
         set_prop(field_model, "Name", RICH_CONTROL_NAME)
         _apply_rich_control_style_defaults_on_model(field_model, theme=ChatTheme.resolve(style_window=root_window))
 
-        rich_flag = field_model.getPropertyValue("RichText") if hasattr(field_model, "getPropertyValue") else None
+        rich_flag = field_model.getPropertyValue("RichText")
         log.info(
             "create_sidebar_rich_text_control: field model impl=%s RichText=%s",
             impl,
@@ -994,7 +992,7 @@ def create_sidebar_rich_text_control(ctx: Any, root_window: Any, placeholder_ctr
         cur = control.getPosSize()
         log.info(
             "create_sidebar_rich_text_control: ready visible=%s bounds=%dx%d@%d,%d",
-            control.isVisible() if hasattr(control, "isVisible") else "?",
+            control.isVisible(),
             cur.Width,
             cur.Height,
             cur.X,
@@ -1100,7 +1098,7 @@ def _insert_string_at_rich_cursor(
 def _dispatch_rich_uno(control: Any, command: str) -> bool:
     """queryDispatch *command* on the rich peer, never the Writer frame."""
     try:
-        peer = control.getPeer() if hasattr(control, "getPeer") else None
+        peer = control.getPeer()
         if peer is None or not hasattr(peer, "queryDispatch"):
             return False
         # We set only URL.Complete, not URLTransformer.parseStrict, because
@@ -1177,7 +1175,7 @@ def _select_all_collapsed(control: Any) -> bool:
     Net text is unchanged. The caret ends at the start of the last real
     paragraph, where the view already is.
     """
-    model = control.getModel() if hasattr(control, "getModel") else None
+    model = control.getModel()
     padded = _append_scroll_pad(model)
     try:
         return _dispatch_rich_uno(control, ".uno:SelectAll")
@@ -1188,7 +1186,7 @@ def _select_all_collapsed(control: Any) -> bool:
 
 def _append_scroll_pad(model: Any) -> bool:
     """Append an empty paragraph about 0 px high at the end of *model*."""
-    if model is None or not hasattr(model, "createTextCursor"):
+    if model is None:
         return False
     try:
         cursor = model.createTextCursor()
@@ -1315,8 +1313,6 @@ def attach_rich_focus_tracker(control: Any, on_press: Callable[[], None] | None 
     """Register focus/mouse listeners on the transcript. See RichFocusTracker."""
     if control is None:
         return None
-    if not hasattr(control, "addFocusListener") or not hasattr(control, "addMouseListener"):
-        return None
     existing = _FOCUS_TRACKERS.get(id(control))
     if existing is not None and existing.control is control:
         return existing
@@ -1360,7 +1356,7 @@ def append_text_chunk(control: Any, text: str, style_window: Any = None, ctx: An
     try:
         theme = ChatTheme.resolve(style_window=style_window)
         model = control.getModel()
-        if model is None or not hasattr(model, "createTextCursor"):
+        if model is None:
             return
         # Do not setFocus on stream. setFocus + focus_preserved(query) steals
         # document typing: stock Toolkit has no getFocusWindow
@@ -1392,16 +1388,13 @@ def clear_control(control: Any) -> None:
         return
     try:
         cell_link_registry.clear(control)
-        if hasattr(control, "setText"):
-            control.setText("")
+        control.setText("")
         model = control.getModel()
         if model is not None:
-            if hasattr(model, "createTextCursor"):
-                cursor = model.createTextCursor()
-                cursor.gotoStart(False)
-                cursor.gotoEnd(True)
-                if hasattr(cursor, "setString"):
-                    cursor.setString("")
+            cursor = model.createTextCursor()
+            cursor.gotoStart(False)
+            cursor.gotoEnd(True)
+            cursor.setString("")
             model.Text = ""
     except Exception:
         log.exception("clear_control failed")
@@ -1459,15 +1452,14 @@ def reveal_rich_control_caret(control: Any, ctx: Any = None, reason: str = "unsp
     log_rich_scroll("reveal_caret", reason=reason)
 
     with focus_preserved(ctx, restore):
-        model = control.getModel() if hasattr(control, "getModel") else None
+        model = control.getModel()
         was_readonly = None
         if model is not None:
             was_readonly = getattr(model, "ReadOnly", None)
             if was_readonly:
                 set_prop(model, "ReadOnly", False)
         try:
-            if hasattr(control, "setFocus"):
-                control.setFocus()
+            control.setFocus()
             # Under a drain owner or active pump the pump is skipped; the caret reveal is best-effort.
             process_events_to_idle(ctx)
         except Exception:

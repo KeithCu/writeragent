@@ -19,6 +19,7 @@ from typing import Any, cast, TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+from plugin.framework.config import get_config
 from plugin.framework.deal_shim import deal
 from plugin.framework.grammar_rule_ids import ISO_TO_SNOWBALL
 
@@ -64,14 +65,11 @@ def stem_word(snowball_lang: str, token: str) -> str:
     stemmer = _get_stemmer(snowball_lang)
     if stemmer is None:
         return token
-    try:
-        # Concurrent web_research workers share one stemmer. stemWord
-        # writes cursor/limit on that object, so the lock covers the call.
-        # The cache itself stays shared.
-        with _STEMMER_LOCK:
-            return stemmer.stemWord(token)
-    except Exception:
-        return token
+    # Concurrent web_research workers share one stemmer. stemWord
+    # writes cursor/limit on that object, so the lock covers the call.
+    # The cache itself stays shared.
+    with _STEMMER_LOCK:
+        return stemmer.stemWord(token)
 
 
 @deal.post(lambda result: isinstance(result, str) and result in _SNOWBALL_LANGS)
@@ -269,15 +267,10 @@ def research_cache_similarity(query_stems: set[str], stored_stems: set[str]) -> 
 
 def _research_cache_embedding_configured() -> bool:
     """True when the local embeddings venv is configured enough to try worker RPC."""
-    try:
-        from plugin.framework.config import get_config
-
-        provider = str(get_config("embedding_provider") or "local").strip().lower() or "local"
-        if provider != "local":
-            return False
-        return bool(str(get_config("scripting.python_venv_path") or "").strip())
-    except Exception:
+    provider = str(get_config("embedding_provider") or "local").strip().lower() or "local"
+    if provider != "local":
         return False
+    return bool(str(get_config("scripting.python_venv_path") or "").strip())
 
 
 def _embedding_text_hash(text: str) -> str:

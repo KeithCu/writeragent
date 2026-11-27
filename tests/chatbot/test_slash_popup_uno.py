@@ -62,6 +62,9 @@ def test_slash_popup_listbox_filter_and_keys(ctx):
             {
                 "ctx": ctx,
                 "query_control": query,
+                "status_control": None,
+                "frame": None,
+                "cached_doc_type": None,
                 "slash_popup": None,
                 "dispatch": lambda *a, **k: None,
                 "hide_popup": lambda self: self.slash_popup.hide() if self.slash_popup else None,

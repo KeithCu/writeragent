@@ -71,6 +71,10 @@ class MockDummyToolCallingClass(ToolCallingMixin):
         self.responses = []
         self.statuses = []
         self._orphan_send_outcome = None
+        self.rich_text_widget = None
+        self.response_control = None
+        self.cached_doc_type = None
+        self.cached_uno_services = None
 
 
     def _append_response(self, text, is_thinking=False, role="assistant"):
@@ -78,6 +82,12 @@ class MockDummyToolCallingClass(ToolCallingMixin):
 
     def _set_status(self, text):
         self.statuses.append(text)
+
+    def rerender_rich_text_session(self) -> bool:
+        return False
+
+    def _run_rich_ui(self, fn, *args, **kwargs):
+        return fn(*args, **kwargs)
 
 @pytest.fixture
 def mock_get_tools(monkeypatch):
@@ -220,7 +230,7 @@ def test_stream_error_stt_fallback_does_not_reenter_send(test_instance):
     test_instance.session.messages.append({"role": "user", "content": [{"type": "input_audio"}]})
     test_instance.sidebar_state = dataclasses.replace(
         test_instance.sidebar_state,
-        tool_loop=ToolLoopState(round_num=0, pending_tools=[], max_rounds=8, status="Thinking..."),
+        tool_loop=ToolLoopState(round_num=0, pending_tools=[], max_rounds=8),
     )
     test_instance._spawn_llm_worker = MagicMock()
     test_instance._do_send_chat_with_tools = MagicMock()
@@ -270,7 +280,7 @@ def test_stream_error_empty_stt_ends_the_drain(test_instance):
     test_instance._voice._transcribe_audio = MagicMock(return_value="   ")
     test_instance.sidebar_state = dataclasses.replace(
         test_instance.sidebar_state,
-        tool_loop=ToolLoopState(round_num=0, pending_tools=[], max_rounds=8, status="Thinking..."),
+        tool_loop=ToolLoopState(round_num=0, pending_tools=[], max_rounds=8),
     )
 
     with (
@@ -416,7 +426,7 @@ def _prime_active_tool_loop(instance):
     live.active_query_text = "hello"
     instance.sidebar_state = dataclasses.replace(
         instance.sidebar_state,
-        tool_loop=ToolLoopState(round_num=0, pending_tools=[], max_rounds=8, status="Thinking..."),
+        tool_loop=ToolLoopState(round_num=0, pending_tools=[], max_rounds=8),
     )
 
 
@@ -1054,20 +1064,22 @@ def test_first_send_cold_model_worker_vision_image_handling(test_instance, visio
 
 
 def _make_audio_fallback_host(text_model="chat-model", endpoint="https://example"):
+    from plugin.chatbot.tool_loop_actions import TurnController
+
     host = MagicMock()
     host.audio_wav_path = "/fake/a.wav"
+    turn = TurnController(host.session)
+    turn.same_messages = MagicMock(return_value=True)
+    turn.batcher = None
+    turn.queue = MagicMock()
+    turn.text_model = text_model
+    turn.endpoint = endpoint
+    turn.active_query_text = "typed query"
+    turn.active_client = MagicMock()
+    turn.active_max_tokens = 100
+    turn.active_tools = []
+    host._turn = turn
     assign_send_outcome(host, "ready")
-    host._turn.alive = True
-    host._turn.session = host.session
-    host._turn.same_messages.return_value = True
-    host._turn.batcher = None
-    host._turn.queue = MagicMock()
-    host._turn.text_model = text_model
-    host._turn.endpoint = endpoint
-    host._turn.active_query_text = "typed query"
-    host._turn.active_client = MagicMock()
-    host._turn.active_max_tokens = 100
-    host._turn.active_tools = []
     return host
 
 
@@ -1361,7 +1373,6 @@ def test_production_loop_zero_tool_edit_reply_ends_turn(test_instance):
         round_num=0,
         pending_tools=[],
         max_rounds=8,
-        status="Thinking...",
     )
     test_instance._tool_calling._spawn_llm_worker = MagicMock()
     test_instance._tool_calling._refresh_active_tools_for_session = MagicMock()

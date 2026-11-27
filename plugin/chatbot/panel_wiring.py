@@ -67,8 +67,6 @@ def _pin_button_width(ctrl: Any, labels: list[str]) -> None:
     if not ctrl or not labels:
         return
     with suppress_disposed("measure button width", logger=log):
-        if not hasattr(ctrl, "getModel"):
-            return
         m = ctrl.getModel()
         saved = m.Label
         wmax = 0
@@ -199,10 +197,6 @@ def setup_rich_control_ready(
 def _wireControls(self: Any, root_window: Any) -> None:  # pyright: ignore[reportUnusedFunction]  # imported as wire_chatpanel_controls by panel_factory
     """Main entry point to wire all controls for the panel."""
     log.debug("_wireControls entered")
-    if not hasattr(root_window, "getControl"):
-        log.error("_wireControls: root_window has no getControl, aborting")
-        return
-
     translate_dialog(root_window)
 
     controls = {
@@ -333,7 +327,7 @@ def _wireControls(self: Any, root_window: Any) -> None:  # pyright: ignore[repor
             controls,
         )
 
-    if controls["status"] and hasattr(controls["status"], "setText"):
+    if controls["status"]:
         with suppress_disposed("set status text on init", logger=log, exc_info=True):
             controls["status"].setText(_("Ready"))
 

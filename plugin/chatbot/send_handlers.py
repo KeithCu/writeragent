@@ -53,7 +53,7 @@ from plugin.chatbot.chat_sidebar_mode import (
     require_sidebar_mode,
     sidebar_mode,
 )
-from plugin.chatbot.dialogs import get_control_text, show_approval_dialog
+from plugin.chatbot.dialogs import show_approval_dialog
 from plugin.framework.model_lru import update_lru_history
 from plugin.framework.tool import ToolContext
 from plugin.doc.visual_helpers import selected_graphic_object
@@ -301,21 +301,18 @@ class SendHandlersMixin:
         source_image = _direct_image_source_arg(model)
         # Read aspect ratio and image model on the UI thread; getText and LRU refresh are UNO/VCL.
         aspect_ratio_str = "Square"
-        if self._panel.aspect_ratio_selector and hasattr(self._panel.aspect_ratio_selector, "getText"):
+        if self._panel.aspect_ratio_selector:
             aspect_ratio_str = self._panel.aspect_ratio_selector.getText()
         from plugin.chatbot.settings_dialog import IMAGE_ASPECT_RATIO_ENUMS, canonical_aspect_label
 
         aspect_ratio_str = canonical_aspect_label(str(aspect_ratio_str or ""))
         mapped_aspect = IMAGE_ASPECT_RATIO_ENUMS.get(aspect_ratio_str, "square")
         image_model_text = ""
-        if self._panel.image_model_selector and hasattr(self._panel.image_model_selector, "getText"):
+        if self._panel.image_model_selector:
             image_model_text = self._panel.image_model_selector.getText()
         base_size_val: int | str = DEFAULT_IMAGE_BASE_SIZE
         if self._panel.base_size_input:
-            if hasattr(self._panel.base_size_input, "getText"):
-                base_size_val = self._panel.base_size_input.getText()
-            elif hasattr(self._panel.base_size_input.getModel(), "Text"):
-                base_size_val = get_control_text(self._panel.base_size_input)
+            base_size_val = self._panel.base_size_input.getText()
         try:
             base_size_int = int(base_size_val)
         except (ValueError, TypeError):
@@ -415,7 +412,7 @@ class SendHandlersMixin:
         doc_type_str = doc_type_str or "writer"
         document_url = ""
         with suppress_disposed("get document URL for agent backend", logger=log):
-            if model and hasattr(model, "getURL"):
+            if model is not None:
                 document_url = str(model.getURL() or "")
 
         turn_session = turn_session_or_stop(self._panel)

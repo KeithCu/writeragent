@@ -36,7 +36,6 @@ def create_base_state(round_num=0, pending_tools=None, max_rounds=5, is_stopped=
         round_num=round_num,
         pending_tools=pending_tools or [],
         max_rounds=max_rounds,
-        status="Ready",
         is_stopped=is_stopped,
         async_tools=frozenset(["web_research", "image_generate"])
     )
@@ -98,7 +97,6 @@ def test_stop_requested():
     new_state, effects = tr.state, tr.effects
 
     assert new_state.is_stopped is True
-    assert new_state.status == "Stopped"
 
     assert any(isinstance(e, ExitLoopEffect) for e in effects)
     assert not any(isinstance(e, AddMessageEffect) for e in effects)
@@ -132,9 +130,8 @@ def test_final_done():
     state = create_base_state()
     event = create_event(EventKind.FINAL_DONE, content="Final words")
     tr = next_state(state, event)
-    new_state, effects = tr.state, tr.effects
+    effects = tr.effects
 
-    assert new_state.status == "Ready"
     ready_status = next(
         e for e in effects if isinstance(e, ToolLoopUIEffect) and e.kind == UIEffectKind.STATUS and e.outcome == "ready"
     )
@@ -153,7 +150,6 @@ def test_final_done_empty_content_shows_out_of_tool_rounds_message():
 
     state = create_base_state()
     tr = next_state(state, create_event(EventKind.FINAL_DONE, content=""))
-    assert tr.state.status == "Ready"
     assert any(isinstance(e, ExitLoopEffect) for e in tr.effects)
     msg_effect = next(e for e in tr.effects if isinstance(e, AddMessageEffect))
     assert msg_effect.content == expected_msg
@@ -162,7 +158,6 @@ def test_final_done_empty_content_shows_out_of_tool_rounds_message():
     assert ui_effect.text == expected_msg + "\n"
 
     tr_missing = next_state(state, create_event(EventKind.FINAL_DONE))
-    assert tr_missing.state.status == "Ready"
     assert any(isinstance(e, ExitLoopEffect) for e in tr_missing.effects)
     msg_effect2 = next(e for e in tr_missing.effects if isinstance(e, AddMessageEffect))
     assert msg_effect2.content == expected_msg
@@ -184,9 +179,8 @@ def test_error_event():
     state = create_base_state()
     event = create_event(EventKind.ERROR, error=Exception("Something broke"))
     tr = next_state(state, event)
-    new_state, effects = tr.state, tr.effects
+    effects = tr.effects
 
-    assert new_state.status == "Error"
     assert any(isinstance(e, ExitLoopEffect) for e in effects)
 
 def test_stream_done_finish_reasons():
@@ -195,8 +189,8 @@ def test_stream_done_finish_reasons():
     # finish_reason="length"
     event_len = create_event(EventKind.STREAM_DONE, response={"finish_reason": "length", "content": None})
     tr_len = next_state(state, event_len)
-    new_state_len, effects_len = tr_len.state, tr_len.effects
-    assert new_state_len.status == "Ready"
+    effects_len = tr_len.effects
+    assert any(isinstance(e, ExitLoopEffect) for e in effects_len)
     assert any(isinstance(e, ToolLoopUIEffect) and "out of tokens" in e.text for e in effects_len)
     msg_len = next(e for e in effects_len if isinstance(e, AddMessageEffect))
     assert "out of tokens" in msg_len.content
@@ -247,9 +241,8 @@ def test_stream_done_empty_tool_calls():
     # explicitly testing empty list
     event = create_event(EventKind.STREAM_DONE, response={"tool_calls": [], "content": "I couldn't figure it out."})
     tr = next_state(state, event)
-    new_state, effects = tr.state, tr.effects
+    effects = tr.effects
 
-    assert new_state.status == "Ready"
     assert any(isinstance(e, ExitLoopEffect) for e in effects)
     msg_eff = next((e for e in effects if isinstance(e, AddMessageEffect)), None)
     assert msg_eff is not None
