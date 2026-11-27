@@ -128,7 +128,7 @@ def redline_kinds_covering(spans: list[RedlineSpan], text_range: Any) -> set[str
 def redline_kinds_overlapping(spans: list[RedlineSpan], text_range: Any) -> set[str]:
     """``RedlineType`` of every tracked change in *spans* whose bounds intersect *text_range*.
 
-    Unreadable or cross-text spans count as overlapping so callers fail closed.
+    Cross-text or incomparable spans count as overlapping so callers fail closed.
     """
     kinds: set[str] = set()
     r_start = text_range.getStart()
@@ -150,24 +150,16 @@ def overlaps_foreign_insertion(doc: Any, ranges: list[Any], author: str) -> bool
     compareRegionStarts compares document positions, so insertions in cells and frames work
     too; one that cannot be compared (a table insertion) counts as overlapping.
     """
-    bounds = [(r.getStart(), r.getEnd()) for r in ranges]
+    spans: list[RedlineSpan] = []
     for rl in _iter_redlines(doc):
         if rl.getPropertyValue("RedlineType") != "Insert" or rl.getPropertyValue("RedlineAuthor") == author:
             continue
         try:
-            start = rl.getPropertyValue("RedlineStart")
-            end = rl.getPropertyValue("RedlineEnd")
-            text = start.getText()
-            # compareRegionStarts(a, b): 1 when a starts before b.
-            if any(
-                text.compareRegionStarts(start, r_end) > 0 and text.compareRegionStarts(r_start, end) > 0
-                for r_start, r_end in bounds
-            ):
-                return True
+            spans.append(("Insert", redline_bounds(rl)))
         except Exception as exc:
             reraise_if_disposed(exc)
             return True
-    return False
+    return any(redline_kinds_overlapping(spans, r) for r in ranges)
 
 
 def tracked_change_before_point(doc: Any, point: Any) -> bool:

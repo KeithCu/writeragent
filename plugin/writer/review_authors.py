@@ -169,6 +169,7 @@ def begin(ctx: Any) -> tuple[str, str] | None:
         # so restore_author_after_crash can put it back.
         _commit_author(access, INSERT_AUTHOR, "")
         _state.last = INSERT_AUTHOR
+        # Gate arming here rather than in callers so every deletion_author() path honours the flag.
         _state.ctx = ctx if split_author_colors() else None
         return prior
     except Exception:

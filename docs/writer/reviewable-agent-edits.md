@@ -170,8 +170,9 @@ made in `record_preserve_replace` in
   `NumberingIsNumber` are restored untracked after the split, direct character formatting is reset on
   the import target (and direct paragraph formatting and numbering too when the replacement changes block
   type or style, while keeping layout and uniform font for plain `<p>` replacements), and the leftover
-  synthetic paragraph is dropped untracked. In `full_document` replace, a body that is only a table
-  imports after its empty paragraph (so Reject keeps it `Standard`), while other bodies delete and open
+  synthetic paragraph is dropped untracked. In `full_document` replace, an empty body (either blank
+  or only struck leading tables) imports after its empty paragraph (leaving one leading empty
+  paragraph after Accept and keeping it `Standard` on Reject), while non-empty bodies delete and open
   a fresh paragraph before the struck text, leaving one trailing empty paragraph after Accept; any
   synthetic leftover paragraph opened before the import is also dropped untracked (`RecordChanges`
   temporarily off) via `_drop_leftover_paragraph` — merging forward after a trailing table — so

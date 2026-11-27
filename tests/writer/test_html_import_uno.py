@@ -3986,7 +3986,7 @@ def test_recorded_full_document_table_only_uno(ctx: Any, doc: Any) -> None:
         res = ApplyDocumentContent().execute(tctx, target="full_document", content=["<h1>New heading</h1>"])
         assert res.get("status") == "ok", res
         accept_all_changes(doc, ctx)
-        assert [t for _s, t in body_shape(doc.getText()) if t] == ["New heading"]
+        assert body_shape(doc.getText()) == [("Standard", ""), ("Heading 1", "New heading")]
     finally:
         save({flag: prev})
         doc.setPropertyValue("RecordChanges", False)
@@ -4021,11 +4021,14 @@ def test_recorded_whole_paragraph_shapes_and_roundtrip_uno(ctx: Any, doc: Any) -
                     str(el.getPropertyValue("ListLabelString") or ""),
                     str(el.getPropertyValue("BreakType").value),
                     str(el.getPropertyValue("PageDescName") or ""),
+                    bool(el.getPropertyValue("ParaIsHyphenation")),
+                    int(el.getPropertyValue("ParaOrphans")),
                 ))
         return out
 
     def _apply_base(html: str) -> None:
         save({flag: "off"})
+        accept_all_changes(doc, ctx)
         doc.setPropertyValue("RecordChanges", False)
         res = ApplyDocumentContent().execute(tctx, target="full_document", content=[html])
         assert res.get("status") == "ok", res
@@ -4034,10 +4037,10 @@ def test_recorded_whole_paragraph_shapes_and_roundtrip_uno(ctx: Any, doc: Any) -
         _apply_base('<p>First</p><p>Middle</p><p data-lo-para="page-break-before:always">After</p>')
 
     def _seed_alice_insert_heading() -> None:
-        _apply_base("<h1>Head</h1><p>Body</p>")
+        _apply_base("<p>Intro</p><h1>Head</h1><p>Body</p>")
         doc.setPropertyValue("RecordChanges", True)
         text = doc.getText()
-        cur = text.createTextCursorByRange(body_paragraphs(text)[0].getEnd())
+        cur = text.createTextCursorByRange(body_paragraphs(text)[1].getEnd())
         text.insertString(cur, " extra", False)
         doc.setPropertyValue("RecordChanges", False)
 
@@ -4068,13 +4071,23 @@ def test_recorded_whole_paragraph_shapes_and_roundtrip_uno(ctx: Any, doc: Any) -
         _apply_base("<h1>First</h1><p>Second</p>")
 
     def _seed_alice_struck_prev_break() -> None:
-        _apply_base("<ol><li>One</li><li>Two</li></ol>")
+        _apply_base("<p>One</p><p>Two</p><p>Three</p>")
         doc.setPropertyValue("RecordChanges", True)
         text = doc.getText()
         cur = text.createTextCursorByRange(body_paragraphs(text)[1].getStart())
         assert cur.goLeft(1, True)
         cur.setString("")
         doc.setPropertyValue("RecordChanges", False)
+
+    def _seed_hyphenation_orphans_predecessor() -> None:
+        _apply_base("<p>Lead</p><p>Target</p><p>Tail</p>")
+        text = doc.getText()
+        cur = text.createTextCursorByRange(body_paragraphs(text)[0])
+        cur.setPropertyValue("ParaIsHyphenation", False)
+        cur.setPropertyValue("ParaOrphans", 3)
+
+    def _seed_replaced_para_page_break() -> None:
+        _apply_base('<p>A</p><p data-lo-para="page-break-before:always">Clause</p><p>B</p>')
 
     cases = [
         ("page_break_follower", _seed_page_break_follower, "Middle", "<p>New</p>", False),
@@ -4086,6 +4099,8 @@ def test_recorded_whole_paragraph_shapes_and_roundtrip_uno(ctx: Any, doc: Any) -
         ("numbered_justified", _seed_numbered_justified, "Target clause", "<p>New clause</p>", False),
         ("first_para_heading", _seed_first_heading, "First", "<h1>New</h1>", False),
         ("alice_struck_prev_break", _seed_alice_struck_prev_break, "Two", "<p>New</p>", False),
+        ("hyphenation_orphans_predecessor", _seed_hyphenation_orphans_predecessor, "Target", "<p>New</p>", False),
+        ("replaced_para_page_break", _seed_replaced_para_page_break, "Clause", "<p>New</p>", False),
     ]
 
     try:
@@ -4095,7 +4110,12 @@ def test_recorded_whole_paragraph_shapes_and_roundtrip_uno(ctx: Any, doc: Any) -
                 save({flag: "off"})
                 res = ApplyDocumentContent().execute(tctx, target="search", old_content=old_text, content=[new_html])
                 assert res.get("status") == "ok", (name, "untracked", res)
+                accept_all_changes(doc, ctx)
                 untracked = _snap()
+
+                seeder()
+                reject_all_changes(doc, ctx)
+                reject_ref = _snap()
 
                 # Record -> Accept
                 seeder()
@@ -4117,7 +4137,7 @@ def test_recorded_whole_paragraph_shapes_and_roundtrip_uno(ctx: Any, doc: Any) -
                     pv.Value = "writer8"
                     doc.storeToURL(uno.systemPathToFileUrl(os.path.join(tmpdir, f"{name}.odt")), (pv,))
                 reject_all_changes(doc, ctx)
-                assert _snap() == seed_snap, (name, "reject", _snap(), seed_snap)
+                assert _snap() == reject_ref, (name, "reject", _snap(), reject_ref)
 
                 # Record -> one Undo
                 seeder()
@@ -4127,15 +4147,10 @@ def test_recorded_whole_paragraph_shapes_and_roundtrip_uno(ctx: Any, doc: Any) -
                 doc.getUndoManager().undo()
                 assert _snap() == seed_snap, (name, "undo", _snap(), seed_snap)
 
-            # Review Off with RecordChanges on: user-typed paragraph before replaced paragraph stays separate on Reject.
-            _apply_base("<p>Para two.</p>")
-            doc.setPropertyValue("RecordChanges", True)
-            text = doc.getText()
-            cur = text.createTextCursor()
-            cur.gotoStart(False)
-            text.insertString(cur, "Para one.", False)
-            text.insertControlCharacter(cur, uno.getConstantByName("com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK"), False)
+            # Review Off with RecordChanges on when the predecessor break is not pending.
+            _apply_base("<p>Para one.</p><p>Para two.</p>")
             seed_snap = _snap()
+            doc.setPropertyValue("RecordChanges", True)
             res = ApplyDocumentContent().execute(tctx, target="search", old_content="Para two.", content=["<p>New two.</p>"])
             assert res.get("status") == "ok", ("review_off_record", res)
             reject_all_changes(doc, ctx)

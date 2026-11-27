@@ -1105,6 +1105,42 @@ _NUMBERING_PROPS = (
     "NumberingStartValue",
 )
 
+_EXTRA_COPY_STYLE_PARA_PROPS = (
+    "ParaWidows",
+    "ParaOrphans",
+    "ParaIsHyphenation",
+    "ParaHyphenationNoCaps",
+    "ParaHyphenationNoLastWord",
+    "ParaHyphenationMaxLeadingChars",
+    "ParaHyphenationMaxTrailingChars",
+    "ParaHyphenationCompoundMinLeadingChars",
+    "ParaHyphenationCompoundMinTrailingChars",
+    "ParaHyphenationMaxHyphens",
+    "ParaHyphenationMinWordLength",
+    "ParaHyphenationZone",
+    "ParaHyphenationZoneAlways",
+    "ParaHyphenationZoneColumn",
+    "ParaHyphenationZonePage",
+    "ParaHyphenationZoneSpread",
+    "ParaHyphenationKeep",
+    "ParaHyphenationKeepType",
+    "ParaHyphenationKeepLine",
+    "ParaRegisterModeActive",
+    "ParaVertAlignment",
+    "SnapToGrid",
+    "OutlineLevel",
+    "WritingMode",
+    "WritingModeAutomatic",
+    "DropCapFormat",
+    "DropCapWholeWord",
+    "ParaExpandSingleWord",
+    "ParaLastLineAdjust",
+    "ParaIsHangingPunctuation",
+    "ParaIsCharacterDistance",
+    "ParaIsForbiddenRules",
+    "ParaIsConnectBorder",
+)
+
 
 def _set_para_prop(target: Any, name: str, value: Any) -> None:
     if name == "ParaTabStops":
@@ -1118,10 +1154,18 @@ def _paragraph_format(cursor: Any) -> dict[str, Any]:
     fmt: dict[str, Any] = {"ParaStyleName": cursor.getPropertyValue("ParaStyleName")}
     para = next(iter_elements(cursor.createEnumeration()), None)
     target = para if para is not None else cursor
-    fmt["NumberingIsNumber"] = bool(target.getPropertyValue("NumberingIsNumber"))
+    if target.getPropertyValue("NumberingStyleName") or target.getPropertyValue("ListId"):
+        fmt["NumberingIsNumber"] = bool(target.getPropertyValue("NumberingIsNumber"))
     for name in _NUMBERING_PROPS:
         if target.getPropertyState(name).value == "DIRECT_VALUE":
             fmt[name] = target.getPropertyValue(name)
+    if para is not None:
+        info = para.getPropertySetInfo()
+        extra_names = tuple(n for n in _EXTRA_COPY_STYLE_PARA_PROPS if info is not None and info.hasPropertyByName(n))
+        if extra_names:
+            for name, state in zip(extra_names, para.getPropertyStates(extra_names)):
+                if state.value == "DIRECT_VALUE":
+                    fmt[name] = para.getPropertyValue(name)
     fmt.update(_direct_para_props(cursor))
     return fmt
 
@@ -1131,15 +1175,30 @@ def _restore_numbering(cursor: Any, fmt: dict[str, Any]) -> None:
     for name in _NUMBERING_PROPS:
         if name in fmt:
             cursor.setPropertyValue(name, fmt[name])
+    # Only False has an effect in LibreOffice (SwXTextCursor::setPropertyValue,
+    # sw/source/core/unocore/unoobj.cxx:506, calls SetCountedInList(false), which
+    # writes RES_PARATR_LIST_ISCOUNTED=false), so fmt only records it for list paragraphs.
     if "NumberingIsNumber" in fmt:
         cursor.setPropertyValue("NumberingIsNumber", fmt["NumberingIsNumber"])
 
 
 def _restore_paragraph_format(cursor: Any, fmt: dict[str, Any]) -> None:
     """Restore style, direct paragraph properties, and numbering captured by ``_paragraph_format``."""
-    cursor.setPropertyValue("ParaStyleName", fmt["ParaStyleName"])
+    # SetTextFormatColl (unoobj.cxx:259) resets whole-node direct char attributes; skip when unchanged.
+    if cursor.getPropertyValue("ParaStyleName") != fmt["ParaStyleName"]:
+        cursor.setPropertyValue("ParaStyleName", fmt["ParaStyleName"])
     _drop_absorb_paragraph_props(cursor)
     para = next(iter_elements(cursor.createEnumeration()), None)
+    if para is not None:
+        info = para.getPropertySetInfo()
+        extra_names = tuple(n for n in _EXTRA_COPY_STYLE_PARA_PROPS if info is not None and info.hasPropertyByName(n))
+        if extra_names:
+            extra = [
+                name for name, state in zip(extra_names, para.getPropertyStates(extra_names))
+                if state.value == "DIRECT_VALUE" and name not in fmt
+            ]
+            if extra:
+                reset_properties_to_default(cursor, extra)
     for name, value in fmt.items():
         if name == "ParaStyleName" or name == "NumberingIsNumber" or name in _NUMBERING_PROPS:
             continue
@@ -1151,24 +1210,29 @@ def _restore_paragraph_format(cursor: Any, fmt: dict[str, Any]) -> None:
     _restore_numbering(cursor, fmt)
 
 
-def _deletion_shape(model: Any, text_obj: Any, rng: Any) -> str:
-    """Choose ``'previous'``, ``'following'``, or ``'text'`` for a recorded whole-paragraph deletion."""
+def _deletion_shape(model: Any, text_obj: Any, rng: Any, *, ends_with_table: bool = False) -> tuple[str, Any]:
+    """Choose ``('previous' | 'following' | 'text', doomed_range)`` for a recorded whole-paragraph deletion."""
     spans = record_changes.redline_spans(model)
-    prev = text_obj.createTextCursorByRange(rng.getStart())
-    if prev.goLeft(1, True) and prev.getString() in _PARAGRAPH_BREAKS:
-        # SwRangeRedline::HasValidRange (sw/source/core/doc/docredln.cxx) rejects a deletion whose ends lie in different sections.
-        same_section = (
-            [s.getName() for s in _sections_at(prev.getStart())]
-            == [s.getName() for s in _sections_at(rng.getStart())]
-        )
-        if same_section and not record_changes.redline_kinds_covering(spans, prev):
-            return "previous"
+    if not ends_with_table:
+        prev = text_obj.createTextCursorByRange(rng.getStart())
+        if prev.goLeft(1, True) and prev.getString() in _PARAGRAPH_BREAKS:
+            # SwRangeRedline::HasValidRange (sw/source/core/doc/docredln.cxx) rejects a deletion whose ends lie in different sections.
+            same_section = (
+                [s.getName() for s in _sections_at(prev.getStart())]
+                == [s.getName() for s in _sections_at(rng.getStart())]
+            )
+            if same_section and not record_changes.redline_kinds_covering(spans, prev):
+                doomed = text_obj.createTextCursorByRange(prev.getStart())
+                doomed.gotoRange(rng.getEnd(), True)
+                return "previous", doomed
     following = text_obj.createTextCursorByRange(rng.getEnd())
     if following.goRight(1, True) and following.getString() in _PARAGRAPH_BREAKS:
         following_para = text_obj.createTextCursorByRange(following.getEnd())
         if not _starts_new_page(following_para) and not record_changes.redline_kinds_overlapping(spans, rng):
-            return "following"
-    return "text"
+            doomed = text_obj.createTextCursorByRange(rng.getStart())
+            doomed.gotoRange(following.getEnd(), True)
+            return "following", doomed
+    return "text", rng
 
 
 def _direct_para_props(cursor: Any) -> dict[str, Any]:
@@ -1245,24 +1309,21 @@ def _replace_whole_paragraphs(
     kept_char = language_at_start(rng)
     if keep_layout:
         kept_char |= uniform_font(text_obj.createTextCursorByRange(rng))
-    kept_para = _direct_para_props(cursor) if keep_layout and apply_styles else {}
     shape = "text"
     end_cur = text_obj.createTextCursorByRange(rng.getEnd())
     fmt: dict[str, Any] = {}
     if recording:
         fmt = _paragraph_format(cursor)
-        shape = _deletion_shape(model, text_obj, rng)
-        if shape == "previous":
-            prev = text_obj.createTextCursorByRange(rng.getStart())
-            prev.goLeft(1, True)
-            doomed = text_obj.createTextCursorByRange(prev.getStart())
-            doomed.gotoRange(rng.getEnd(), True)
-        elif shape == "following":
-            following = text_obj.createTextCursorByRange(rng.getEnd())
-            following.goRight(1, True)
-            doomed = text_obj.createTextCursorByRange(rng.getStart())
-            doomed.gotoRange(following.getEnd(), True)
+        kept_para = (
+            {k: v for k, v in fmt.items() if k in _ABSORB_PARA_PROPERTIES or k == "ParaBackColor"}
+            if keep_layout and apply_styles
+            else {}
+        )
+        shape, doomed = _deletion_shape(
+            model, text_obj, rng, ends_with_table=bool(re.search(r"</table>\s*$", content, re.IGNORECASE))
+        )
     else:
+        kept_para = _direct_para_props(cursor) if keep_layout and apply_styles else {}
         # Before the delete: on the emptied paragraph this reset cannot be undone, and
         # Undo would bring the old text back without its font, size and language.
         reset_direct_char_formatting(text_obj.createTextCursorByRange(rng), kept_char)
@@ -1277,7 +1338,6 @@ def _replace_whole_paragraphs(
             text_obj.insertControlCharacter(end_cur, PARAGRAPH_BREAK, False)
             cursor = end_cur
             with record_changes.record_changes(model, False):
-                _restore_numbering(text_obj.createTextCursorByRange(rng.getStart()), fmt)
                 if not keep_layout:
                     _drop_absorb_paragraph_props(cursor)
                 else:
@@ -1736,8 +1796,9 @@ def replace_full_document(
         cursor.gotoStart(False)
         one_paragraph = not text.createTextCursorByRange(cursor).gotoNextParagraph(False)
         cursor.gotoEnd(True)
-        # A recorded insert whose Insert ends at offset 0 of the empty node makes sw_GetJoinFlags
-        # keep the first imported node on Reject; place it in a fresh paragraph after the empty one.
+        # When the body is empty (either blank or only struck leading tables), an insert ending at
+        # offset 0 of the empty node makes sw_GetJoinFlags keep the first imported node on Reject;
+        # place it in a fresh paragraph after the empty one (leaving one leading empty paragraph on Accept).
         if recording and one_paragraph and cursor.getString() == "":
             return _insert_into_empty_paragraph(model, ctx, cursor, content, apply_styles=True, recording=True)
         # A reset on an emptied paragraph cannot be undone exactly (SwUndoResetAttr::UndoImpl,
