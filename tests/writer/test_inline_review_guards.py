@@ -105,9 +105,13 @@ class FakeRange:
 
 
 class FakeRedline:
-    def __init__(self, comment, s, e, raise_on=None):
+    def __init__(self, comment, s, e, raise_on=None, author=None):
+        from plugin.writer.review_authors import INSERT_AUTHOR
+        from plugin.writer.review_scan import is_agent_token
+
         self._props = {
             "RedlineComment": comment,
+            "RedlineAuthor": author if author is not None else (INSERT_AUTHOR if is_agent_token(comment) else "User"),
             "RedlineStart": FakeRange(s, s),
             "RedlineEnd": FakeRange(e, e),
             "RedlineType": "Insert",
@@ -591,11 +595,11 @@ def test_scan_redline_view_property_read_counts():
             self.reads[name] += 1
             return super().getPropertyValue(name)
 
-    agent_rl = CountingFakeRedline(TOKEN_PREFIX + "s:1", 0, 5)
+    agent_rl = CountingFakeRedline(TOKEN_PREFIX + "s:1", 0, 5, author="WriterAgent")
     model_agent = FakeModel(FakeRedlines([agent_rl]))
     view_agent = scan_redline_view(model_agent)
     assert view_agent.reliable is True
-    assert agent_rl.reads["RedlineAuthor"] == 0
+    assert agent_rl.reads["RedlineAuthor"] == 1
     assert agent_rl.reads["RedlineDateTime"] == 0
     assert agent_rl.reads["RedlineIdentifier"] == 0
     assert agent_rl.reads["RedlineType"] == 0
@@ -815,8 +819,24 @@ def test_redline_is_agent_change_false_for_user():
 
 
 def test_redline_is_agent_change_unreadable_fails_closed():
-    rl = FakeRedline("", 0, 0, raise_on={"RedlineComment"})
+    rl = FakeRedline("", 0, 0, raise_on={"RedlineAuthor"})
     assert redline_is_agent_change(rl) == (False, False)
+
+
+def test_block_reason_blocks_untagged_agent_redline():
+    from plugin.writer.review_authors import INSERT_AUTHOR
+
+    model = FakeModel(FakeRedlines([FakeRedline("", 0, 0, author=INSERT_AUTHOR)]))
+    reason = agent_self_resolution_block_reason(model)
+    assert reason is not None and "1 agent edit" in reason
+
+
+def test_block_reason_ignores_forged_token_on_user_redline():
+    forged = FakeRedline(TOKEN_PREFIX + "s:1", 0, 0, author="User")
+    model = FakeModel(FakeRedlines([forged]))
+    assert agent_self_resolution_block_reason(model) is None
+    view = scan_redline_view(model)
+    assert view.rows[0].token is None
 
 
 # ------------------------------------------------ overlapping agent changes resolve together (#36)

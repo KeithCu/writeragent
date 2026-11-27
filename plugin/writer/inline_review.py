@@ -143,15 +143,15 @@ def scan_redline_view(model: Any) -> RedlineView:
 
     def on_item(rl: Any) -> bool:
         comment_raw = rl.getPropertyValue("RedlineComment")
-        comment_str = review_scan.normalize_redline_comment(comment_raw)
-        token = comment_str if (comment_str and review_scan.is_agent_token(comment_str)) else None
+        author_raw = rl.getPropertyValue("RedlineAuthor")
+        token = review_scan.agent_review_token(author_raw, comment_raw)
         start = rl.getPropertyValue("RedlineStart")
         end = rl.getPropertyValue("RedlineEnd")
 
         identity = (
             None
             if token is not None
-            else review_scan.redline_identity_key(rl, comment=comment_raw)
+            else review_scan.redline_identity_key(rl, comment=comment_raw, author=author_raw)
         )
 
         rows.append(
@@ -222,10 +222,9 @@ def show_review_message(ctx: Any, message: str) -> None:
 
 # --- agent-change helpers (used by the click popup and the context menu) -------------------
 #
-# Every redline an EditReviewSession records carries a RedlineComment "wa-review:<session>:<n>"
-# (see review_scan.TOKEN_PREFIX); one token is one logical change (the Delete and Insert
-# of a replace share it). These helpers see the document purely through those tokens, so the user's
-# own tracked changes are never listed or resolved.
+# The review UI lists and resolves only redlines whose comment is a ``wa-review:<session>:<n>``
+# token and whose author is an agent author (one token is one logical change: the Delete and
+# Insert of a replace share it). The user's own tracked changes are never listed or resolved.
 def _is_all_redlines_agent(view: RedlineView) -> bool:
     """True only if every tracked change in the view is an agent change and scan was complete."""
     return (
@@ -237,13 +236,11 @@ def _is_all_redlines_agent(view: RedlineView) -> bool:
 
 
 # --- Agent-self-resolution guard (used by the agent-facing tracking_* tools) -------------
-# wa-review changes are recorded for the HUMAN to accept/reject in the review UI;
-# the agent must never resolve them. tracking.py's accept/reject tools drive the
-# native .uno:Accept/Reject(All)TrackedChanges, which cannot see the wa-review token,
-# and the LLM can reach them (domain='tracking'). Without a gate, a tool call could
-# resolve the changes the same turn just made. These two token-scoped, fail-closed
-# gates refuse the agent's own changes while still letting the user's own redlines
-# be resolved on request.
+# The model guard refuses any agent-authored redline, because DOCX/DOC/RTF drop the comment
+# and some agent redlines are never tagged. tracking.py's accept/reject tools drive the native
+# .uno:Accept/Reject(All)TrackedChanges, which cannot distinguish authors or tokens, so without
+# this fail-closed gate a tool call could resolve the agent's own edits instead of leaving them
+# for the user while still letting the user's own redlines be resolved on request.
 _BULK_UNRELIABLE_MSG = (
     "Couldn't read this document's tracked changes reliably, so accept/reject-all is blocked to "
     "avoid resolving agent edits that are awaiting your review. Resolve changes in LibreOffice "
@@ -263,7 +260,7 @@ def agent_self_resolution_block_reason(model: Any) -> str | None:
             return None
     except Exception:
         return _BULK_UNRELIABLE_MSG
-    count, reliable = review_scan.agent_change_presence(model)
+    count, reliable = review_scan.agent_change_presence(model, include_untagged=True)
     if not reliable:
         return _BULK_UNRELIABLE_MSG
     if count > 0:

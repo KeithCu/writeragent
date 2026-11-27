@@ -19,6 +19,10 @@ authors just guarantee two distinct colors. Inert (no swaps) unless ``begin()`` 
 Before swapping, ``begin()`` saves the user's real name to ``writeragent_office_author.json``
 in the user config directory. At startup, ``restore_author_after_crash()`` writes that saved
 name back if the profile still holds one of the two agent author names.
+
+These two names are also the agent's identity for ``tracking_manage`` and for tagging
+(``review_scan``), because a redline's author is read-only and survives DOCX/DOC/RTF,
+which drop the comment.
 """
 
 from __future__ import annotations
@@ -38,7 +42,8 @@ log = logging.getLogger(__name__)
 # Distinct authors -> distinct by-author colors. Both read as the agent in the Manage dialog.
 INSERT_AUTHOR = "WriterAgent"
 DELETE_AUTHOR = "WriterAgent (deletions)"
-_AGENT_PROFILES: frozenset[tuple[str, str]] = frozenset({(INSERT_AUTHOR, ""), (DELETE_AUTHOR, "")})
+AGENT_AUTHORS: frozenset[str] = frozenset({INSERT_AUTHOR, DELETE_AUTHOR})
+_AGENT_PROFILES: frozenset[tuple[str, str]] = frozenset((author, "") for author in AGENT_AUTHORS)
 _SAVED_AUTHOR_FILE = "writeragent_office_author.json"
 
 _state = threading.local()

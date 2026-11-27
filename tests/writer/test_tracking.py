@@ -268,7 +268,7 @@ def test_manage_tracked_changes_bypasses_self_resolve_invariant(undo_fails):
     start_mock2.getText.return_value = text_mock
 
     user_redline.getPropertyValue.side_effect = lambda name: None if name == "RedlineDateTime" else start_mock1 if name in ("RedlineStart", "RedlineEnd") else "user edit"
-    agent_redline.getPropertyValue.side_effect = lambda name: None if name == "RedlineDateTime" else start_mock2 if name in ("RedlineStart", "RedlineEnd") else _AGENT_COMMENT
+    agent_redline.getPropertyValue.side_effect = lambda name: None if name == "RedlineDateTime" else start_mock2 if name in ("RedlineStart", "RedlineEnd") else "WriterAgent" if name == "RedlineAuthor" else _AGENT_COMMENT
 
     if undo_fails:
         ctx.doc.getUndoManager.return_value.undo.side_effect = RuntimeError("undo crashed")
@@ -354,12 +354,15 @@ from plugin.writer.review_scan import TOKEN_PREFIX
 _AGENT_COMMENT = TOKEN_PREFIX + "sess123:0"
 
 
-def _redline_props(comment, start, end):
+def _redline_props(comment, start, end, author=None):
+    from plugin.writer.review_authors import INSERT_AUTHOR
+    from plugin.writer.review_scan import is_agent_token
+
     return {
         "RedlineComment": comment,
         "RedlineIdentifier": f"id:{comment}",
         "RedlineType": "Insert",
-        "RedlineAuthor": "Author",
+        "RedlineAuthor": author if author is not None else (INSERT_AUTHOR if is_agent_token(comment) else "Author"),
         "RedlineDateTime": None,
         "RedlineStart": start,
         "RedlineEnd": end,
@@ -387,7 +390,7 @@ class _LightRedline:
         return self._props.get(name, "")
 
 
-def _fake_redline(comment, raise_comment=False, text_mock=None):
+def _fake_redline(comment, raise_comment=False, raise_author=False, text_mock=None, author=None):
     rl = MagicMock()
     start = MagicMock()
     if text_mock is not None:
@@ -395,11 +398,13 @@ def _fake_redline(comment, raise_comment=False, text_mock=None):
     end = MagicMock()
     if text_mock is not None:
         end.getText.return_value = text_mock
-    props = _redline_props(comment, start, end)
+    props = _redline_props(comment, start, end, author=author)
 
     def _get(name):
         if raise_comment and name == "RedlineComment":
             raise RuntimeError("comment read boom")
+        if raise_author and name == "RedlineAuthor":
+            raise RuntimeError("author read boom")
         return props.get(name, "")
 
     rl.getPropertyValue.side_effect = _get
@@ -543,13 +548,33 @@ def test_single_accept_blocked_on_overlap():
     dispatcher.executeDispatch.assert_not_called()
 
 
-def test_single_accept_blocked_when_comment_unreadable():
+def test_single_accept_blocked_when_author_unreadable():
     # Fail closed: if we can't read the change's metadata we can't prove it isn't an agent change.
     ctx, dispatcher, _frame, _ = _create_mock_ctx()
-    _install_redlines(ctx, [_fake_redline("", raise_comment=True)])
+    _install_redlines(ctx, [_fake_redline("", raise_author=True)])
     res = ManageTrackedChanges().execute(ctx, action="accept", index=0)
     assert res["status"] == "error"
     dispatcher.executeDispatch.assert_not_called()
+
+
+def test_single_accept_blocked_on_untagged_agent_redline():
+    from plugin.writer.review_authors import INSERT_AUTHOR
+
+    ctx, dispatcher, _frame, _ = _create_mock_ctx()
+    _install_redlines(ctx, [_fake_redline("", author=INSERT_AUTHOR)])
+    res = ManageTrackedChanges().execute(ctx, action="accept", index=0)
+    assert res["status"] == "error"
+    assert "agent edit" in res["message"].lower()
+    dispatcher.executeDispatch.assert_not_called()
+
+
+def test_resolve_outcome_flags_untagged_agent_key_drop():
+    from plugin.writer.review_authors import INSERT_AUTHOR
+    from plugin.writer.tracking import _resolve_outcome
+
+    user_key = ("1", "Insert", "Alice", None, "")
+    agent_key = ("2", "Insert", INSERT_AUTHOR, None, "")
+    assert _resolve_outcome(0, [user_key, agent_key], [user_key]) == "agent"
 
 def test_single_accept_blocked_when_bounds_unreadable():
     # Fail closed: if we cannot read the bounds of another redline, we cannot prove
