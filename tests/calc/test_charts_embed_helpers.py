@@ -414,7 +414,7 @@ def test_process_events_past_deadline_does_not_pump(monkeypatch):
 
 def test_list_charts_closed_document_is_disposal():
     doc = MagicMock()
-    doc.getImplementationName.side_effect = DisposedException("doc disposed")
+    doc.getURL.side_effect = DisposedException("doc disposed")
     doc.supportsService.side_effect = DisposedException("doc disposed")
     ctx = MagicMock()
     ctx.doc = doc

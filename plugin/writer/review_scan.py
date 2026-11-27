@@ -87,7 +87,7 @@ def scan_redlines(doc: Any, on_item: Callable[[Any], bool]) -> tuple[bool, int, 
         enum = redlines.createEnumeration()
     except Exception:
         # Incomplete or dead doc: unreliable, NOT "zero pending / review complete".
-        # wait_for_review probes document_is_disposed separately; do not fold dispose into this.
+        # EditReviewSession._pending_tokens probes document_is_disposed before calling this; do not fold dispose into this.
         return False, 0, 0
     reliable = True
     seen = 0

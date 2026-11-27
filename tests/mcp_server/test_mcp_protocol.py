@@ -129,12 +129,15 @@ def test_long_running_precomputes_echo_without_post_execute_doc_access():
 
 
 class _DisposedDoc:
-    """getImplementationName raises DisposedException, so execute_safe reports DOCUMENT_DISPOSED."""
+    """First getURL() succeeds for MCP prep; the second raises DisposedException in execute_safe."""
+
+    def __init__(self):
+        self._url_calls = 0
 
     def getURL(self):
-        return "file:///gone.odt"
-
-    def getImplementationName(self):
+        self._url_calls += 1
+        if self._url_calls % 2 == 1:
+            return "file:///gone.odt"
         raise DisposedException("disposed")
 
     def supportsService(self, service_name):
