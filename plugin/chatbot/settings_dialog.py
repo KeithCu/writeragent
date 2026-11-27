@@ -32,6 +32,7 @@ from plugin.framework.url_utils import normalize_endpoint_url
 
 from typing import Any, cast
 
+from plugin import _manifest
 from plugin.chatbot.settings_fields import (
     build_module_field_specs,
     changed_config_values,
@@ -122,15 +123,10 @@ def _get_image_field_specs() -> list[dict[str, Any]]:
 
 
 def _get_module_field_specs(ctx: Any) -> list[dict[str, Any]]:
-    try:
-        from plugin._manifest import MODULES
-    except ImportError:
-        return []
-
     field_specs = []
     # core is excluded by iter_settings_field_modules so future public core fields
     # cannot be saved without an explicit Settings control.
-    for m in iter_settings_field_modules(cast("list[dict[str, Any]]", MODULES)):
+    for m in iter_settings_field_modules(cast("list[dict[str, Any]]", _manifest.MODULES)):
         field_specs.extend(
             build_module_field_specs(m["name"], ctx=ctx, control_ids="prefixed")
         )

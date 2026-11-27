@@ -543,12 +543,12 @@ def sync_rich_control_bounds(rich_control: Any, root_window: Any, placeholder_ct
                 if new_ctrl is not None:
                     rich_control = new_ctrl
                     new_ctrl.setVisible(True)
-                    log.info(
-                        "[RICH-CONTROL] reinserted dialog control at %dx%d@%d,%d",
-                        bw,
-                        bh,
-                        bx,
-                        by,
+                    log_rich_scroll(
+                        "reinsert_dialog_control",
+                        w=bw,
+                        h=bh,
+                        x=bx,
+                        y=by,
                     )
             else:
                 log.warning(
@@ -556,15 +556,16 @@ def sync_rich_control_bounds(rich_control: Any, root_window: Any, placeholder_ct
                     rich_control.getPosSize().Height,
                     bh,
                 )
-        if placeholder_rect is not None and (bounds_changed or RICH_SCROLL_VERBOSE_DEBUG):
+        # Gate here so retail skips the getPosSize UNO read.
+        if RICH_SCROLL_VERBOSE_DEBUG and placeholder_rect is not None:
             cur = rich_control.getPosSize()
-            log.info(
-                "[RICH-CONTROL] sync bounds placeholder_rect=%s -> %dx%d@%d,%d",
-                placeholder_rect,
-                cur.Width,
-                cur.Height,
-                cur.X,
-                cur.Y,
+            log_rich_scroll(
+                "sync_bounds_final",
+                placeholder_rect=placeholder_rect,
+                w=cur.Width,
+                h=cur.Height,
+                x=cur.X,
+                y=cur.Y,
             )
         return rich_control
     except Exception as e:
@@ -660,11 +661,6 @@ def _apply_rich_control_style_defaults(control: Any, style_window: Any = None) -
         control.setSelection(uno.createUnoStruct("com.sun.star.awt.Selection", text_len, text_len))
 
     best_effort(_apply_cursor, "_apply_rich_control_style_defaults cursor")
-    log.info(
-        "_apply_rich_control_style_defaults: font=%s %.1fpt",
-        CHAT_FONT_NAME,
-        CHAT_FONT_HEIGHT,
-    )
 
 
 def _apply_control_surface_colors(control: Any, bg_color: int) -> None:

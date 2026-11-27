@@ -490,7 +490,7 @@ def test_slash_key_handler_key_pressed_behaviour() -> None:
             return 1
 
     host = FakeHost()
-    handler = _make_slash_key_handler(host, "frame")
+    handler = _make_slash_key_handler(host)
     ev = SimpleNamespace(KeyCode=1280, Modifiers=0, KeyChar="\x1b")
 
     result = handler.keyPressed(ev)
