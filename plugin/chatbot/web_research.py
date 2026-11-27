@@ -465,7 +465,7 @@ def _resolve_web_research_window(client: Any) -> int:
 
     An unreported window gets a default (RECOMMENDED_CONTEXT_TOKENS on Ollama,
     FALLBACK_CONTEXT_TOKENS elsewhere). Provider detection goes through
-    resolve_auth_for_config so it stays in lockstep with LlmClient._get_provider
+    resolve_auth_for_config so it stays in lockstep with LlmClient.provider()
     and resolve_context_window.
     """
     raw = resolve_context_window(client)

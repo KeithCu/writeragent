@@ -31,16 +31,16 @@ class DummyClient:
         self.config = config if config is not None else {}
         self._provider = provider
 
-    def _get_provider(self) -> str:
+    def provider(self) -> str:
         return self._provider
 
-    def _endpoint(self) -> str:
+    def endpoint(self) -> str:
         return "https://api.example.com"
 
-    def _api_path(self) -> str:
+    def api_path(self) -> str:
         return "/v1"
 
-    def _headers(self) -> dict[str, str]:
+    def headers(self) -> dict[str, str]:
         return {"Authorization": "Bearer test"}
 
 

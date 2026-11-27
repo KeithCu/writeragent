@@ -7,10 +7,10 @@ from plugin.framework.client.base_provider_shim import BaseProviderShim, coerce_
 
 def test_parse_sync_response_null_usage():
     class DummyClient:
-        def _get_provider(self): return "generic"
-        def _endpoint(self): return "http://test"
-        def _api_path(self): return "/v1"
-        def _headers(self): return {}
+        def provider(self): return "generic"
+        def endpoint(self): return "http://test"
+        def api_path(self): return "/v1"
+        def headers(self): return {}
     shim = BaseProviderShim(DummyClient())
 
     # When usage is None ("usage": null in JSON), it must normalize to {}
@@ -69,13 +69,13 @@ def test_coerce_raw_b64_rejects_http_url():
 
 
 class _DummyClient:
-    def _endpoint(self):
+    def endpoint(self):
         return "http://test"
 
-    def _api_path(self):
+    def api_path(self):
         return "/v1"
 
-    def _headers(self):
+    def headers(self):
         return {}
 
 
@@ -94,16 +94,16 @@ def test_image_payload_omits_size_when_axis_is_zero():
 
 def test_parse_response_chunk_flattens_list_content():
     class DummyClient:
-        def _get_provider(self):
+        def provider(self):
             return "generic"
 
-        def _endpoint(self):
+        def endpoint(self):
             return "http://test"
 
-        def _api_path(self):
+        def api_path(self):
             return "/v1"
 
-        def _headers(self):
+        def headers(self):
             return {}
 
     shim = BaseProviderShim(DummyClient())

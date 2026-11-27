@@ -242,7 +242,7 @@ def test_google_tool_format():
     }
     ctx = MockContext()
     client = LlmClient(config, ctx)
-    client._resolve_auth = MagicMock(return_value={"provider": "google", "api_key": "test-key"})
+    client.resolve_auth = MagicMock(return_value={"provider": "google", "api_key": "test-key"})
     shim = GoogleShim(client)
 
     messages = [{"role": "user", "content": "What's the weather?"}]
@@ -292,7 +292,7 @@ def test_gemini_shim_inline_data():
         }
     ]
 
-    with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
+    with patch("plugin.framework.client.llm_client.LlmClient.resolve_auth") as mock_auth:
         mock_auth.return_value = {"api_key": "fake_key", "provider": "google"}
         _, _, json_data, _ = shim.build_chat_request(messages, 100, 0.5, None, False, "gemini-1.5-flash", None)
 

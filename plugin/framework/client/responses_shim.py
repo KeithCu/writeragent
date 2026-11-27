@@ -379,8 +379,6 @@ def _incomplete_finish_reason(details: Any) -> str:
 def parse_responses_chunk(
     chunk: dict[str, Any],
     stream_state: dict[str, Any] | None,
-    *,
-    model_name: str | None,
 ) -> tuple[str, str | None, str | None, dict[str, Any]]:
     if stream_state is None:
         stream_state = {}
@@ -390,7 +388,7 @@ def parse_responses_chunk(
 
     resp_raw = chunk.get("response")
     resp: dict[str, Any] = resp_raw if isinstance(resp_raw, dict) else {}
-    raw_model = chunk.get("model") or resp.get("model") or stream_state.get("_responses_model") or model_name
+    raw_model = chunk.get("model") or resp.get("model") or stream_state.get("_responses_model")
     if raw_model and not stream_state.get("_responses_model"):
         stream_state["_responses_model"] = openai_model_leaf(str(raw_model))
     model_leaf = stream_state.get("_responses_model") or (openai_model_leaf(str(raw_model)) if raw_model else "")

@@ -18,19 +18,19 @@ class _DummyClient:
         self.config = config or {}
         self._path = api_path
 
-    def _get_provider(self) -> str:
+    def provider(self) -> str:
         return self._provider
 
     def _service_name(self) -> str:
         return self._provider
 
-    def _endpoint(self) -> str:
+    def endpoint(self) -> str:
         return "http://test"
 
-    def _api_path(self) -> str:
+    def api_path(self) -> str:
         return self._path
 
-    def _headers(self) -> dict[str, str]:
+    def headers(self) -> dict[str, str]:
         return dict(self._custom_headers)
 
 
@@ -426,7 +426,7 @@ def test_cache_route_absent_when_unset():
             assert "session_id" not in data
             assert "prompt_cache_key" not in data
             assert "x-grok-conv-id" not in headers
-            assert headers == client._headers()
+            assert headers == client.headers()
 
     # Provider google on BaseProviderShim and provider groq on BaseProviderShim with a real id also omit them
     for other_prov in ("google", "groq"):
@@ -439,7 +439,7 @@ def test_cache_route_absent_when_unset():
         assert "session_id" not in data
         assert "prompt_cache_key" not in data
         assert "x-grok-conv-id" not in headers
-        assert headers == client._headers()
+        assert headers == client.headers()
 
 
 def test_openrouter_cache_family_gate():

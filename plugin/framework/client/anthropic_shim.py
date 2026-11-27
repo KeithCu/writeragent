@@ -343,7 +343,7 @@ class AnthropicShim(BaseProviderShim):
         # diagnostics to report cache hit/miss metadata against a prior turn. Top-level
         # automatic cache_control is omitted because it would place the breakpoint on the
         # trailing document snapshot (see docs/chat/chat-prompt-caching.md).
-        endpoint = self.client._endpoint()
+        endpoint = self.client.endpoint()
         url = f"{endpoint}/v1/messages"
         model = model_name.strip() if isinstance(model_name, str) else ""
         # Model must be explicitly configured.

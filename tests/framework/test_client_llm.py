@@ -86,7 +86,7 @@ def _fast_retry_waits():
 def test_headers_and_config_injection(client):
     from plugin.framework.constants import APP_REFERER, APP_TITLE, USER_AGENT
 
-    headers = client._headers()
+    headers = client.headers()
     assert headers["Authorization"] == "Bearer sk-test-key"
     assert headers["User-Agent"] == USER_AGENT
     assert headers["Content-Type"] == "application/json"
@@ -96,23 +96,23 @@ def test_headers_and_config_injection(client):
 
     # OpenRouter endpoint must receive OpenRouter identification headers
     client.config["endpoint"] = "https://openrouter.ai/api"
-    or_headers = client._headers()
+    or_headers = client.headers()
     assert or_headers["User-Agent"] == USER_AGENT
     assert or_headers["HTTP-Referer"] == APP_REFERER
     assert or_headers["X-Title"] == APP_TITLE
 
     client.config["endpoint"] = "https://api.openai.com"
-    assert client._endpoint() == "https://api.openai.com"
-    assert client._api_path() == "/v1"
+    assert client.endpoint() == "https://api.openai.com"
+    assert client.api_path() == "/v1"
 
     # Test fallback OpenWebUI path
     client.config["is_openwebui"] = True
-    assert client._api_path() == "/api"
+    assert client.api_path() == "/api"
 
     # Z.ai bare host uses /api/paas/v4 (not bare /v4)
     client.config["is_openwebui"] = False
     client.config["endpoint"] = "https://api.z.ai"
-    assert client._api_path() == "/api/paas/v4"
+    assert client.api_path() == "/api/paas/v4"
 
 
 def test_make_chat_request_omits_temperature_when_unset():
@@ -159,16 +159,16 @@ def test_custom_endpoint_and_key():
         "api_key": "ollama",
     }
     client = LlmClient(config, MockContext())
-    assert client._endpoint() == "http://localhost:11434"
-    assert client._headers()["Authorization"] == "Bearer ollama"
+    assert client.endpoint() == "http://localhost:11434"
+    assert client.headers()["Authorization"] == "Bearer ollama"
 
     # Empty api_key means no Authorization header
     config_no_key = {
         "endpoint": "http://localhost:11434",
     }
     client_no_key = LlmClient(config_no_key, MockContext())
-    assert "Authorization" not in client_no_key._headers()
-    assert client_no_key._get_provider() == "ollama"
+    assert "Authorization" not in client_no_key.headers()
+    assert client_no_key.provider() == "ollama"
 
 
 def test_hosted_empty_api_key_raises_before_http():
@@ -181,13 +181,13 @@ def test_hosted_empty_api_key_raises_before_http():
         for api_key in ("", "   "):
             client = LlmClient({"endpoint": endpoint, "api_key": api_key, "model": "x"}, ctx)
             with pytest.raises(AuthError) as exc_info:
-                client._resolve_auth()
+                client.resolve_auth()
             assert exc_info.value.code == "missing_api_key"
             assert exc_info.value.provider == provider
             with pytest.raises(AuthError):
-                client._get_provider()
+                client.provider()
             with pytest.raises(AuthError):
-                client._headers()
+                client.headers()
             with pytest.raises(AuthError):
                 client.make_chat_request([{"role": "user", "content": "hi"}], 8)
             msg = format_error_message(exc_info.value)
@@ -196,15 +196,15 @@ def test_hosted_empty_api_key_raises_before_http():
 
 
 def test_headers_none_api_key_matches_empty_string():
-    """A null api_key must not crash _headers. It matches an empty string."""
+    """A null api_key must not crash headers(). It matches an empty string."""
     none_key = LlmClient({"endpoint": "http://127.0.0.1:8080/v1", "api_key": None}, MockContext())
     empty_key = LlmClient({"endpoint": "http://127.0.0.1:8080/v1", "api_key": ""}, MockContext())
-    assert none_key._headers() == empty_key._headers()
-    assert "Authorization" not in none_key._headers()
+    assert none_key.headers() == empty_key.headers()
+    assert "Authorization" not in none_key.headers()
 
     hosted = LlmClient({"endpoint": "https://api.openai.com", "api_key": None, "model": "gpt-4o"}, MockContext())
     with pytest.raises(AuthError) as err:
-        hosted._headers()
+        hosted.headers()
     assert err.value.code == "missing_api_key"
 
 
@@ -315,7 +315,7 @@ def test_persistent_connections(client):
             "api.openai.com", 443, context=mock_ssl.return_value, timeout=LLM_CONNECT_TIMEOUT_SEC
         )
 
-        client._close_connection()
+        client.close_connection()
         conn1.close.assert_called_once()
 
         # Re-opening opens a new one
@@ -978,7 +978,7 @@ def test_make_chat_request_coalesces_system_messages(client):
     ]
 
     # Run the request builder for Anthropic to see how the system message is serialized
-    with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
+    with patch("plugin.framework.client.llm_client.LlmClient.resolve_auth") as mock_auth:
         mock_auth.return_value = {"provider": "anthropic"}
 
         _, _, json_data, _ = client.make_chat_request(messages, stream=False)
@@ -993,7 +993,7 @@ def test_make_chat_request_coalesces_system_messages(client):
         assert _DATE_RE.search(system_text)
 
     # And check Google as well
-    with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
+    with patch("plugin.framework.client.llm_client.LlmClient.resolve_auth") as mock_auth:
         mock_auth.return_value = {"provider": "google"}
 
         _, _, json_data, _ = client.make_chat_request(messages, stream=False)
@@ -1007,7 +1007,7 @@ def test_make_chat_request_coalesces_system_messages(client):
         assert _DATE_RE.search(combined_text)
 
     # And check OpenAI-compatible path
-    with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
+    with patch("plugin.framework.client.llm_client.LlmClient.resolve_auth") as mock_auth:
         mock_auth.return_value = {"provider": "openai"}
 
         _, _, json_data, _ = client.make_chat_request(messages, stream=False)
@@ -1031,7 +1031,7 @@ def _posted_json(mock_req):
 
 def test_grok_shim(client):
     with (
-        patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth,
+        patch("plugin.framework.client.llm_client.LlmClient.resolve_auth") as mock_auth,
         patch("plugin.framework.client.llm_client.LlmClient._request_json") as mock_sync
     ):
         mock_auth.return_value = {"provider": "xai"}
@@ -1084,7 +1084,7 @@ def test_grok_shim(client):
 
 def test_ollama_shim_image(client):
     with (
-        patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth,
+        patch("plugin.framework.client.llm_client.LlmClient.resolve_auth") as mock_auth,
         patch("plugin.framework.client.llm_client.LlmClient._request_json") as mock_sync
     ):
         mock_auth.return_value = {"provider": "ollama"}
@@ -1207,7 +1207,7 @@ def test_sync_json_body_already_read_is_not_reposted(client):
 def test_openrouter_shim_image(client):
     client.config["endpoint"] = "https://openrouter.ai/api"
     with (
-        patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth,
+        patch("plugin.framework.client.llm_client.LlmClient.resolve_auth") as mock_auth,
         patch("plugin.framework.client.llm_client.LlmClient._request_json") as mock_sync
     ):
         mock_auth.return_value = {"provider": "openrouter"}
@@ -1241,7 +1241,7 @@ def test_openrouter_shim_image_flux_klein_png_aspect_not_size(client):
     """
     client.config["endpoint"] = "https://openrouter.ai/api"
     with (
-        patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth,
+        patch("plugin.framework.client.llm_client.LlmClient.resolve_auth") as mock_auth,
         patch("plugin.framework.client.llm_client.LlmClient._request_json") as mock_sync
     ):
         mock_auth.return_value = {"provider": "openrouter"}
@@ -1287,7 +1287,7 @@ def test_anthropic_shim(client):
     client.config["api_key"] = "test-key"
     client.config["endpoint"] = "https://api.anthropic.com"
 
-    with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
+    with patch("plugin.framework.client.llm_client.LlmClient.resolve_auth") as mock_auth:
         mock_auth.return_value = {"provider": "anthropic"}
 
         messages = [
@@ -1311,7 +1311,7 @@ def test_anthropic_shim(client):
 
 def test_anthropic_blank_model_raises(client):
     client.config["model"] = ""
-    with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
+    with patch("plugin.framework.client.llm_client.LlmClient.resolve_auth") as mock_auth:
         mock_auth.return_value = {"provider": "anthropic"}
         with pytest.raises(NetworkError, match="model is not set"):
             client.make_chat_request([{"role": "user", "content": "Hi"}], max_tokens=10)
@@ -1322,7 +1322,7 @@ def test_anthropic_joins_system_messages_and_maps_reasoning_effort(client):
     client.config["provider"] = "anthropic"
     client.config["api_key"] = "test-key"
     client.config["endpoint"] = "https://api.anthropic.com"
-    with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
+    with patch("plugin.framework.client.llm_client.LlmClient.resolve_auth") as mock_auth:
         mock_auth.return_value = {"provider": "anthropic"}
         messages = [
             {"role": "system", "content": "Date line."},
@@ -1367,7 +1367,7 @@ def test_tool_call_schema_checked_before_openai_and_anthropic_shims(client):
         },
     ]
     for provider in ("openai", "anthropic"):
-        with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
+        with patch("plugin.framework.client.llm_client.LlmClient.resolve_auth") as mock_auth:
             mock_auth.return_value = {"provider": provider}
             _method, _path, body, _headers = client.make_chat_request(messages, max_tokens=20, tools=tools)
         data = json.loads(body)
@@ -1402,7 +1402,7 @@ def test_anthropic_accepts_openai_shaped_tools(client):
             "function": {"name": "write_cells", "arguments": "{}"},
         }]},
     ]
-    with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
+    with patch("plugin.framework.client.llm_client.LlmClient.resolve_auth") as mock_auth:
         mock_auth.return_value = {"provider": "anthropic"}
         _method, _path, body, _headers = client.make_chat_request(messages, max_tokens=20, tools=tools)
     data = json.loads(body)
@@ -1432,7 +1432,7 @@ def test_anthropic_merges_parallel_tool_results(client):
         {"role": "tool", "tool_call_id": "t1", "content": "wrote"},
         {"role": "tool", "tool_call_id": "t2", "content": "read"},
     ]
-    with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
+    with patch("plugin.framework.client.llm_client.LlmClient.resolve_auth") as mock_auth:
         mock_auth.return_value = {"provider": "anthropic"}
         _method, _path, body, _headers = client.make_chat_request(messages, max_tokens=20)
     data = json.loads(body)
@@ -1450,7 +1450,7 @@ def test_anthropic_does_not_merge_tool_result_into_user_text(client):
         {"role": "user", "content": "Hello"},
         {"role": "tool", "tool_call_id": "t1", "content": "wrote"},
     ]
-    with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
+    with patch("plugin.framework.client.llm_client.LlmClient.resolve_auth") as mock_auth:
         mock_auth.return_value = {"provider": "anthropic"}
         _method, _path, body, _headers = client.make_chat_request(messages, max_tokens=20)
     data = json.loads(body)
@@ -1469,7 +1469,7 @@ def test_anthropic_stream_tool_use_accumulates(client):
         {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "Hi"}},
         {"type": "message_delta", "delta": {"stop_reason": "tool_use"}},
     ]
-    with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
+    with patch("plugin.framework.client.llm_client.LlmClient.resolve_auth") as mock_auth:
         mock_auth.return_value = {"provider": "anthropic"}
         shim = client._get_shim()
     snapshot: dict = {}
@@ -1493,7 +1493,7 @@ def test_anthropic_stream_tool_use_accumulates(client):
 
 def test_anthropic_message_stop_does_not_clobber_max_tokens(client):
     """message_stop must not overwrite message_delta stop_reason with 'stop'."""
-    with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
+    with patch("plugin.framework.client.llm_client.LlmClient.resolve_auth") as mock_auth:
         mock_auth.return_value = {"provider": "anthropic"}
         shim = client._get_shim()
     finish = None
@@ -1515,7 +1515,7 @@ def test_anthropic_message_stop_does_not_clobber_max_tokens(client):
 
 
 def test_anthropic_message_delta_ignores_non_dict_delta(client):
-    with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
+    with patch("plugin.framework.client.llm_client.LlmClient.resolve_auth") as mock_auth:
         mock_auth.return_value = {"provider": "anthropic"}
         shim = client._get_shim()
     for event in (
@@ -1540,7 +1540,7 @@ def test_anthropic_stream_loop_keeps_tool_events(client):
         yield from payloads
 
     with (
-        patch("plugin.framework.client.llm_client.LlmClient._resolve_auth", return_value={"provider": "anthropic"}),
+        patch("plugin.framework.client.llm_client.LlmClient.resolve_auth", return_value={"provider": "anthropic"}),
         patch("http.client.HTTPSConnection") as mock_https,
         patch("plugin.framework.client.llm_client.iterate_sse", side_effect=iterate),
         patch("plugin.framework.client.http_transport.get_verified_ssl_context"),
@@ -1573,7 +1573,7 @@ def test_anthropic_stream_usage_replaces_cumulative_output_tokens(client):
         yield from payloads
 
     with (
-        patch("plugin.framework.client.llm_client.LlmClient._resolve_auth", return_value={"provider": "anthropic"}),
+        patch("plugin.framework.client.llm_client.LlmClient.resolve_auth", return_value={"provider": "anthropic"}),
         patch("http.client.HTTPSConnection") as mock_https,
         patch("plugin.framework.client.llm_client.iterate_sse", side_effect=iterate),
         patch("plugin.framework.client.http_transport.get_verified_ssl_context"),
@@ -1668,7 +1668,7 @@ def test_anthropic_cache_diagnostics_stream_wiring(client):
         yield from payloads1
 
     with (
-        patch("plugin.framework.client.llm_client.LlmClient._resolve_auth", return_value={"provider": "anthropic"}),
+        patch("plugin.framework.client.llm_client.LlmClient.resolve_auth", return_value={"provider": "anthropic"}),
         patch("http.client.HTTPSConnection") as mock_https,
         patch("plugin.framework.client.llm_client.iterate_sse", side_effect=iterate1),
         patch("plugin.framework.client.http_transport.get_verified_ssl_context"),
@@ -1695,7 +1695,7 @@ def test_anthropic_cache_diagnostics_stream_wiring(client):
     assert client.anthropic_previous_message_id(None) is None
 
     # A second request with sess-1 sends previous_message_id: msg_turn1
-    with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth", return_value={"provider": "anthropic"}):
+    with patch("plugin.framework.client.llm_client.LlmClient.resolve_auth", return_value={"provider": "anthropic"}):
         _m, _p, body2, _h = client.make_chat_request(
             [{"role": "user", "content": "Hi again"}], max_tokens=10, cache_session_id="sess-1"
         )
@@ -1714,7 +1714,7 @@ def test_anthropic_cache_diagnostics_stream_wiring(client):
         yield from payloads2
 
     with (
-        patch("plugin.framework.client.llm_client.LlmClient._resolve_auth", return_value={"provider": "anthropic"}),
+        patch("plugin.framework.client.llm_client.LlmClient.resolve_auth", return_value={"provider": "anthropic"}),
         patch("http.client.HTTPSConnection") as mock_https2,
         patch("plugin.framework.client.llm_client.iterate_sse", side_effect=iterate2),
         patch("plugin.framework.client.http_transport.get_verified_ssl_context"),
@@ -1734,7 +1734,7 @@ def test_anthropic_cache_diagnostics_stream_wiring(client):
     assert client.anthropic_previous_message_id("sess-1") == "msg_turn1"
 
     # Patch provider to openrouter: remember does not write and anthropic_previous_message_id returns None
-    with patch.object(client, "_get_provider", return_value="openrouter"):
+    with patch.object(client, "provider", return_value="openrouter"):
         client.remember_anthropic_message_id("sess-openrouter", "msg_never_write")
         assert client.anthropic_previous_message_id("sess-1") is None
         assert client.anthropic_previous_message_id("sess-openrouter") is None
@@ -1813,7 +1813,7 @@ def test_make_chat_request_coalesces_mixed_system_messages(client):
         {"role": "user", "content": "Hello."}
     ]
 
-    with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
+    with patch("plugin.framework.client.llm_client.LlmClient.resolve_auth") as mock_auth:
         mock_auth.return_value = {"provider": "openai"}
         _, _, json_data, _ = client.make_chat_request(messages, stream=False)
         data = json.loads(json_data)
@@ -1853,7 +1853,7 @@ def test_make_chat_request_flattens_system_message(client):
         {"role": "user", "content": "Hi"}
     ]
 
-    with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
+    with patch("plugin.framework.client.llm_client.LlmClient.resolve_auth") as mock_auth:
         mock_auth.return_value = {"provider": "openai"}
         _, _, json_data, _ = client.make_chat_request(messages, stream=False)
         data = json.loads(json_data)
@@ -1869,7 +1869,7 @@ def test_make_chat_request_flattens_system_message(client):
 def test_chat_request_omits_top_p(client):
     """chat requests must omit top_p so models that reject it with temperature still work."""
     messages = [{"role": "user", "content": "Hi"}]
-    with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
+    with patch("plugin.framework.client.llm_client.LlmClient.resolve_auth") as mock_auth:
         mock_auth.return_value = {"provider": "openai"}
         _, _, body, _ = client.make_chat_request(messages, stream=False)
         data = json.loads(body.decode("utf-8"))
@@ -1881,7 +1881,7 @@ def test_parallel_tool_calls_config(client):
     messages = [{"role": "user", "content": "Hi"}]
     tools = [{"type": "function", "function": {"name": "test_tool"}}]
     client.config["parallel_tool_calls"] = True
-    with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
+    with patch("plugin.framework.client.llm_client.LlmClient.resolve_auth") as mock_auth:
         mock_auth.return_value = {"provider": "openai"}
         _, _, body, _ = client.make_chat_request(messages, tools=tools, stream=False)
         data = json.loads(body.decode("utf-8"))
@@ -3627,3 +3627,21 @@ def test_stream_chat_response_redacts_request_path_in_debug_log(caplog, endpoint
     assert chunks == ["Hi"]
     assert secret_uuid not in caplog.text
     assert "Request Path:" in caplog.text
+
+
+def test_sync_request_with_tools_keeps_auth_error_class(client):
+    """A WriterAgentException from the exchange keeps its class and code; it is not wrapped as NETWORK_ERROR."""
+    with patch.object(client._transport, "exchange", side_effect=AuthError("key rejected", provider="openai")):
+        with pytest.raises(AuthError) as err:
+            client.request_with_tools([{"role": "user", "content": "Hi"}], max_tokens=10)
+    assert err.value.code == "AUTH_ERROR"
+
+
+def test_streaming_shim_auth_error_releases_caller_cancel_hook(client):
+    """AuthError from the shim lookup propagates, and a later stop() must not cancel the finished caller scope."""
+    caller = SendCancellation()
+    with patch.object(client, "_get_shim", side_effect=AuthError("No endpoint configured.", code="missing_endpoint")):
+        with pytest.raises(AuthError):
+            client._run_streaming_loop("POST", "/v1/chat/completions", b"{}", {}, on_content=None, cancel=caller)
+    client.stop()
+    assert not caller.is_cancelled()
