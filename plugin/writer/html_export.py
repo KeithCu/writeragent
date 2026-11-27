@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import logging
 import re
-import time
 import zlib
 from html import escape as html_escape, unescape as html_unescape
 from typing import Any, Callable, Iterator, NamedTuple
@@ -860,20 +859,6 @@ def document_to_content(
     Returns:
         Content string.
     """
-    t0 = time.perf_counter()
-    log.debug("document_to_content: start scope=%r max_chars=%r include_images=%s", scope, max_chars, include_images)
-
-    def _done(content: str, path: str) -> str:
-        # Hang diagnosis: log path, scope, content length, and total time.
-        log.debug(
-            "document_to_content: done path=%s scope=%r content_len=%d total_ms=%.1f",
-            path,
-            scope,
-            len(content),
-            (time.perf_counter() - t0) * 1000.0,
-        )
-        return content
-
     def finish(content: str, ruby_flag: bool | None, why: str) -> str:
         content = _apply_image_export_options(content, include_images=include_images)
         content = inject_exported_math_tex(model, ctx, content)
@@ -889,7 +874,7 @@ def document_to_content(
             # would cost a walk per paragraph on a long file.
             source = _selection_cursor(model, selection=selection)
             if source is None:
-                return _done("", "selection")
+                return ""
             start, end = 0, 0
         else:
             source = None
@@ -899,12 +884,10 @@ def document_to_content(
             # own. CharacterCount is not the document_length space, so clamping to it would cut a
             # read at the end short, and measuring the real length here would walk the whole body
             # a second time per range read.
-        return _done(
-            _range_to_content_via_temp_doc(
-                model, ctx, start, end, max_chars,
-                include_images=include_images, walk_warnings=walk_warnings,
-                source_range=source),
-            scope,
+        return _range_to_content_via_temp_doc(
+            model, ctx, start, end, max_chars,
+            include_images=include_images, walk_warnings=walk_warnings,
+            source_range=source,
         )
 
     # scope == "full" — preferred: XHTML (+ flat-ODF parent map) -> semantic data-lo-style.
@@ -912,8 +895,7 @@ def document_to_content(
     try:
         content, fodt_has_ruby = _export_full(model, ctx)
         content = _restore_outline_hrefs(model, content)
-        content = finish(content, fodt_has_ruby, "the XHTML export came back empty")
-        return _done(content, "xhtml")
+        return finish(content, fodt_has_ruby, "the XHTML export came back empty")
     except Exception as e:
         # A closed document must not start a second export.
         reraise_if_disposed(e)
@@ -935,7 +917,7 @@ def document_to_content(
             if deletions:
                 warning += " Pending tracked deletions are left out; a wholly deleted paragraph shows as an empty one."
             walk_warnings.append(warning)
-        return _done(content, "starwriter")
+        return content
     except Exception as e:
         # Disposal is not a double export failure.
         reraise_if_disposed(e)

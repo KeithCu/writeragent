@@ -260,6 +260,10 @@ class HtmlPassthroughParser(HTMLParser):
         # crosshair: off
         self._out.append("<!--%s-->" % data)
 
+    def result(self) -> str:
+        # crosshair: off
+        return "".join(self._out)
+
 
 @dataclass
 class _OpenBlock:
@@ -493,10 +497,6 @@ class _SemanticTransformer(HtmlPassthroughParser):
                     self._block_stack[-1].lost_child = True
                 return
         self._out.append("</%s>" % tag)
-
-    def result(self) -> str:
-        # crosshair: off
-        return "".join(self._out)
 
 
 def _strip_class_names(start_tag: str) -> str:

@@ -1,4 +1,5 @@
 
+import itertools
 from contextlib import contextmanager
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -132,6 +133,7 @@ def _undo_model():
     undo_mgr = MagicMock()
     undo_mgr.isLocked.return_value = False
     model.getUndoManager.return_value = undo_mgr
+    model.getTextTables.return_value.getCount.side_effect = itertools.count()  # a table import adds one
     return model
 
 
@@ -379,6 +381,7 @@ def test_full_document_in_review_mode_imports_into_a_fresh_paragraph(content, ex
     model.getPropertyValue.return_value = True  # RecordChanges
     text = model.getText.return_value
     text.createTextCursor.return_value.getText.return_value = text
+    text.createTextCursor.return_value.getPropertyValue.return_value.getParentSection.return_value = None
     leftover = text.createTextCursorByRange.return_value
     with patch.object(html_import, "_insert_mixed_or_plain_html") as imp, \
          patch.object(html_import, "_deletion_author"), \
@@ -2013,6 +2016,7 @@ def test_replace_full_document_and_insert_content_call_restore_with_text_obj():
     cur = MagicMock()
     body_text.createTextCursor.return_value = cur
     cur.getText.return_value = body_text
+    cur.getPropertyValue.return_value.getParentSection.return_value = None
 
     with (
         patch("plugin.writer.html_import.insert_html_fragment_at_cursor"),
