@@ -267,7 +267,7 @@ def _page_style_for_info():
         "FootnoteHeight": 0,
         "RegisterParagraphStyle": "",
         "FirstIsShared": False,
-        "PageStyleLayout": MagicMock(value=0),
+        "PageStyleLayout": MagicMock(value="ALL"),
     }
     style.getPropertyValue.side_effect = lambda n: props[n]
     return style

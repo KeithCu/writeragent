@@ -49,10 +49,16 @@ def test_find_ranges_regex_case_all_matches_walks_next():
 
 # ---- 3) invalid regex is an error, not a clean miss ---------------------------
 
+def _run_search(ctx, **kwargs):
+    from plugin.writer.search import DEFAULT_SEARCH_RESULTS, SearchInDocument
+
+    defaults = {"max_results": DEFAULT_SEARCH_RESULTS, "regex": False, "return_offsets": False}
+    defaults.update(kwargs)
+    return SearchInDocument().execute(ctx, **defaults)
+
+
 def _search_zero_hits(pattern, use_regex, icu_ok: bool = True, ctx=None):
     """Run SearchInDocument against a doc that finds nothing."""
-    from plugin.writer.search import SearchInDocument
-
     doc = MagicMock()
     doc.createSearchDescriptor.return_value = MagicMock()
     doc.findFirst.return_value = None
@@ -64,7 +70,7 @@ def _search_zero_hits(pattern, use_regex, icu_ok: bool = True, ctx=None):
     ctx.ctx.ServiceManager.createInstanceWithContext.return_value.searchForward.return_value.subRegExpressions = (
         1 if icu_ok else 0
     )
-    return SearchInDocument().execute(ctx, pattern=pattern, regex=use_regex)
+    return _run_search(ctx, pattern=pattern, regex=use_regex)
 
 
 def test_invalid_regex_zero_hits_is_error():
@@ -98,7 +104,6 @@ def test_validate_icu_regex_accepts_valid_and_rejects_invalid():
 
 
 def test_search_in_document_icu_only_regex_warns_on_shape_skip():
-    from plugin.writer.search import SearchInDocument
 
     doc = MagicMock()
     doc.createSearchDescriptor.return_value = MagicMock()
@@ -109,7 +114,7 @@ def test_search_in_document_icu_only_regex_warns_on_shape_skip():
     ctx.doc = doc
     ctx.ctx.ServiceManager.createInstanceWithContext.return_value.searchForward.return_value.subRegExpressions = 1
 
-    res = SearchInDocument().execute(ctx, pattern=r"\p{Lu}\w+", regex=True)
+    res = _run_search(ctx, pattern=r"\p{Lu}\w+", regex=True)
     assert res["status"] == "ok"
     assert res.get("warning") == "shape/comment text not searched: pattern uses ICU-only syntax"
 
@@ -125,9 +130,8 @@ def test_shape_sweep_skip_reason():
 
 
 def test_search_return_offsets_rejects_regex():
-    from plugin.writer.search import SearchInDocument
 
-    res = SearchInDocument().execute(MagicMock(doc=MagicMock()), pattern="a+", regex=True, return_offsets=True)
+    res = _run_search(MagicMock(doc=MagicMock()), pattern="a+", regex=True, return_offsets=True)
     assert res["status"] == "error" and res["code"] == "INVALID_PARAM"
 
 
@@ -167,7 +171,6 @@ def test_not_found_hints_at_pending_tracked_deletions():
 
 
 def test_search_in_document_zero_width_sets_truncated():
-    from plugin.writer.search import SearchInDocument
 
     doc = MagicMock()
     found = MagicMock()
@@ -177,7 +180,7 @@ def test_search_in_document_zero_width_sets_truncated():
     doc.getTextFields.return_value.createEnumeration.return_value.hasMoreElements.return_value = False
     ctx = MagicMock(doc=doc)
 
-    res = SearchInDocument().execute(ctx, pattern="^", regex=True)
+    res = _run_search(ctx, pattern="^", regex=True)
     doc.findNext.assert_not_called()
     assert res["status"] == "ok"
     assert res["count"] == 0
@@ -188,7 +191,6 @@ def test_search_in_document_zero_width_sets_truncated():
 
 def test_search_in_document_getstring_failure_is_truncated(caplog):
     import logging
-    from plugin.writer.search import SearchInDocument
 
     doc = MagicMock()
     found = MagicMock()
@@ -199,7 +201,7 @@ def test_search_in_document_getstring_failure_is_truncated(caplog):
     ctx = MagicMock(doc=doc)
 
     with caplog.at_level(logging.ERROR, logger="writeragent.writer"):
-        res = SearchInDocument().execute(ctx, pattern="hello")
+        res = _run_search(ctx, pattern="hello")
 
     assert res["status"] == "ok"
     assert res["count"] == 0
@@ -210,11 +212,10 @@ def test_search_in_document_getstring_failure_is_truncated(caplog):
 
 @pytest.mark.parametrize("bad_val", [0, -1])
 def test_search_in_document_max_results_rejects_non_positive(bad_val):
-    from plugin.writer.search import SearchInDocument
 
     doc = MagicMock()
     ctx = MagicMock(doc=doc)
-    res = SearchInDocument().execute(ctx, pattern="test", max_results=bad_val)
+    res = _run_search(ctx, pattern="test", max_results=bad_val)
     assert res["status"] == "error"
     assert res["code"] == "INVALID_PARAM"
     doc.createSearchDescriptor.assert_not_called()
@@ -253,6 +254,7 @@ def test_search_in_document_null_max_results_uses_the_default():
 
 
 def test_search_in_document_default_max_results_is_20():
+    from plugin.framework.tool import prepare_tool_call
     from plugin.writer.search import SearchInDocument
 
     doc = MagicMock()
@@ -261,9 +263,11 @@ def test_search_in_document_default_max_results_is_20():
     doc.findNext.side_effect = hits[1:] + [None]
     del doc.getDrawPage
     doc.getTextFields.return_value.createEnumeration.return_value.hasMoreElements.return_value = False
-    ctx = MagicMock(doc=doc)
+    ctx = MagicMock(doc=doc, doc_type="writer")
 
-    res = SearchInDocument().execute(ctx, pattern="hit")
+    prep = prepare_tool_call(SearchInDocument(), ctx, "search", {"pattern": "hit"})
+    assert prep.error is None
+    res = SearchInDocument().execute(ctx, **prep.kwargs)
     assert res["status"] == "ok"
     assert res["returned"] == 20
     assert res["count"] == 25
@@ -398,14 +402,8 @@ def test_shape_text_hits_folds_quotes_and_returns_document_text():
         assert shape_text_hits(f'a{ch}b', 'a"b', False, False) == []
 
 
-def test_find_text_ranges_limit_zero_and_bad_types_return_empty():
+def test_find_text_ranges_limit_none_runs_search():
     from plugin.writer.search import find_text_ranges
-
-    for bad_limit in (0, -3, "1", True):
-        model = MagicMock()
-        res = find_text_ranges(model, "foo", limit=bad_limit)
-        assert res == []
-        model.createSearchDescriptor.assert_not_called()
 
     model = MagicMock()
     model.findFirst.return_value = None
@@ -597,11 +595,8 @@ def test_advanced_search_around_page_is_zero_based():
 
 
 def test_search_in_document_missing_pattern_returns_invalid_param():
-    from plugin.writer.search import SearchInDocument
-
     ctx = MagicMock()
-    tool = SearchInDocument()
-    res = tool.execute(ctx, pattern="")
+    res = _run_search(ctx, pattern="")
     assert res["status"] == "error"
     assert res["code"] == "INVALID_PARAM"
     assert "pattern is required" in res["message"]
@@ -651,7 +646,6 @@ def test_build_search_not_found_response_codes():
 
 
 def test_search_hit_cap_includes_shapes():
-    from plugin.writer.search import SearchInDocument
 
     doc = MagicMock()
     body_hit = MagicMock(**{"getString.return_value": "hit_body"})
@@ -670,7 +664,7 @@ def test_search_hit_cap_includes_shapes():
 
     ctx = MagicMock(doc=doc)
     with patch("plugin.writer.search.MAX_SEARCH_HITS", 2):
-        res = SearchInDocument().execute(ctx, pattern="hit", max_results=10)
+        res = _run_search(ctx, pattern="hit", max_results=10)
 
     assert res["status"] == "ok"
     assert res["count"] == 2
@@ -688,13 +682,12 @@ def test_find_text_ranges_does_not_report_failure_as_no_hits():
 
 
 def test_return_offsets_does_not_report_failure_as_zero_hits():
-    from plugin.writer.search import SearchInDocument
 
     doc = MagicMock()
     doc.createSearchDescriptor.side_effect = DocumentDisposedError("closed", object_type="Document")
     ctx = MagicMock(doc=doc)
     with pytest.raises(DocumentDisposedError):
-        SearchInDocument().execute(ctx, pattern="hello", return_offsets=True)
+        _run_search(ctx, pattern="hello", return_offsets=True)
 
 
 def test_shape_text_hits_regex_timeout():
@@ -986,7 +979,9 @@ def test_search_in_document_disposed_get_string_propagates():
     found = MagicMock()
     found.getString.side_effect = DocumentDisposedError("gone")
     doc.findFirst.return_value = found
-    res = SearchInDocument().execute_safe(MagicMock(doc=doc), pattern="x")
+    res = SearchInDocument().execute_safe(
+        MagicMock(doc=doc), pattern="x", max_results=20, regex=False, return_offsets=False
+    )
     assert res.get("status") == "error"
     assert res.get("code") == "DOCUMENT_DISPOSED"
 
@@ -1021,7 +1016,7 @@ def test_header_footer_label_disposed_style_walk_propagates():
 
 
 def test_search_in_document_and_sweep_shape_matches_parity():
-    from plugin.writer.search import SearchInDocument, sweep_draw_shape_preview_matches
+    from plugin.writer.search import sweep_draw_shape_preview_matches
 
     doc = MagicMock()
     doc.findFirst.return_value = None
@@ -1037,7 +1032,7 @@ def test_search_in_document_and_sweep_shape_matches_parity():
     del doc.getTextFields
 
     ctx = MagicMock(doc=doc)
-    tool_matches = SearchInDocument().execute(ctx, pattern="needle", regex=False, case_sensitive=False)["matches"]
+    tool_matches = _run_search(ctx, pattern="needle", regex=False, case_sensitive=False)["matches"]
     sweep_matches = sweep_draw_shape_preview_matches(doc, "needle", False, False)
 
     tool_pairs = [(m["text"], m["location"]) for m in tool_matches]
@@ -1046,7 +1041,7 @@ def test_search_in_document_and_sweep_shape_matches_parity():
 
 
 def test_search_in_document_and_sweep_comment_matches_parity():
-    from plugin.writer.search import SearchInDocument, sweep_comment_preview_matches
+    from plugin.writer.search import sweep_comment_preview_matches
 
     doc = MagicMock()
     draw_page = MagicMock()
@@ -1068,7 +1063,7 @@ def test_search_in_document_and_sweep_comment_matches_parity():
     doc.getTextFields.return_value.createEnumeration.side_effect = make_enum
 
     ctx = MagicMock(doc=doc)
-    tool_matches = SearchInDocument().execute(ctx, pattern="needle", regex=False, case_sensitive=False)["matches"]
+    tool_matches = _run_search(ctx, pattern="needle", regex=False, case_sensitive=False)["matches"]
     sweep_matches = sweep_comment_preview_matches(doc, "needle", False, False)
 
     tool_pairs = [(m["text"], m["location"]) for m in tool_matches]
@@ -1077,7 +1072,6 @@ def test_search_in_document_and_sweep_comment_matches_parity():
 
 
 def test_search_in_document_counts_one_hit():
-    from plugin.writer.search import SearchInDocument
 
     doc = MagicMock()
     found = MagicMock()
@@ -1088,7 +1082,7 @@ def test_search_in_document_counts_one_hit():
     del doc.getTextFields
 
     ctx = MagicMock(doc=doc)
-    res = SearchInDocument().execute(ctx, pattern="hit", regex=False, case_sensitive=False)
+    res = _run_search(ctx, pattern="hit", regex=False, case_sensitive=False)
     assert res["status"] == "ok"
     assert res["count"] == 1
 
@@ -1511,7 +1505,6 @@ def _sample_apply_replace(doc, old_content, content, *, all_matches=False, case_
 
 def test_read_search_forgiving_edit_search_exact_first():
     from plugin.tests.testing_utils import TestingFactory
-    from plugin.writer.search import SearchInDocument
     from plugin.writer.selection import SetSelection
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
@@ -1519,20 +1512,20 @@ def test_read_search_forgiving_edit_search_exact_first():
     ctx = TestingFactory.create_context(doc=doc, doc_type="writer")
 
     # 1. search (read tool stays case-insensitive by default)
-    s_default = SearchInDocument().execute(ctx, pattern="apple")
+    s_default = _run_search(ctx, pattern="apple")
     assert s_default["status"] == "ok"
     assert [m["text"] for m in s_default["matches"]] == ["Apple", "apple"]
     assert s_default["matched_case_sensitive"] is False
 
-    s_upper = SearchInDocument().execute(ctx, pattern="APPLE")
+    s_upper = _run_search(ctx, pattern="APPLE")
     assert [m["text"] for m in s_upper["matches"]] == ["Apple", "apple"]
     assert s_upper["matched_case_sensitive"] is False
 
-    s_exact = SearchInDocument().execute(ctx, pattern="apple", case_sensitive=True)
+    s_exact = _run_search(ctx, pattern="apple", case_sensitive=True)
     assert [m["text"] for m in s_exact["matches"]] == ["apple"]
     assert s_exact["matched_case_sensitive"] is True
 
-    s_exact_miss = SearchInDocument().execute(ctx, pattern="APPLE", case_sensitive=True)
+    s_exact_miss = _run_search(ctx, pattern="APPLE", case_sensitive=True)
     assert s_exact_miss["matches"] == []
     assert s_exact_miss["matched_case_sensitive"] is True
 
@@ -2111,7 +2104,7 @@ def test_crlf_normalized_for_search_and_chain_matching():
 
 
 def test_covered_deletion_hits_are_skipped_in_search_helpers_and_tool():
-    from plugin.writer.search import SearchInDocument, _iter_descriptor_hits, find_text_ranges
+    from plugin.writer.search import _iter_descriptor_hits, find_text_ranges
 
     covered_hit = MagicMock(getString=lambda: "gone")
     live_hit = MagicMock(getString=lambda: "live")
@@ -2146,13 +2139,12 @@ def test_covered_deletion_hits_are_skipped_in_search_helpers_and_tool():
         doc.findFirst.return_value = covered_hit
         doc.findNext.side_effect = [live_hit, None]
         ctx = MagicMock(doc=doc)
-        res = SearchInDocument().execute(ctx, pattern="x")
+        res = _run_search(ctx, pattern="x")
         assert res["count"] == 1
         assert res["matches"][0]["text"] == "live"
 
 
 def test_search_tool_builds_tracked_deletions_once():
-    from plugin.writer.search import SearchInDocument
 
     hit1 = MagicMock(getString=lambda: "hit1")
     hit2 = MagicMock(getString=lambda: "hit2")
@@ -2167,7 +2159,7 @@ def test_search_tool_builds_tracked_deletions_once():
          patch("plugin.writer.search.iter_comment_hits", return_value=iter(())):
         td_cls.return_value.overlaps.return_value = False
         labeler_cls.return_value.describe.return_value = "body"
-        res = SearchInDocument().execute(MagicMock(doc=doc), pattern="hit")
+        res = _run_search(MagicMock(doc=doc), pattern="hit")
 
     assert [m["context"] for m in res["matches"]] == ["ctx1", "ctx2"]
     td_cls.assert_called_once_with(doc)

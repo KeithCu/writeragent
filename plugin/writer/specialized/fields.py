@@ -9,8 +9,13 @@
 
 """Writer text fields — specialized fields domain."""
 
+from __future__ import annotations
+
 import hashlib
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 import uno
 
@@ -26,6 +31,7 @@ from plugin.doc.udprops import (
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.framework.errors import is_disposal, reraise_if_disposed
 from plugin.framework.tool import ToolBase
+from plugin.framework.uno_context import supports_service
 
 from ..edit_review import flag_tracked, next_agent_edit_undo_title
 from ..record_changes import insert_recorded_content
@@ -43,15 +49,6 @@ KNOWN_PROPERTIES = (
     "ReferenceFieldPart", "ChapterFormat", "UserDataType",
     "DataBaseName", "DataTableName", "DataColumnName",
 )
-
-
-def _is_annotation(field: Any) -> bool:
-    try:
-        return field.supportsService("com.sun.star.text.textfield.Annotation") is True
-    except Exception as e:
-        if is_disposal(e):
-            raise
-        return False
 
 
 def _specific_field_service(field: Any) -> str:
@@ -73,13 +70,13 @@ def _specific_field_service(field: Any) -> str:
     return ""
 
 
-def _iter_body_field_identity(doc: Any, hasher: Any) -> Any:
+def _iter_body_field_identity(doc: Any, hasher: Any) -> Iterator[tuple[int, Any, str, str, str]]:
     fields = doc.getTextFields()
     enum = fields.createEnumeration()
     labeler = LocationLabeler(doc)
     count = 0
     for field in iter_elements(enum):
-        if _is_annotation(field):
+        if supports_service(field, "com.sun.star.text.textfield.Annotation"):
             continue
         count += 1
         service = _specific_field_service(field)
@@ -109,9 +106,7 @@ class FieldsUpdateAll(ToolWriterFieldBase):
         fields.refresh()
 
         enum = fields.createEnumeration()
-        count = 0
-        for _field in iter_elements(enum):
-            count += 1
+        count = sum(1 for _f in iter_elements(enum))
 
         return {"status": "ok", "fields_refreshed": count}
 
@@ -142,7 +137,7 @@ class FieldsList(ToolWriterFieldBase):
                     reraise_if_disposed(e)
                     service_props[service] = set()
 
-            valid_props = service_props.get(service, set())
+            valid_props = service_props[service]
             for prop_name in KNOWN_PROPERTIES:
                 if prop_name in valid_props:
                     try:
@@ -177,7 +172,6 @@ class FieldsDelete(ToolWriterFieldBase):
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         snapshot = kwargs.get("snapshot")
         raw_ids: list[Any] = kwargs["ids"]
-        assert isinstance(raw_ids, list)
 
         for item in raw_ids:
             if isinstance(item, bool) or not isinstance(item, int):
@@ -311,7 +305,6 @@ class FieldsInsert(ToolWriterFieldBase):
                     raise
                 return self._tool_error(f"Failed to set property '{key}' to '{value}': {e}")
 
-        # Resolve target and insert as one undo step (insert_at_target).
         recorded = False
 
         def insert(cursor: Any) -> None:
@@ -347,7 +340,8 @@ def _is_product_udprop(name: str) -> bool:
 
 class DocumentPropertiesGet(ToolBase):
     """Read built-in and user-defined document metadata."""
-    # Subclasses ToolBase (not ToolWriterFieldBase) because document properties work across all apps (Writer/Calc/Draw).
+
+    # ToolBase, not ToolWriterFieldBase: document properties exist in Calc and Draw too.
 
     name: str | None = "document_get_properties"
     description: str = (
@@ -379,7 +373,6 @@ class DocumentPropertiesGet(ToolBase):
 
 class DocumentPropertiesSet(ToolBase):
     """Update built-in and user-defined document metadata."""
-    # Subclasses ToolBase (not ToolWriterFieldBase) because document properties work across all apps (Writer/Calc/Draw).
 
     name: str | None = "document_set_properties"
     description: str = (
@@ -472,17 +465,17 @@ class DocumentPropertiesSet(ToolBase):
                     )
                 ud_removes.append(key)
 
-        builtin_fields: dict[str, Any] = {}
-        if title is not None:
-            builtin_fields["title"] = title
-        if subject is not None:
-            builtin_fields["subject"] = subject
-        if author is not None:
-            builtin_fields["author"] = author
-        if description is not None:
-            builtin_fields["description"] = description
-        if keywords is not None:
-            builtin_fields["keywords"] = keywords
+        builtin_fields: dict[str, Any] = {
+            k: v
+            for k, v in (
+                ("title", title),
+                ("subject", subject),
+                ("author", author),
+                ("description", description),
+                ("keywords", keywords),
+            )
+            if v is not None
+        }
 
         if not builtin_fields and not ud_writes and not ud_removes:
             return self._tool_error("No properties to set.", code="NO_CHANGES")

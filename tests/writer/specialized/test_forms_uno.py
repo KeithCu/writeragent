@@ -135,7 +135,7 @@ def test_insert_text_with_view_cursor(ctx, doc):
 
     mock_ctx = MockCtx(doc)
 
-    tool._insert_text(mock_ctx, "<b>Bold Text</b>")
+    tool._insert_text(mock_ctx, "<b>Bold Text</b>", page_cursors=None)
 
     # Verify insertion
     text = doc.getText().getString()

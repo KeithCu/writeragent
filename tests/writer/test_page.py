@@ -33,7 +33,10 @@ def test_get_page_style_properties_without_header_or_footer():
     void_when_off = {"HeaderHeight", "FooterHeight", "HeaderBodyDistance", "FooterBodyDistance"}
     style = MagicMock()
     style.getPropertyValue.side_effect = lambda name: (
-        None if name in void_when_off else False if name.endswith("IsOn") else 2000
+        None if name in void_when_off
+        else False if name.endswith("IsOn")
+        else MagicMock(value="ALL") if name == "PageStyleLayout"
+        else 2000
     )
     doc = MagicMock()
     doc.getStyleFamilies.return_value.getByName.return_value.getByName.return_value = style
@@ -81,7 +84,7 @@ def test_get_page_style_properties():
             "NumberingType": 4,
             "FootnoteHeight": 0,
             "RegisterParagraphStyle": "",
-            "PageStyleLayout": MagicMock(value=0),
+            "PageStyleLayout": MagicMock(value="ALL"),
         }
         return props[name]
 
@@ -108,6 +111,7 @@ def test_set_page_style_properties():
     families.getByName.return_value = page_styles
     page_styles.hasByName.return_value = True
     page_styles.getByName.return_value = style
+    style.getPropertyValue.side_effect = lambda p: None if p.startswith(("HeaderText", "FooterText")) else 0
 
     ctx = TestingFactory.create_context(doc=doc, doc_type="writer")
     tool = PageSetStyleProperties()
@@ -1017,9 +1021,10 @@ def test_page_break_restart_without_page_style_errors():
 
 
 def test_page_break_restart_rejects_non_positive():
+    from plugin.framework.tool import prepare_tool_call
     from plugin.writer.page import PageInsertBreak
 
-    for val in (0, -1, True, 1.5, "1", 32768):
+    for val in (0, -1, 32768):
         doc, para = _pagebreak_doc()
         _attach_page_styles(doc, {"Annex"})
         res = PageInsertBreak().execute(
@@ -1033,21 +1038,29 @@ def test_page_break_restart_rejects_non_positive():
         assert res["message"] == "restart_page_number must be an integer from 1 to 32767."
         para.setPropertyValue.assert_not_called()
 
+    for bad_type in (True, 1.5, "abc"):
+        prep = prepare_tool_call(
+            PageInsertBreak(),
+            SimpleNamespace(doc_type="writer"),
+            "page_insert_break",
+            {"before_text": "Assinaturas", "page_style": "Annex", "restart_page_number": bad_type},
+        )
+        assert prep.error is not None
+        assert prep.error["code"] == "VALIDATION_ERROR"
+
 
 def test_page_break_page_style_must_be_a_string():
+    from plugin.framework.tool import prepare_tool_call
     from plugin.writer.page import PageInsertBreak
 
-    doc, para = _pagebreak_doc()
-    res = PageInsertBreak().execute(
-        SimpleNamespace(doc=doc),
-        before_text="Assinaturas",
-        page_style=123,
-        occurrence=0,
+    prep = prepare_tool_call(
+        PageInsertBreak(),
+        SimpleNamespace(doc_type="writer"),
+        "page_insert_break",
+        {"before_text": "Assinaturas", "page_style": ["Annex"]},
     )
-    assert res["status"] == "error"
-    assert res["message"] == "page_style must be a string."
-    doc.getStyleFamilies.assert_not_called()
-    para.setPropertyValue.assert_not_called()
+    assert prep.error is not None
+    assert prep.error["code"] == "VALIDATION_ERROR"
 
 
 def test_page_break_empty_style_with_restart_does_not_resolve():
@@ -1519,6 +1532,8 @@ def test_register_paragraph_style_missing_still_reads():
             raise RuntimeError("property missing")
         if prop == "Width":
             return 21000
+        if prop == "PageStyleLayout":
+            return MagicMock(value="ALL")
         return None
     style.getPropertyValue.side_effect = get_prop
     doc.getStyleFamilies().getByName().getByName.return_value = style

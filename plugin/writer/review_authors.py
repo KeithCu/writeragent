@@ -129,7 +129,7 @@ def office_author(ctx: Any) -> str:
     """
     access = _author_access(ctx)
     lang = get_lo_locale(ctx)[:2]
-    if lang in ("ja", "ko", "zh", "hu"):  # MsLangId::isFamilyNameFirst
+    if lang in ("ja", "ko", "zh", "hu"):  # MsLangId::isFamilyNameFirst (i18nlangtag/source/isolang/mslangid.cxx)
         names: tuple[str, ...] = ("sn", "givenname")
     elif lang == "ru":
         names = ("givenname", "fathersname", "sn")
@@ -137,6 +137,10 @@ def office_author(ctx: Any) -> str:
         names = ("givenname", "sn")
     parts = [str(access.getPropertyValue(n) or "").strip() for n in names]
     return " ".join(p for p in parts if p) or str(access.getPropertyValue("initials") or "").strip() or "Unknown Author"
+
+
+def _profile_name(access: Any) -> tuple[str, str]:
+    return (str(access.getPropertyValue("givenname")), str(access.getPropertyValue("sn")))
 
 
 def begin(ctx: Any) -> tuple[str, str] | None:
@@ -150,7 +154,7 @@ def begin(ctx: Any) -> tuple[str, str] | None:
     """
     try:
         access = _author_access(ctx)
-        prior = (str(access.getPropertyValue("givenname")), str(access.getPropertyValue("sn")))
+        prior = _profile_name(access)
         if prior not in _AGENT_PROFILES and prior != _saved_prior():
             _save_prior(prior)
         # We commit the swap because LibreOffice stamps redlines with the committed UserProfile name.
@@ -171,7 +175,7 @@ def restore_author_after_crash(ctx: Any) -> None:
     """At startup, put back the user's name if a crash left the profile on an agent author."""
     try:
         access = _author_access(ctx)
-        current = (str(access.getPropertyValue("givenname")), str(access.getPropertyValue("sn")))
+        current = _profile_name(access)
         if current not in _AGENT_PROFILES:
             return
         saved = _saved_prior()
@@ -192,14 +196,14 @@ def end(ctx: Any, prior: tuple[str, str] | None) -> None:
         return
     try:
         access = _author_access(ctx)
-        current = (str(access.getPropertyValue("givenname")), str(access.getPropertyValue("sn")))
+        current = _profile_name(access)
         # Tip: a name the user changed in User Data during the edit is not ours to overwrite.
         if current == prior:
             return
         if current[0] != last:
             log.debug("review_authors.end: office author changed outside the edit; leaving %r", current)
             return
-        _commit_author(access, prior[0], prior[1])
+        _commit_author(access, *prior)
     except Exception:
         log.warning("review_authors.end: failed to restore office author %r", prior, exc_info=True)
 

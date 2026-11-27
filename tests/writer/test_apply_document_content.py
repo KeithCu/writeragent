@@ -1233,7 +1233,7 @@ def test_shape_edit_regex_shares_stripped_pattern():
     ctx = _edit_ctx()
     shape = MagicMock()
     shape.Name = "Box"
-    with patch("plugin.writer.search.find_ranges_regex_case", return_value=None), \
+    with patch("plugin.writer.search.find_ranges_regex_case", return_value=[]), \
          patch("plugin.writer.search.drawing_shape_object_containing", return_value=shape) as mock_find_shape, \
          patch("plugin.writer.apply_document_content.review_recording_enabled", return_value=False), \
          patch("plugin.writer.apply_document_content.get_agent_edit_review_mode", return_value="off"), \

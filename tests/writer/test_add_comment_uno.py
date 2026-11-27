@@ -57,7 +57,7 @@ def _by_name(comments, name):
 def test_add_comment_reports_anchor_found_uno(ctx, doc):
     set_body_text(doc, "Anchor here please")
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
-    res = AddComment().execute(tool_ctx, content="a note", search="Anchor")
+    res = AddComment().execute(tool_ctx, content="a note", search="Anchor", author="WriterAgent", occurrence=0)
     assert res.get("status") == "ok", res
     assert res.get("matched") is True, res
     assert res.get("comment_added") is True, res
@@ -77,7 +77,7 @@ def test_add_comment_reports_anchor_found_uno(ctx, doc):
 def test_add_comment_reports_anchor_not_found_uno(ctx, doc):
     set_body_text(doc, "nothing relevant here")
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
-    res = AddComment().execute(tool_ctx, content="a note", search="DOES_NOT_EXIST_XYZ")
+    res = AddComment().execute(tool_ctx, content="a note", search="DOES_NOT_EXIST_XYZ", author="WriterAgent", occurrence=0)
     # An anchor miss is a failure (status="error"), not a silent "not_found" the MCP host /
     # chat FSM would treat as success. anchor_text is returned on success only.
     assert res.get("status") == "error", res
@@ -91,10 +91,10 @@ def test_add_comment_reply_via_parent_name_uno(ctx, doc):
     """Reply with parent_name only (no search). Parent stays unresolved."""
     set_body_text(doc, "Passage under review")
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
-    root = AddComment().execute(tool_ctx, content="please revise", search="Passage")
+    root = AddComment().execute(tool_ctx, content="please revise", search="Passage", author="WriterAgent", occurrence=0)
     assert root.get("status") == "ok" and root.get("name"), root
 
-    reply = AddComment().execute(tool_ctx, content="Approved, thank you", parent_name=root["name"])
+    reply = AddComment().execute(tool_ctx, content="Approved, thank you", parent_name=root["name"], author="WriterAgent")
     assert reply.get("status") == "ok", reply
     assert reply.get("comment_added") is True, reply
     assert reply.get("name"), reply
@@ -119,12 +119,12 @@ def test_add_comment_reply_to_reply_nests_uno(ctx, doc):
     """C parented to B, B parented to A — do not flatten to the thread root."""
     set_body_text(doc, "Title sentence")
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
-    a = AddComment().execute(tool_ctx, content="root A", search="Title")
+    a = AddComment().execute(tool_ctx, content="root A", search="Title", author="WriterAgent", occurrence=0)
     assert a.get("status") == "ok" and a.get("name"), a
-    b = AddComment().execute(tool_ctx, content="reply B", parent_name=a["name"])
+    b = AddComment().execute(tool_ctx, content="reply B", parent_name=a["name"], author="WriterAgent")
     assert b.get("status") == "ok" and b.get("name"), b
     assert b.get("parent_name") == a["name"], b
-    c = AddComment().execute(tool_ctx, content="reply C", parent_name=b["name"])
+    c = AddComment().execute(tool_ctx, content="reply C", parent_name=b["name"], author="WriterAgent")
     assert c.get("status") == "ok" and c.get("name"), c
     assert c.get("parent_name") == b["name"], c
     assert c["parent_name"] != a["name"], c
@@ -141,7 +141,7 @@ def test_add_comment_reply_to_reply_nests_uno(ctx, doc):
 def test_add_comment_reply_unknown_parent_uno(ctx, doc):
     set_body_text(doc, "Some body text")
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
-    res = AddComment().execute(tool_ctx, content="orphan reply", parent_name="no-such-annotation")
+    res = AddComment().execute(tool_ctx, content="orphan reply", parent_name="no-such-annotation", author="WriterAgent")
     assert res.get("status") == "error", res
     assert res.get("comment_added") is False, res
     assert "no-such-annotation" in (res.get("message") or ""), res

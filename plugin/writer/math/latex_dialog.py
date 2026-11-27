@@ -63,10 +63,8 @@ def show_latex_input_dialog(
     try:
         dlg = load_writeragent_dialog("LatexInputDialog", ctx)
 
-        # Populate initial values
         edit = dlg.getControl("LatexEdit")
         edit.setText(initial_text)
-        # Use a monospaced font
         fd = cast("Any", uno.createUnoStruct("com.sun.star.awt.FontDescriptor"))
         fd.Name = "Courier New"
         edit.getModel().FontDescriptor = fd
@@ -92,7 +90,6 @@ def show_latex_input_dialog(
         btn_cancel = dlg.getControl("BtnCancel")
         btn_cancel.addActionListener(_ClickListener(lambda: dlg.endDialog(0)))
 
-        # Set focus to the edit control
         edit.setFocus()
 
         dlg.execute()
@@ -179,10 +176,7 @@ def _apply_latex_to_writer(
         controller = doc.getCurrentController()
         view_cursor = controller.getViewCursor()
         insert_writer_math_formula(doc, view_cursor, starmath, display_block=display_block)
-        patch: dict[str, Any] = {"last_latex_input": latex}
-        if display_block is not None:
-            patch["last_latex_display_block"] = display_block
-        save(patch)
+        save({"last_latex_input": latex, "last_latex_display_block": display_block})
         msg = _("Formula inserted.")
     return True, msg
 
@@ -202,7 +196,6 @@ def insert_latex_math_dialog(ctx: Any) -> None:
             return
         target_name, last_latex = prefill
 
-        # Check if Monaco editor is available
         exe, available = monaco_editor_available()
         if available and exe:
             log.info("insert_latex_math_dialog: using Monaco editor")

@@ -1028,7 +1028,7 @@ def extract_page_fields(model: Any, text_obj: Any) -> list[dict[str, Any]]:
     """Walk *text_obj* in document order and collect PageNumber and PageCount field properties."""
     fields: list[dict[str, Any]] = []
     for para, state in iter_xtext_paragraphs(text_obj, TrackedDeletions(model).state_at(text_obj)):
-        # Must skip the same fields as _copy_xtext_by_portions, or the title check skips attribute injection.
+        # Must skip the same fields as copy_xtext_into_doc, or the title check skips attribute injection.
         for portion, _unused in visible_portions(para, abort_on_portion_error=True, state=state):
             if uno_read(lambda: portion.getPropertyValue("TextPortionType"), "") == "TextField":
                 try:

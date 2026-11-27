@@ -120,7 +120,7 @@ def test_insert_space_and_insert_text_skip_formula_cells(monkeypatch):
     ctx = SimpleNamespace(doc=doc)
 
     FormCreate()._insert_space(ctx)
-    FormGenerate()._insert_text(ctx, "<b>Name</b> extra")
+    FormGenerate()._insert_text(ctx, "<b>Name</b> extra", page_cursors=None)
 
     cell.setString.assert_not_called()
 
@@ -129,7 +129,7 @@ def test_insert_text_appends_plain_label_on_text_cell(monkeypatch):
     monkeypatch.setattr("plugin.writer.specialized.forms.is_calc", lambda doc: True)
     cell = _cell("TEXT", "Hi")
     doc, _sheet = _doc_with_cell(cell)
-    FormGenerate()._insert_text(SimpleNamespace(doc=doc), "<p>Name</p>")
+    FormGenerate()._insert_text(SimpleNamespace(doc=doc), "<p>Name</p>", page_cursors=None)
     cell.setString.assert_called_once_with("HiName ")
 
 

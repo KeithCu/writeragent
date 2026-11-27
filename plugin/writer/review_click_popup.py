@@ -82,8 +82,8 @@ def _show_popup_and_resolve(model: Any, source_window: Any, x: int, y: int) -> N
         popup.insertItem(1, "✓ " + _("Accept this change"), 0, 0)
         popup.insertItem(2, "✗ " + _("Reject this change"), 0, 1)
         rect = Rectangle()
-        rect.X = int(x)
-        rect.Y = int(y)
+        rect.X = x
+        rect.Y = y
         rect.Width = 0
         rect.Height = 0
         choice = popup.execute(source_window, rect, 0)
@@ -122,12 +122,8 @@ class ClickReviewHandler(BaseMouseClickHandler):
         main.post(_fire)
 
     def on_mouse_pressed(self, e: Any) -> bool:
-        # Reset coordinates on unreadable event attributes so release does not match a stale press.
-        try:
-            self._press = (e.X, e.Y)
-            self._click_gen += 1
-        except AttributeError:
-            self._press = None
+        self._press = (e.X, e.Y)
+        self._click_gen += 1
         return False
 
     def on_mouse_released(self, e: Any) -> bool:

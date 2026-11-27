@@ -40,9 +40,28 @@ from plugin.doc.text_helpers import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterator, Sequence
 
 log = logging.getLogger("writeragent.writer.nav.tree")
+
+MCP_BOOKMARK_PREFIX = "_mcp_"
+
+
+def is_mcp_bookmark_name(name: str) -> bool:
+    return name.startswith(MCP_BOOKMARK_PREFIX)
+
+
+def mcp_bookmark_miss_hint(name: str, names: Sequence[str]) -> str:
+    hint = (
+        f"Bookmark '{name}' not found. "
+        "It may have been deleted or the document changed. "
+        "Use heading_text:<text> locator for resilient heading addressing, "
+        "or call get_tree to refresh bookmarks."
+    )
+    existing = [n for n in names if is_mcp_bookmark_name(n)]
+    if existing:
+        hint += " Existing bookmarks: " + ", ".join(existing[:10])
+    return hint
 
 
 def collect_heading_indices(node: dict[str, Any]) -> list[int]:
@@ -458,14 +477,13 @@ class TreeService(ServiceBase):
     def _resolve_bookmark_locator(self, doc: Any, bookmark_name: str) -> dict[str, Any]:
         bookmarks = doc.getBookmarks()
         if not bookmarks.hasByName(bookmark_name):
-            hint = "Bookmark '%s' not found." % bookmark_name
-            names = [str(n) for n in bookmarks.getElementNames()]
+            names = list(bookmarks.getElementNames())
             details = name_miss_details(bookmark_name, names, "bookmark_list")
-            if bookmark_name.startswith("_mcp_"):
-                hint += " Use heading_text:<text> locator for resilient heading addressing, or call get_tree to refresh bookmarks."
-                existing = [n for n in names if n.startswith("_mcp_")]
-                if existing:
-                    hint += " Existing bookmarks: " + ", ".join(existing[:10])
+            hint = (
+                mcp_bookmark_miss_hint(bookmark_name, names)
+                if is_mcp_bookmark_name(bookmark_name)
+                else f"Bookmark '{bookmark_name}' not found."
+            )
             raise ToolExecutionError(hint, details=details)
         bm = bookmarks.getByName(bookmark_name)
         # A stale _mcp_ bookmark still has a name after save/reopen or
