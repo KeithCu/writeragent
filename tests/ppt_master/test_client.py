@@ -15,7 +15,7 @@ from plugin.ppt_master import client
 def test_export_project_to_doc_missing_directory_does_not_collect_svgs(tmp_path: Path) -> None:
     missing = tmp_path / "nope"
     with patch.object(client, "collect_svg_files") as collect:
-        out = client.export_project_to_doc(MagicMock(), missing, ctx=MagicMock())
+        out = client.export_project_to_doc(MagicMock(), missing, ctx=MagicMock(), data_root=tmp_path)
     collect.assert_not_called()
     assert "Project path not found" in out.get("message", "")
 
@@ -25,7 +25,7 @@ def test_export_project_to_doc_no_svgs_does_not_set_data_root_env(monkeypatch, t
     project = tmp_path / "proj"
     project.mkdir()
     (project / "svg_final").mkdir()
-    out = client.export_project_to_doc(MagicMock(), project, ctx=MagicMock())
+    out = client.export_project_to_doc(MagicMock(), project, ctx=MagicMock(), data_root=tmp_path)
     assert "No SVG slides" in out.get("message", "")
     assert os.environ.get("PPT_MASTER_DATA_ROOT") is None
 

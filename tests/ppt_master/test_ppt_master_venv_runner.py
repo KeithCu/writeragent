@@ -189,7 +189,6 @@ def test_run_ppt_master_venv_turn_keeps_cancellation_on_the_host():
         patch("plugin.ppt_master.venv.host.get_config", return_value=8),
     ):
         run_ppt_master_venv_turn(
-            MagicMock(),
             query="q",
             history_text=None,
             topic=None,

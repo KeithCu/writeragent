@@ -107,7 +107,7 @@ class SetSlideMaster(ToolDrawSlideMastersBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        master_name = str(kwargs.get("master") or "").strip()
+        master_name = kwargs["master"].strip()
         if not master_name:
             return self._tool_error("master is required.")
 

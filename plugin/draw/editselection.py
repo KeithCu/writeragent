@@ -77,7 +77,7 @@ def _text_surfaces(shape: Any) -> list[Any]:
     return surfaces
 
 
-def _append_text_target(targets: list[Any], shape: Any) -> None:
+def _append_text_target(targets: list[tuple[Any, str]], shape: Any) -> None:
     surfaces = _text_surfaces(shape)
     non_empty: list[tuple[Any, str]] = []
     for surface in surfaces:
@@ -87,14 +87,14 @@ def _append_text_target(targets: list[Any], shape: Any) -> None:
     if not non_empty:
         return
     # Prefer the shape object when it holds the same text; Impress undo stacks more reliably on the shape.
-    for surface, _text in non_empty:
+    for surface, text in non_empty:
         if surface is shape:
-            targets.append(surface)
+            targets.append((surface, text))
             return
-    targets.append(non_empty[0][0])
+    targets.append(non_empty[0])
 
 
-def _walk_shape_for_targets(shape: Any, targets: list[Any], saw_table: list[bool]) -> None:
+def _walk_shape_for_targets(shape: Any, targets: list[tuple[Any, str]], saw_table: list[bool]) -> None:
     if is_table_shape(shape):
         saw_table[0] = True
         return
@@ -105,14 +105,14 @@ def _walk_shape_for_targets(shape: Any, targets: list[Any], saw_table: list[bool
     _append_text_target(targets, shape)
 
 
-def iter_draw_rewrite_targets(selection: Any) -> tuple[list[Any], bool]:
-    """Return (text objects with getString/setString, saw_table).
+def iter_draw_rewrite_targets(selection: Any) -> tuple[list[tuple[Any, str]], bool]:
+    """Return ((text_obj, text) pairs, saw_table).
 
     ShapeCollection and a bare shape are both accepted.
     An XTextCursor (getString, getText, getStart, getEnd, and no getByIndex)
     contributes cursor.getText(), not the cursor.
     """
-    targets: list[Any] = []
+    targets: list[tuple[Any, str]] = []
     saw_table = [False]
     if selection is None:
         return targets, False
@@ -200,15 +200,9 @@ def do_draw_extend_edit(
     edit_max = get_config("chatbot.edit_selection_max_new_tokens")
 
     tasks: list[StreamCompletionTask] = []
-    for text_obj in text_targets:
+    for text_obj, original in text_targets:
         if len(tasks) >= _MAX_SHAPES:
             break
-        try:
-            original = text_obj.getString()
-        except Exception as exc:
-            if is_disposal(exc):
-                raise
-            continue
         if not original:
             continue
         tasks.append(

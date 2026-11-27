@@ -24,7 +24,6 @@ _PPT_MASTER_TURN_TIMEOUT_SEC = 1800
 
 
 def run_ppt_master_venv_turn(
-    uno_ctx: Any,
     *,
     query: str,
     history_text: str | None,
@@ -35,7 +34,6 @@ def run_ppt_master_venv_turn(
     cancel: SendCancellation | None = None,
 ) -> dict[str, Any]:
     """Dispatch one sidebar turn to the venv ppt-master runner."""
-    del uno_ctx
     apply_data_root_env()
 
     manager, err = get_worker_manager()

@@ -97,6 +97,7 @@ def _configured_data_root() -> Path | None:
 
 def resolve_data_root(_ctx: Any | None = None) -> Path:
     """Config override → env → venv discovery → dev clone."""
+    # contrib/ppt_master/skill_paths.py passes a UNO ctx; nothing reads it.
     configured = _configured_data_root()
     if configured is not None:
         return configured
@@ -115,12 +116,12 @@ def resolve_data_root(_ctx: Any | None = None) -> Path:
     return Path("skills/ppt-master")
 
 
-def apply_data_root_env() -> Path:
-    """Set PPT_MASTER_DATA_ROOT for upstream ppt-master scripts."""
+def apply_data_root_env() -> dict[str, Any]:
+    """Set PPT_MASTER_DATA_ROOT for upstream ppt-master scripts and return status."""
     root = resolve_data_root()
     if _looks_like_data_root(root):
         os.environ["PPT_MASTER_DATA_ROOT"] = str(root)
-    return root
+    return _status_for_root(root)
 
 
 def _status_for_root(root: Path) -> dict[str, Any]:

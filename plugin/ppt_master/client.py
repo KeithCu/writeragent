@@ -18,7 +18,6 @@ from plugin.framework.queue_executor import main
 from plugin.ppt_master.adapter.uno_enhance import apply_enhancement_project
 from plugin.ppt_master.adapter.uno_pptx_import import import_pptx_to_doc
 from plugin.ppt_master.adapter.uno_template_fill import apply_fill_plan_file
-from plugin.ppt_master.paths import resolve_data_root
 from plugin.ppt_master.pptx_build import ensure_project_pptx, find_project_pptx
 
 
@@ -27,7 +26,7 @@ def export_project_to_doc(
     project_path: str | Path,
     ctx: Any | None = None,
     *,
-    data_root: Path | None = None,
+    data_root: Path,
     cancel: SendCancellation | None = None,
 ) -> dict[str, Any]:
     """Export a ppt-master project into *doc* via PPTX → LO ODP import.
@@ -44,9 +43,7 @@ def export_project_to_doc(
     if ctx is None:
         return format_error_payload(ToolExecutionError("UNO context required for PPTX import."))
 
-    resolved_data_root = data_root if data_root is not None else resolve_data_root()
-
-    pptx_path, build_err = ensure_project_pptx(project_path, resolved_data_root, cancel=cancel)
+    pptx_path, build_err = ensure_project_pptx(project_path, data_root, cancel=cancel)
     if pptx_path is None:
         return format_error_payload(
             ToolExecutionError(

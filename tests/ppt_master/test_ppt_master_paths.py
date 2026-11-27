@@ -106,8 +106,8 @@ def test_apply_data_root_env_sets_env_when_valid(tmp_path: Path, monkeypatch) ->
     monkeypatch.setenv("PPT_MASTER_DATA_ROOT", "")
     monkeypatch.delenv("PPT_MASTER_DATA_ROOT", raising=False)
     monkeypatch.setattr("plugin.ppt_master.paths.resolve_data_root", lambda _ctx=None: inner)
-    root = apply_data_root_env()
-    assert root == inner
+    status = apply_data_root_env()
+    assert status["data_root"] == str(inner)
     assert os.environ.get("PPT_MASTER_DATA_ROOT") == str(inner)
 
 
@@ -116,6 +116,6 @@ def test_apply_data_root_env_leaves_env_unset_for_placeholder(tmp_path: Path, mo
     monkeypatch.setenv("PPT_MASTER_DATA_ROOT", "")
     monkeypatch.delenv("PPT_MASTER_DATA_ROOT", raising=False)
     monkeypatch.setattr("plugin.ppt_master.paths.resolve_data_root", lambda _ctx=None: missing)
-    root = apply_data_root_env()
-    assert root == missing
+    status = apply_data_root_env()
+    assert status["data_root"] == str(missing)
     assert os.environ.get("PPT_MASTER_DATA_ROOT") is None

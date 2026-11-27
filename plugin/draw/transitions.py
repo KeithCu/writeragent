@@ -140,39 +140,17 @@ class SetSlideTransition(ToolDrawSlideTransitionsBase):
         td = kwargs.get("transition_duration")
         speed = kwargs.get("speed")
         if td is not None:
-            try:
-                ops.append(("transition_duration", "TransitionDuration", float(td)))
-            except (TypeError, ValueError):
-                return self._tool_error("Invalid transition_duration: %r" % (td,))
+            ops.append(("transition_duration", "TransitionDuration", float(td)))
         elif speed is not None:
-            speed_key = str(speed).lower()
-            if speed_key not in _SPEED_ENUM:
-                avail = sorted(_SPEED_ENUM)
-                return self._tool_error(
-                    "Unknown speed: %s" % speed,
-                    available=avail,
-                    **available_miss_details(str(speed), avail),
-                )
-            ops.append(("speed", "Speed", speed_key.upper()))
+            ops.append(("speed", "Speed", str(speed).upper()))
 
         duration = kwargs.get("duration")
         if duration is not None:
-            try:
-                ops.append(("duration", "Duration", int(duration)))
-            except (TypeError, ValueError):
-                return self._tool_error("Invalid duration: %r" % (duration,))
+            ops.append(("duration", "Duration", int(duration)))
 
         advance = kwargs.get("advance")
         if advance is not None:
-            change = _ADVANCE_CHANGES.get(advance)
-            if change is None:
-                avail = sorted(_ADVANCE_CHANGES)
-                return self._tool_error(
-                    "Unknown advance: %s" % advance,
-                    available=avail,
-                    **available_miss_details(str(advance), avail),
-                )
-            ops.append(("advance", "Change", change))
+            ops.append(("advance", "Change", _ADVANCE_CHANGES[advance]))
 
         updated: list[str] = []
         try:

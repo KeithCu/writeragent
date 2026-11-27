@@ -703,7 +703,7 @@ def test_draw_form_generate_interleaved_text_shares_cursor(monkeypatch):
     bridge = MagicMock()
     bridge.get_active_page.return_value = dp
 
-    def fake_safe_create_shape(self, doc, page, service, pos, sz, custom_shape_type=None):
+    def fake_safe_create_shape(self, doc, page, service, pos, sz, custom_shape_type=None, *, writer=False):
         sh = MagicMock()
         text_shapes.append((sh, pos.Y, sz.Height))
         return sh, None, None

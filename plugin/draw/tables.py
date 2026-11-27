@@ -248,7 +248,7 @@ def manage_draw_structure(entry: dict[str, Any], action: str, axis_arg: str, idx
     return table_dims(model)
 
 
-def coerce_int(value: Any, default: int) -> int:
+def coerce_int_or_raise(value: Any, default: int) -> int:
     """Parse a tool arg as int, using ``default`` when missing/null."""
     if value is None:
         return default
@@ -276,10 +276,10 @@ def insert_draw_table(ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
 
     page, actual_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
 
-    x = coerce_int(kwargs.get("x"), 3000)
-    y = coerce_int(kwargs.get("y"), 4000)
-    width = coerce_int(kwargs.get("width"), 20000)
-    height = coerce_int(kwargs.get("height"), 10000)
+    x = coerce_int_or_raise(kwargs.get("x"), 3000)
+    y = coerce_int_or_raise(kwargs.get("y"), 4000)
+    width = coerce_int_or_raise(kwargs.get("width"), 20000)
+    height = coerce_int_or_raise(kwargs.get("height"), 10000)
 
     added = False
     shape: Any = None

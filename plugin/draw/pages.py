@@ -109,8 +109,7 @@ class AddSlide(ToolBase):
 
         bridge = DrawBridge(ctx.doc)
         page_idx = kwargs.get("page")
-        activate = kwargs.get("activate")
-        switch_view = _DEFAULT_ACTIVATE if activate is None else bool(activate)
+        switch_view = kwargs["activate"]
 
         layout_name: str | None = None
         if is_impress(ctx.doc):
@@ -329,7 +328,7 @@ class SearchSlides(ToolBase):
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        max_results = kwargs.get("max_results", DEFAULT_SEARCH_RESULTS)
+        max_results = kwargs["max_results"]
         if type(max_results) is not int or max_results < 1:
             return self._tool_error("max_results must be a positive integer.", code="INVALID_PARAM")
 
@@ -337,7 +336,7 @@ class SearchSlides(ToolBase):
         if not pattern:
             return self._tool_error("pattern is required.")
 
-        use_regex = kwargs.get("regex", False)
+        use_regex = kwargs["regex"]
         case_sensitive = resolve_case_sensitive(kwargs.get("case_sensitive"))
 
         if use_regex:
@@ -447,8 +446,7 @@ class DuplicateSlide(_SlideMutationTool):
         page_idx = kwargs["page"]
         bridge = DrawBridge(ctx.doc)
         bridge.resolve_page(page_idx)  # range check only
-        activate = kwargs.get("activate")
-        switch_view = _DEFAULT_ACTIVATE if activate is None else bool(activate)
+        switch_view = kwargs["activate"]
         bridge.duplicate_slide(page_idx, switch=switch_view)
         # The copy sits right after the source, so with switch the active index is page_idx + 1; without it, read the controller.
         active_idx = page_idx + 1 if switch_view else bridge.get_active_page_index()

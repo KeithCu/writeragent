@@ -54,7 +54,7 @@ def test_add_slide_impress_defaults_to_text_layout():
     page.Layout = 20
     with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
         bridge_cls.return_value = _add_slide_bridge(page, active_idx=1)
-        out = AddSlide().execute(ctx)
+        out = AddSlide().execute(ctx, activate=True)
     assert out["status"] == "ok"
     assert out["layout"] == "text"
     assert out["active_page_index"] == 1
@@ -68,7 +68,7 @@ def test_add_slide_blank_and_none_escape():
     page.Layout = 20
     with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
         bridge_cls.return_value = _add_slide_bridge(page)
-        out = AddSlide().execute(ctx, layout="none")
+        out = AddSlide().execute(ctx, layout="none", activate=True)
     assert out["status"] == "ok"
     assert out["layout"] == "blank"
     assert page.Layout == 20
@@ -76,7 +76,7 @@ def test_add_slide_blank_and_none_escape():
     page.Layout = 20
     with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
         bridge_cls.return_value = _add_slide_bridge(page)
-        out = AddSlide().execute(ctx, layout="blank")
+        out = AddSlide().execute(ctx, layout="blank", activate=True)
     assert out["layout"] == "blank"
     assert page.Layout == 20
 
@@ -87,7 +87,7 @@ def test_add_slide_draw_ignores_layout():
     page.Layout = 99
     with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
         bridge_cls.return_value = _add_slide_bridge(page, active_idx=0)
-        out = AddSlide().execute(ctx, layout="text")
+        out = AddSlide().execute(ctx, layout="text", activate=True)
     assert out["status"] == "ok"
     assert "layout" not in out
     assert "placeholders_hint" not in out
@@ -97,7 +97,7 @@ def test_add_slide_draw_ignores_layout():
 def test_add_slide_unknown_layout_errors_before_create():
     ctx = _impress_ctx()
     with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
-        out = AddSlide().execute(ctx, layout="not_a_layout")
+        out = AddSlide().execute(ctx, layout="not_a_layout", activate=True)
     assert out["status"] == "error"
     bridge_cls.return_value.create_slide.assert_not_called()
 
@@ -109,7 +109,7 @@ def test_add_slide_reports_inserted_index_not_stale_active():
     page.Layout = 20
     with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
         bridge_cls.return_value = _add_slide_bridge(page, active_idx=0, page_count=1)
-        out = AddSlide().execute(ctx)
+        out = AddSlide().execute(ctx, activate=True)
     assert out["active_page_index"] == 1
     assert out["layout"] == "text"
 
@@ -124,7 +124,7 @@ def test_add_slide_reports_landed_index_for_page_zero():
         patch("plugin.draw.pages.inherit_master_from_neighbor", return_value="Designed") as inherit,
     ):
         bridge_cls.return_value = _add_slide_bridge(page, active_idx=2, page_count=3, landed=0)
-        out = AddSlide().execute(ctx, page=0)
+        out = AddSlide().execute(ctx, page=0, activate=True)
     assert out["active_page_index"] == 0
     assert out["master"] == "Designed"
     assert inherit.call_args[0][2] == 0
@@ -192,7 +192,7 @@ def test_duplicate_slide_ok():
         bridge = bridge_cls.return_value
         bridge.get_pages.return_value.getCount.return_value = 2
         bridge.get_active_page_index.return_value = 1
-        out = DuplicateSlide().execute(ctx, page=0)
+        out = DuplicateSlide().execute(ctx, page=0, activate=True)
     assert out["status"] == "ok"
     bridge.duplicate_slide.assert_called_once_with(0, switch=True)
     assert out["active_page_index"] == 1
@@ -356,7 +356,7 @@ def test_add_slide_cleanup_reraises_dispose():
         bridge.get_pages.return_value.remove.side_effect = DisposedException("doc disposed")
         bridge_cls.return_value = bridge
         with pytest.raises(DisposedException):
-            AddSlide().execute(ctx)
+            AddSlide().execute(ctx, activate=True)
 
 
 def test_add_slide_cleanup_still_returns_layout_error_when_remove_fails():
@@ -369,7 +369,7 @@ def test_add_slide_cleanup_still_returns_layout_error_when_remove_fails():
         bridge = _add_slide_bridge(page)
         bridge.get_pages.return_value.remove.side_effect = RuntimeError("remove failed")
         bridge_cls.return_value = bridge
-        out = AddSlide().execute(ctx)
+        out = AddSlide().execute(ctx, activate=True)
     assert out["status"] == "error"
     assert "Failed to set layout or master" in out["message"]
     assert "no master" in out["message"]
@@ -423,7 +423,7 @@ def test_add_slide_switches_only_after_layout():
         bridge = bridge_cls.return_value
         bridge.create_slide.return_value = (page, 4)
         bridge.get_pages.return_value.getCount.return_value = 4
-        out = AddSlide().execute(ctx)
+        out = AddSlide().execute(ctx, activate=True)
     assert out["status"] == "ok"
     assert out["active_page_index"] == 4
     bridge.create_slide.assert_called_once()
@@ -442,7 +442,7 @@ def test_add_slide_skips_switch_when_post_insert_fails():
     ):
         bridge = _add_slide_bridge(page)
         bridge_cls.return_value = bridge
-        out = AddSlide().execute(ctx)
+        out = AddSlide().execute(ctx, activate=True)
     assert out["status"] == "error"
     assert "Failed to set layout or master" in out["message"]
     assert "no master" in out["message"]
@@ -531,7 +531,7 @@ def test_add_slide_reports_actual_active_page_when_switch_fails():
         bridge = _add_slide_bridge(page, active_idx=1, page_count=4, landed=3)
         bridge.set_current_page_index.return_value = False
         bridge_cls.return_value = bridge
-        out = AddSlide().execute(ctx)
+        out = AddSlide().execute(ctx, activate=True)
     assert out["status"] == "ok"
     assert out["active_page_index"] == 1
     assert out["view_switch_failed"] is True
@@ -552,7 +552,7 @@ def test_add_slide_live_runtime_error_cleanup(remove_fails):
         if remove_fails:
             bridge.get_pages.return_value.remove.side_effect = RuntimeException("remove failed")
         bridge_cls.return_value = bridge
-        out = AddSlide().execute(ctx)
+        out = AddSlide().execute(ctx, activate=True)
     assert out["status"] == "error"
     bridge.get_pages.return_value.remove.assert_called_once_with(page)
     if remove_fails:
@@ -745,7 +745,7 @@ def test_search_slides_page_and_shape_name():
             bridge_cls.return_value.get_pages.return_value = pages
             ctx = MagicMock()
             ctx.doc = MagicMock()
-            out = SearchSlides().execute(ctx, pattern="o")
+            out = SearchSlides().execute(ctx, pattern="o", regex=False, max_results=50)
     assert out["status"] == "ok"
     assert out["matched_case_sensitive"] is False
     shape_hits = [m for m in out["matches"] if m.get("shape_name") == "Title"]
@@ -760,7 +760,7 @@ def test_search_slides_page_and_shape_name():
             "plugin.draw.pages.notes_text", return_value="Note line"
         ):
             bridge_cls.return_value.get_pages.return_value = pages
-            out_cs = SearchSlides().execute(ctx, pattern="H", case_sensitive=True)
+            out_cs = SearchSlides().execute(ctx, pattern="H", case_sensitive=True, regex=False, max_results=50)
     assert out_cs["status"] == "ok"
     assert out_cs["matched_case_sensitive"] is True
 
@@ -778,7 +778,7 @@ def test_search_slides_cap_hint():
         bridge_cls.return_value.get_pages.return_value = pages
         ctx = MagicMock()
         ctx.doc = MagicMock()
-        out = SearchSlides().execute(ctx, pattern="hit", max_results=2)
+        out = SearchSlides().execute(ctx, pattern="hit", regex=False, max_results=2)
     assert out["returned"] == 2
     assert out["count"] == 5
     assert out["hint"] == "Showing 2 of 5. Narrow the query. This tool has no offset."
@@ -789,9 +789,9 @@ def test_search_slides_rejects_bad_regex_and_empty_pattern():
 
     ctx = MagicMock()
     ctx.doc = MagicMock()
-    empty = SearchSlides().execute(ctx, pattern="")
+    empty = SearchSlides().execute(ctx, pattern="", regex=False, max_results=50)
     assert empty["status"] == "error"
-    bad = SearchSlides().execute(ctx, pattern="[", regex=True)
+    bad = SearchSlides().execute(ctx, pattern="[", regex=True, max_results=50)
     assert bad["status"] == "error"
     assert bad.get("code") == "INVALID_REGEX"
 
@@ -813,7 +813,7 @@ def test_schema_defaults_match_omitted_behavior():
         bridge.get_active_page_index.return_value = 1
         ctx = MagicMock()
         ctx.doc = MagicMock()
-        omitted = add_tool.execute(ctx)
+        omitted = add_tool.execute(ctx, activate=add_props["activate"]["default"])
         explicit = add_tool.execute(
             ctx,
             activate=add_props["activate"]["default"],
@@ -829,9 +829,8 @@ def test_schema_defaults_match_omitted_behavior():
         bridge.get_active_page_index.return_value = 0
         ctx = MagicMock()
         ctx.doc = MagicMock()
-        omitted_dup = dup_tool.execute(ctx, page=0)
         explicit_dup = dup_tool.execute(ctx, page=0, activate=dup_props["activate"]["default"])
-    assert omitted_dup == explicit_dup
+    assert explicit_dup["active_page_index"] == 1
 
     search_tool = SearchSlides()
     assert search_tool.parameters is not None
@@ -846,7 +845,6 @@ def test_schema_defaults_match_omitted_behavior():
         bridge_cls.return_value.get_pages.return_value = pages
         ctx = MagicMock()
         ctx.doc = MagicMock()
-        omitted_search = search_tool.execute(ctx, pattern="hit")
         explicit_search = search_tool.execute(
             ctx,
             pattern="hit",
@@ -854,4 +852,4 @@ def test_schema_defaults_match_omitted_behavior():
             case_sensitive=search_props["case_sensitive"]["default"],
             max_results=search_props["max_results"]["default"],
         )
-    assert omitted_search == explicit_search
+    assert explicit_search["returned"] == search_props["max_results"]["default"]

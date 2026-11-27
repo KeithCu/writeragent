@@ -57,12 +57,7 @@ class HostRpcModel(Model):
 
         tools = None
         if tools_to_call_from:
-            tools = []
-            for t in tools_to_call_from:
-                if hasattr(t, "inputs"):
-                    tools.append(get_tool_json_schema(t))
-                elif hasattr(t, "name"):
-                    tools.append({"type": "function", "function": {"name": t.name, "description": getattr(t, "description", "")}})
+            tools = [get_tool_json_schema(t) for t in tools_to_call_from]
 
         result = rpc_llm(
             messages=msg_dicts,

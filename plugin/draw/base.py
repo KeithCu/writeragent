@@ -19,6 +19,7 @@
 from typing import Any, ClassVar
 
 from plugin.framework.doc_type import DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE
+from plugin.framework.errors import ToolExecutionError
 from plugin.framework.prompts import DELEGATION_PUBLIC_WEB_HINT, DELEGATION_USER_FILE_DATA_HINT
 from plugin.framework.tool import ToolSpecialBase
 from plugin.framework.tool_schema import page_index_param
@@ -168,8 +169,8 @@ class ToolDrawPptMasterBase(ToolDrawSpecialBase):
     specialized_domain_description: ClassVar[str | None] = "PPT-Master workflow: export SVG projects to native Impress shapes, validate, template-fill, enhance."
     uno_services: list[str] | None = DRAW_AND_IMPRESS
 
-    def _required_path(self, kwargs: dict[str, Any], key: str) -> tuple[str | None, dict[str, Any] | None]:
+    def _required_path(self, kwargs: dict[str, Any], key: str) -> str:
         path = kwargs.get(key)
         if not path:
-            return None, self._tool_error(f"{key} is required.", code="MISSING_PATH")
-        return str(path), None
+            raise ToolExecutionError(f"{key} is required.", code="MISSING_PATH")
+        return str(path)

@@ -355,7 +355,7 @@ class DrawShapes:
             return False
         return True
 
-    def safe_create_shape(self, doc: Any, page: Any, shape_type: str, position: Any, size: Any, custom_shape_type: str | None = None) -> tuple[Any, bool | None, str | None]:
+    def safe_create_shape(self, doc: Any, page: Any, shape_type: str, position: Any, size: Any, custom_shape_type: str | None = None, *, writer: bool = False) -> tuple[Any, bool | None, str | None]:
         """Safely create shape with error handling.
 
         Shapes are created via the document's factory (``doc.createInstance``);
@@ -402,7 +402,7 @@ class DrawShapes:
                 if not geometry_applied:
                     log.warning("shape_upsert safe_create: enhanced geometry failed before add type=%s err=%s", custom_shape_type, geometry_error)
 
-            if is_writer(doc):
+            if writer:
                 _try_writer_anchor_shape_before_add(shape)
 
             page.add(shape)
@@ -855,16 +855,16 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
 
         log.debug("shape_upsert (create) branch: raw=%r resolved_uno=%r is_custom_catalog=%s catalog_name=%r", shape_type_raw, uno_type, custom_shape_type is not None, custom_shape_type)
 
+        writer = is_writer(ctx.doc)
         draw_shapes = DrawShapes()
 
         try:
             # Pre-add write sets Type before page.add so SdrObjCustomShape is created with
             # that Type instead of swapping a live SdrRectObj (avoids SfxItemPool::unregisterNameOrIndex abort).
-            shape, geometry_applied, geometry_error = draw_shapes.safe_create_shape(ctx.doc, page, uno_type, position, size, custom_shape_type=custom_shape_type)
+            shape, geometry_applied, geometry_error = draw_shapes.safe_create_shape(ctx.doc, page, uno_type, position, size, custom_shape_type=custom_shape_type, writer=writer)
         except DrawError as e:
             return _draw_error_result(tool, e)
 
-        writer = is_writer(ctx.doc)
         try:
             if writer:
                 _try_writer_at_page_shape_finalize(shape, actual_idx)
@@ -1044,7 +1044,7 @@ def _execute_connect_shapes(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> 
     draw_shapes = DrawShapes()
     try:
         # position and size are technically ignored since it's a connector, but safe_create_shape expects them
-        shape, _unused, _unused2 = draw_shapes.safe_create_shape(ctx.doc, page, "com.sun.star.drawing.ConnectorShape", Point(0, 0), Size(100, 100))
+        shape, _unused, _unused2 = draw_shapes.safe_create_shape(ctx.doc, page, "com.sun.star.drawing.ConnectorShape", Point(0, 0), Size(100, 100), writer=is_writer(ctx.doc))
     except DrawError as e:
         return _draw_error_result(tool, e)
 
@@ -1466,6 +1466,7 @@ class DeleteShape(_AnyDocumentShapeTool):
             if not is_group(shape):
                 boxes = []
         try:
+            tracked = False
             if picture:
                 tracked = bool(
                     record_write(
@@ -1479,10 +1480,8 @@ class DeleteShape(_AnyDocumentShapeTool):
                     for frame in boxes:
                         frame.dispose()
                     parent.remove(shape)
-                tracked = False
             else:
                 parent.remove(shape)
-                tracked = False
         except ToolExecutionError as exc:
             return self._tool_error(str(exc), code=exc.code)
         except Exception as exc:

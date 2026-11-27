@@ -734,7 +734,7 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
             assert page_cursors is not None
             pos = page_cursors.for_page(dp).next_position(h)
             shape, _unused, _unused2 = DrawShapes().safe_create_shape(
-                doc, dp, "com.sun.star.drawing.TextShape", Point(pos.X, pos.Y), Size(w, h)
+                doc, dp, "com.sun.star.drawing.TextShape", Point(pos.X, pos.Y), Size(w, h), writer=False
             )
             shape.setString(plain)
             return

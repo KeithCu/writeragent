@@ -327,7 +327,7 @@ def test_draw_text_cursor_rewrites_whole_shape_text(run_draw_stream):
     cursor = _Cursor()
     targets, saw_table = iter_draw_rewrite_targets(cursor)
     assert saw_table is False
-    assert targets == [shape]
+    assert targets == [(shape, "Hello world")]
 
     stream_calls, _model, _um = run_draw_stream(
         cursor, is_edit=True, preset_instruction="proofread", chunk="Hi"
