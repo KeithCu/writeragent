@@ -262,7 +262,7 @@ class TestInitLogging:
 
             shared = logging_mod._shared()
             assert shared["enable_agent_log"] is True
-            first_handler = logging_mod._debug_file_handler_from_sys()
+            first_handler = logging_mod._current_debug_file_handler()
             assert first_handler is not None
             assert first_handler in log.handlers
             assert log.propagate is False
@@ -273,7 +273,7 @@ class TestInitLogging:
 
             assert get_debug_log_path() == expected_log
             assert shared["enable_agent_log"] is True
-            assert logging_mod._debug_file_handler_from_sys() is first_handler
+            assert logging_mod._current_debug_file_handler() is first_handler
             assert first_handler in log.handlers
             assert log.propagate is False
 
@@ -285,7 +285,7 @@ class TestInitLogging:
 
             assert get_debug_log_path() == expected_log
             assert shared["enable_agent_log"] is True
-            assert logging_mod._debug_file_handler_from_sys() is first_handler
+            assert logging_mod._current_debug_file_handler() is first_handler
             assert first_handler in log.handlers
             assert log.propagate is False
 
@@ -663,7 +663,7 @@ class TestAgentLog:
         handler.setLevel(logging.DEBUG)
         log.addHandler(handler)
         log.setLevel(logging.DEBUG)
-        agent_log("test.py:1", "hello", data={"k": "v"}, hypothesis_id="H1")
+        agent_log("test.py:1", "hello", data={"k": "v"})
         handler.flush()
         assert len(handler.buffer) == 1
         record = handler.buffer[0]
@@ -672,7 +672,6 @@ class TestAgentLog:
         assert payload["location"] == "test.py:1"
         assert payload["message"] == "hello"
         assert payload["data"] == {"k": "v"}
-        assert payload["hypothesisId"] == "H1"
 
     def test_agent_log_redacts_secret_keys(self):
         import plugin.framework.logging as logging_mod
@@ -1008,8 +1007,8 @@ def test_start_watchdog_is_dedicated_and_idempotent() -> None:
     try:
         sys.__dict__.pop("_writeragent_watchdog", None)
         with patch("plugin.framework.worker_pool.run_in_background") as run:
-            logging_mod.start_watchdog_thread(None, status_control=None)
-            logging_mod.start_watchdog_thread(None, status_control=None)
+            logging_mod.start_watchdog_thread(status_control=None)
+            logging_mod.start_watchdog_thread(status_control=None)
         assert run.call_count == 1
         assert run.call_args.kwargs.get("dedicated") is True
         assert getattr(sys, "_writeragent_watchdog", False) is True
@@ -1567,11 +1566,11 @@ def test_start_watchdog_resets_flag_when_background_start_fails() -> None:
         sys.__dict__.pop("_writeragent_watchdog", None)
         with patch("plugin.framework.worker_pool.run_in_background", side_effect=RuntimeError("pool down")):
             with pytest.raises(RuntimeError, match="pool down"):
-                logging_mod.start_watchdog_thread(None)
+                logging_mod.start_watchdog_thread()
         assert getattr(sys, "_writeragent_watchdog", False) is False
 
         with patch("plugin.framework.worker_pool.run_in_background") as mock_run:
-            logging_mod.start_watchdog_thread(None)
+            logging_mod.start_watchdog_thread()
             assert mock_run.call_count == 1
             assert mock_run.call_args.kwargs.get("dedicated") is True
             assert getattr(sys, "_writeragent_watchdog", False) is True

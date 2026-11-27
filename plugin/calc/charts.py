@@ -42,7 +42,7 @@ if TYPE_CHECKING:
 from plugin.calc.address_utils import format_range_address, parse_address, split_sheet_and_name, split_sheet_prefix
 from plugin.calc.base import ToolCalcChartBase
 from plugin.calc.bridge import CalcBridge
-from plugin.framework.constants import ALL_DOCUMENT_SERVICES
+from plugin.framework.doc_type import DOCUMENT_SERVICES
 from plugin.framework.errors import (
     ToolExecutionError,
     WriterAgentException,
@@ -1613,7 +1613,7 @@ def delete_chart(ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
 class _ChartTool(ToolCalcChartBase):
     """Shared chart-tool helpers (schema strip, union ``uno_services`` and union reader tools)."""
 
-    uno_services: list[str] | None = list(ALL_DOCUMENT_SERVICES)
+    uno_services: list[str] | None = list(DOCUMENT_SERVICES)
     # One class serves every app, so it carries each app's reader tools. get_tools drops the
     # readers that do not support the open document (Calc readers never reach a Writer agent).
     required_core_tools: ClassVar[frozenset[str] | None] = (

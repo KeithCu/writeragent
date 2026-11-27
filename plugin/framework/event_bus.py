@@ -86,7 +86,7 @@ class EventBus:
         # threading.local() is engine-hostile.
         self._subscribers: dict[str, list[Any]] = {}  # event -> list of callback or weakref
         # Dead weak refs are dropped on the next locked subscribe, unsubscribe, or
-        # emit. No weakref callback: that callback re-entered this lock from GC.
+        # emit. No weakref callback: it would run from GC and re-enter this lock.
         self._lock: threading.RLock = threading.RLock()
         self._dispatching = _Dispatching()
 

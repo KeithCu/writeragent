@@ -45,8 +45,8 @@ def _openai_reasoning_model(model_name: str | None) -> bool:
     # ChatGPT snapshots (gpt-5-chat-latest, gpt-5.1-chat-latest,
     # gpt-5.2-chat-latest, gpt-6-chat-latest) accept max_tokens and a non-default
     # temperature. Their model pages do not list reasoning-token support; gpt-5.1 does.
-    # startswith("gpt-5-chat") missed gpt-5.1-chat-latest, so that id was
-    # rewritten and the user's temperature was dropped.
+    # The test is ``-chat`` anywhere after the family prefix so that
+    # gpt-5.1-chat-latest is covered too.
     # https://developers.openai.com/api/docs/models/gpt-5.1-chat-latest
     if name.startswith(("gpt-5", "gpt-6")) and "-chat" in name:
         return False
@@ -94,8 +94,7 @@ class OpenAIShim(BaseProviderShim):
         # The documented replacement is max_completion_tokens.
         if not _openai_reasoning_model(model_name):
             return data
-        if "max_tokens" in data:
-            data["max_completion_tokens"] = data.pop("max_tokens")
+        data["max_completion_tokens"] = data.pop("max_tokens")
         temp = data.get("temperature")
         if temp is not None and temp != 1:
             data.pop("temperature", None)
@@ -117,7 +116,7 @@ class OpenAIShim(BaseProviderShim):
     ) -> tuple[str, str, bytes, dict[str, str]]:
         if uses_responses_api(model_name, tools):
             level = self._requested_effort_level(chat_extra)
-            # OpenRouter-hosted models need the OpenRouter effort vocabulary (nested reasoning.effort); hardcoding "openai" dropped it.
+            # OpenRouter-hosted models need the OpenRouter effort vocabulary (nested reasoning.effort), so the provider comes from ``_reasoning_provider()``.
             frag = effort_payload(self._reasoning_provider(), level)
             mapped = frag.get("reasoning_effort") or (frag.get("reasoning") or {}).get("effort")
             data = responses_payload(
@@ -352,8 +351,7 @@ class TogetherShim(BaseProviderShim):
 
     def build_image_request(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> tuple[str, str, bytes, dict[str, str]]:
         url = self._url("/images/generations")
-        # Start from the generic generations dict. Decoding super()'s bytes
-        # just to edit two fields encoded the body twice.
+        # Start from the generic generations dict and edit it before it is encoded.
         data = self._image_payload(prompt, model, width, height, steps, source_image, image_url)
         # Together documents width/height integers (Flash Image, FLUX.2) or
         # aspect_ratio (Kontext), not OpenAI size="WxH". Unknown size is
@@ -372,16 +370,16 @@ class TogetherShim(BaseProviderShim):
                 data["height"] = height
         # Together's default image model (black-forest-labs/FLUX.2-dev) and
         # other non-Kontext models only accept reference_images[]. A top-level
-        # image_url is ignored or rejected — the same silent create-instead-of-edit
-        # as OpenRouter's old image_url field. Kontext keeps the image_url
-        # ``_image_payload`` already set.
+        # image_url is ignored or rejected, so the request would silently create
+        # instead of edit. Kontext keeps the image_url ``_image_payload``
+        # already set.
         # https://docs.together.ai/docs/inference/images/reference-images
         if not is_kontext and data.get("image_url"):
             data["reference_images"] = [data.pop("image_url")]
         return self._post(url, data)
 
 
-# ``grok`` duplicated ``xai``. Detection returns ``xai``; nothing reads ``grok``.
+# Keys are the provider ids ``get_provider_from_endpoint`` returns (xAI is ``xai``).
 # ``openai`` is explicit so unknown hosts stay on the generic base body.
 _SHIM_REGISTRY: dict[str, type[BaseProviderShim]] = {
     "anthropic": AnthropicShim,

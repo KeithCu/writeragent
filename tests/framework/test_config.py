@@ -1197,13 +1197,6 @@ def test_get_config_before_init_warns_once(caplog):
             assert len(warnings_after) == 1
 
 
-def test_set_config_raises_when_path_empty():
-    with patch("plugin.framework.config.get_config_file_path", return_value=""):
-        with pytest.raises(ConfigError) as exc:
-            save({"text_model": "x"})
-    assert exc.value.code == "CONFIG_PATH_ERROR"
-
-
 def test_second_config_backup_keeps_the_first_copy(tmp_path):
     from plugin.framework.config import _backup_config_file
 

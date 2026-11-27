@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import ipaddress
 import urllib.parse
-from typing import Optional
 
 from plugin.framework.client.http_security import log_target
 from plugin.framework.errors import ConfigError
@@ -43,7 +42,7 @@ _PROVIDER_HOSTS: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 
 
-def get_provider_from_endpoint(endpoint: str) -> Optional[str]:
+def get_provider_from_endpoint(endpoint: str) -> str | None:
     """Return a canonical provider key for DEFAULT_MODELS / auth based on the endpoint URL.
 
     Returns None for completely unknown endpoints (they become "custom").

@@ -15,8 +15,8 @@ from plugin.framework.doc_type import (
     CALC_DOCUMENT_SERVICE,
     DRAW_DOCUMENT_SERVICE,
     IMPRESS_DOCUMENT_SERVICE,
+    TEXT_DOCUMENT_SERVICE,
     WEB_DOCUMENT_SERVICE,
-    WRITER_DOCUMENT_SERVICE,
 )
 from plugin.tests.testing_utils import DisposedException
 
@@ -125,7 +125,7 @@ class FakeWriterDoc:
         self.controller = controller
 
     def supportsService(self, service: str) -> bool:
-        return service == WRITER_DOCUMENT_SERVICE
+        return service == TEXT_DOCUMENT_SERVICE
 
     def getGraphicObjects(self):
         return FakeGraphicCollection(self._graphics)
@@ -202,7 +202,7 @@ class FakeWebDoc(FakeWriterDoc):
         super().__init__(graphics or {}, draw_page=draw_page, controller=controller)
 
     def supportsService(self, service: str) -> bool:
-        return service in (WEB_DOCUMENT_SERVICE, WRITER_DOCUMENT_SERVICE)
+        return service in (WEB_DOCUMENT_SERVICE, TEXT_DOCUMENT_SERVICE)
 
 
 def test_safe_uno_property_helpers_use_property_set_info():

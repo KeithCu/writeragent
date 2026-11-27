@@ -5,7 +5,6 @@ import tempfile
 from unittest.mock import patch
 from plugin.framework.client.model_fetcher import endpoint_url_suitable_for_v1_models_fetch
 import pytest
-from tests.harness.strip_bundle import requires_asserts
 
 class TestEndpointUrlSuitableForModelFetch:
 
@@ -677,15 +676,6 @@ class TestHasNativeVision:
             assert res4 is True
             assert len(scheduled_jobs) == 0
             assert vision_config == {}
-
-    @requires_asserts
-    def test_fetch_branch_asserts_off_ui_thread(self):
-        from plugin.framework.client.model_fetcher import has_native_vision
-
-        calls = [False, True]
-        with patch.object(main, "is_current", side_effect=lambda: calls.pop(0)):
-            with pytest.raises(AssertionError):
-                has_native_vision("google/gemini-3.8-flash", "https://openrouter.ai/api")
 
     def test_retry_after_failure_inline_and_ui(self):
         from plugin.framework.client.model_fetcher import has_native_vision

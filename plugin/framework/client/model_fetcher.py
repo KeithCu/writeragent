@@ -147,6 +147,8 @@ def _model_key(table: dict[str, Any], model_id: str) -> str:
         if existing.casefold() == folded:
             return existing
     return model_id
+
+
 # Keys in flight for background vision capability resolution (UI thread schedule guard).
 _vision_in_flight_lock = threading.Lock()
 _vision_in_flight: set[str] = set()
@@ -355,19 +357,19 @@ def _resolved_openwebui(endpoint: str) -> bool:
 
 
 def _key_slot_base(endpoint: str) -> str:
-    if not endpoint or not isinstance(endpoint, str):
+    if not endpoint:
         return ""
     return normalize_endpoint_url(endpoint, is_openwebui=False)
 
 
 def _v1_prefix(endpoint: str) -> str:
-    if not endpoint or not isinstance(endpoint, str):
-        http_base = ""
-    else:
-        http_base = normalize_endpoint_url(endpoint, is_openwebui=_resolved_openwebui(endpoint))
+    if not endpoint:
+        return ""
+    openwebui = _resolved_openwebui(endpoint)
+    http_base = normalize_endpoint_url(endpoint, is_openwebui=openwebui)
     if not http_base or not endpoint_url_suitable_for_v1_models_fetch(http_base):
         return ""
-    return f"{http_base}{get_api_version_suffix(http_base, is_openwebui=_resolved_openwebui(http_base))}"
+    return f"{http_base}{get_api_version_suffix(http_base, is_openwebui=openwebui)}"
 
 
 def _v1_url(endpoint: str, path: str, **query: str) -> str:
@@ -393,7 +395,7 @@ def _catalog_base(endpoint: str) -> str:
 
 
 def _catalog_memo_base(endpoint: str) -> str:
-    if not endpoint or not isinstance(endpoint, str):
+    if not endpoint:
         return ""
     return _v1_prefix(endpoint) or normalize_endpoint_url(endpoint)
 
@@ -425,12 +427,12 @@ def _get_catalog_memo(endpoint: str = "", api_key_override: str | None = None) -
     return memo
 
 
-def _v1_models_request(endpoint: str, api_key_override: str | None = None) -> tuple[str, str, str] | None:
+def _v1_models_request(endpoint: str) -> tuple[str, str] | None:
     url = _v1_url(endpoint, "/models")
     if not url:
         return None
     key_slot = _key_slot_base(endpoint)
-    return key_slot, url, _catalog_memo_key(endpoint, api_key_override)
+    return key_slot, url
 
 
 def endpoint_url_suitable_for_v1_models_fetch(endpoint: str) -> bool:
@@ -445,7 +447,7 @@ def endpoint_url_suitable_for_v1_models_fetch(endpoint: str) -> bool:
         p = urllib.parse.urlparse(endpoint.strip())
         # Accessing .port raises ValueError on invalid port strings (e.g. '1a') or out-of-range ints (>65535).
         # Reject bad port values at the suitability gate.
-        getattr(p, "port")
+        p.port
     except ValueError:
         return False
     if p.scheme not in ("http", "https"):
@@ -499,10 +501,10 @@ def fetch_available_models(endpoint: str, api_key_override: str | None = None) -
     lifetime. Failed lookups are not cached, so the next Settings open retries.
     Settings skips the request when ``settings_catalog_is_warm`` is already true.
     """
-    built = _v1_models_request(endpoint, api_key_override)
+    built = _v1_models_request(endpoint)
     if built is None:
         return None
-    key_slot, url, _unused = built
+    key_slot, url = built
     memo = _get_catalog_memo(endpoint, api_key_override)
     if memo.ids is not None:
         return list(memo.ids)
@@ -535,12 +537,12 @@ def fetch_available_models(endpoint: str, api_key_override: str | None = None) -
                 image_models = filter_fetched_models(models, "image")
             memo.ids = list(models)
             if provider != "openrouter":
-                memo.image_ids = list(image_models) if image_models is not None else None
+                memo.image_ids = list(image_models)
             # xAI and LM Studio state vision on a separate list (/language-models,
             # /api/v1/models); a Settings /v1/models fetch must not overwrite a
             # warm vision memo with {}.
             if _vision_list_url(provider, key_slot) == "":
-                memo.vision_declarations = dict(vision_declared) if isinstance(vision_declared, dict) else None
+                memo.vision_declarations = dict(vision_declared)
             memo.context_tokens = _context_tokens_from_v1_entries(entries)
             memo.non_text_ids = _non_text_ids_from_v1_entries(entries)
             return list(models)
@@ -590,10 +592,10 @@ def fetch_available_image_models(endpoint: str, api_key_override: str | None = N
     - ollama / lm studio / custom: keyword filter (flux, sdxl, …) stored with
       that same /v1/models memo. The catalog is not fetched again here.
     """
-    built = _v1_models_request(endpoint, api_key_override)
+    built = _v1_models_request(endpoint)
     if built is None:
         return None
-    key_slot, _url, _unused = built
+    key_slot, _url = built
     memo = _get_catalog_memo(endpoint, api_key_override)
     provider = get_provider_from_endpoint(key_slot)
 
@@ -656,10 +658,11 @@ def _modality_ids_from_entries(entries: list[Any], modality: str) -> tuple[list[
         mid = row.get("id")
         if not mid:
             continue
-        arch = row.get("architecture") if isinstance(row.get("architecture"), dict) else {}
+        raw_arch = row.get("architecture")
+        arch: dict[str, Any] = raw_arch if isinstance(raw_arch, dict) else {}
         mods = row.get("output_modalities")
         if mods is None:
-            mods = arch.get("output_modalities") if isinstance(arch, dict) else None
+            mods = arch.get("output_modalities")
         if isinstance(mods, list) and modality not in mods:
             continue
         mid_s = str(mid)
@@ -703,9 +706,8 @@ def _fetch_openrouter_modality_models(endpoint: str, modality: str, api_key_over
     if entries is not None:
         model_ids, voices = _modality_ids_from_entries(entries, modality)
         if modality == "speech":
-            if voices:
-                for speech_id, speech_voices in voices.items():
-                    remember_tts_supported_voices(speech_id, speech_voices)
+            for speech_id, speech_voices in voices.items():
+                remember_tts_supported_voices(speech_id, speech_voices)
             memo.tts_ids = list(model_ids)
         else:
             memo.stt_ids = list(model_ids)
@@ -732,8 +734,7 @@ def cached_text_models(endpoint: str, api_key_override: str | None = None) -> li
     Returns the full catalog (including non-text rows, which the speech rows
     need); text combos must pass the result through ``drop_non_text_models``.
     """
-    built = _v1_models_request(endpoint, api_key_override)
-    if built is None:
+    if not _catalog_base(endpoint):
         return None
     memo = _get_catalog_memo(endpoint, api_key_override)
     return list(memo.ids) if isinstance(memo.ids, list) else None
@@ -896,8 +897,7 @@ def cached_image_models(endpoint: str, api_key_override: str | None = None) -> l
     stored with that same response — the list ``fetch_available_image_models``
     returns. Settings reads this. It does not fetch the catalog again.
     """
-    built = _v1_models_request(endpoint, api_key_override)
-    if built is None:
+    if not _catalog_base(endpoint):
         return None
     memo = _get_catalog_memo(endpoint, api_key_override)
     return list(memo.image_ids) if isinstance(memo.image_ids, list) else None
@@ -1187,16 +1187,16 @@ def has_native_audio(model_id: Any, endpoint: Any) -> bool | None:
 
     # 2. Catalog check — native audio input is via chat completions; STT-only models (AUDIO, no CHAT) use /audio/transcriptions.
     caps = get_model_capability(model_id, endpoint)
-    if isinstance(caps, int) and caps != ModelCapability.NONE:
+    if caps != ModelCapability.NONE:
         has_audio = bool(caps & ModelCapability.AUDIO)
         has_chat = bool(caps & ModelCapability.CHAT)
         if has_audio and has_chat:
             return True
         if has_audio and not has_chat:
             # AUDIO-without-CHAT (Whisper, Voxtral) is not "unknown".
-            # transcribe_audio treats None as "try chat", so those ids were
-            # posted as input_audio and could sit until request_timeout.
-            # False selects POST /audio/transcriptions. None stays unknown.
+            # transcribe_audio treats None as "try chat", which would post these
+            # ids as input_audio and wait out request_timeout. False selects
+            # POST /audio/transcriptions. None stays unknown.
             return False
 
     # 3. Heuristics (Regex/Keywords) for known audio-native families
@@ -1258,9 +1258,6 @@ def get_text_model() -> str:
 
 def get_stt_model() -> str:
     """Return the configured STT model."""
-    val = _sanitize_stored_model_value(get_config("audio.stt_model"))
-    if val:
-        return val
     return _stored_or_default("audio.stt_model", "stt_model")
 
 
@@ -1398,9 +1395,7 @@ def _vision_provider_memo(provider: str | None, endpoint: str, model_id: str, ap
     answer (and fall through to catalog / PROVIDER_VISION).
     """
     if provider in _VISION_FROM_V1_MODELS or _vision_list_url(provider, endpoint):
-        # Uses the normalized request triple and api_key_override matching catalog fetch.
-        built = _v1_models_request(endpoint, api_key_override)
-        if built is None:
+        if not _catalog_base(endpoint):
             return True, None
         key = _catalog_memo_key(endpoint, api_key_override)
         memo = _catalog_memos.get(key)
@@ -1417,7 +1412,7 @@ def _vision_provider_memo(provider: str | None, endpoint: str, model_id: str, ap
         if cached_show is None:
             return False, None
         show_caps = cached_show.get("capabilities") or []
-        return True, "vision" in show_caps if isinstance(show_caps, list) else False
+        return True, "vision" in show_caps
     return True, None
 
 
@@ -1504,7 +1499,6 @@ def has_native_vision(model_id: Any, endpoint: Any, *, api_key_override: str | N
         if on_ui_thread:
             _schedule_vision_lookup(support_key, model_id_str, raw_ep, api_key_override)
         else:
-            assert not main.is_current()
             if provider == "ollama":
                 query_ollama_show(raw_ep, model_id_str)
             elif _vision_list_url(provider, raw_ep):
@@ -1530,7 +1524,7 @@ def has_native_vision(model_id: Any, endpoint: Any, *, api_key_override: str | N
     log.debug("has_native_vision: model=%r endpoint_str=%r caps=%r catalog_vision=%s", model_id_str, log_target(endpoint_str), caps, bool(caps & ModelCapability.VISION))
     if caps & ModelCapability.VISION:
         return True
-    # 6. Provider-wide facts before catalog text-only so shared rows (e.g. Gemini)
+    # 5. Provider-wide facts before catalog text-only so shared rows (e.g. Gemini)
     # that dropped VISION for OpenRouter still resolve via PROVIDER_VISION["google"].
     if provider and provider in PROVIDER_VISION:
         return PROVIDER_VISION[provider]
@@ -1638,10 +1632,7 @@ def query_ollama_runtime_num_ctx(endpoint: str, model_id: str) -> int | None:
     info = query_ollama_show(endpoint, model_id)
     if not info:
         return None
-    num_ctx = info.get("num_ctx")
-    if isinstance(num_ctx, int) and num_ctx > 0:
-        return num_ctx
-    return None
+    return info.get("num_ctx")
 
 
 def peek_live_ollama_num_ctx(client: Any) -> int | None:
@@ -1666,10 +1657,7 @@ def peek_live_ollama_num_ctx(client: Any) -> int | None:
         cached = memo.ollama_show.get(model_name)
         if not isinstance(cached, dict):
             return None
-        num_ctx = cached.get("num_ctx")
-        if isinstance(num_ctx, int) and num_ctx > 0:
-            return num_ctx
-        return None
+        return cached.get("num_ctx")
     except Exception:
         log.debug("HTTP 500: live num_ctx lookup failed", exc_info=True)
         return None
@@ -1684,27 +1672,26 @@ def cached_v1_context_tokens(endpoint: str, model_id: str, provider: str | None 
     if not endpoint or not model_id:
         return None
     # Look up context cache with the same request triple and key override as catalog fetch.
-    built = _v1_models_request(endpoint, api_key_override)
-    if built is None:
+    if not _catalog_base(endpoint):
         return None
     memo = _get_catalog_memo(endpoint, api_key_override)
     lengths = memo.context_tokens
-    if not isinstance(lengths, dict) or not lengths:
+    if not lengths:
         return None
     mid = str(model_id).strip()
     tokens = lengths.get(mid)
-    if isinstance(tokens, int) and tokens > 0:
+    if tokens:
         return tokens
     if provider == "openrouter":
         for cached_id, cached_tokens in lengths.items():
-            if isinstance(cached_tokens, int) and cached_tokens > 0 and openrouter_model_ids_equivalent(cached_id, mid):
+            if cached_tokens and openrouter_model_ids_equivalent(cached_id, mid):
                 return cached_tokens
     return None
 
 
 def resolve_context_window(client: Any, model_id: str | None = None) -> int | None:
     """Ollama: live ``num_ctx`` only. Else cached /v1/models, then catalog. None → skip compact."""
-    model_id = str(model_id or (client.config or {}).get("model") or "").strip() or None
+    model_id = str(model_id or client.config.get("model") or "").strip() or None
     if not model_id:
         return None
     provider = best_effort(lambda: client._get_provider(), "resolve_context_window: provider")
@@ -1714,15 +1701,12 @@ def resolve_context_window(client: Any, model_id: str | None = None) -> int | No
         # Missing num_ctx → None; do not fall back to v1 cache or catalog.
         if not endpoint:
             return None
-        num_ctx = query_ollama_runtime_num_ctx(endpoint, model_id)
-        if isinstance(num_ctx, int) and num_ctx > 0:
-            return num_ctx
-        return None
+        return query_ollama_runtime_num_ctx(endpoint, model_id)
     if endpoint:
         # Harvest-only: Settings/sidebar already fetched. Do not GET /v1/models here.
-        typed_key = str((client.config or {}).get("api_key") or "").strip()
-        live = cached_v1_context_tokens(endpoint, model_id, provider, api_key_override=typed_key if typed_key else None)
-        if isinstance(live, int) and live > 0:
+        typed_key = str(client.config.get("api_key") or "").strip()
+        live = cached_v1_context_tokens(endpoint, model_id, provider, api_key_override=typed_key or None)
+        if live:
             return live
     for row in DEFAULT_MODELS:
         rid = resolve_model_id(row, provider)
@@ -1755,10 +1739,8 @@ def resolve_context_window(client: Any, model_id: str | None = None) -> int | No
 def is_image_only_model(endpoint: Any, model_id: Any) -> bool:
     """Check if the model outputs image but not text (dedicated image generator).
 
-    The image-id list the fetch already returns is the catalog. A side map
-    the catalog never filled made a real image id fall through to the name
-    heuristic (a ``gemini`` image model looked like chat). ``None`` means the
-    catalog did not answer; then the name heuristic still applies.
+    The image-id list the fetch returns is the catalog answer. ``None`` means
+    the catalog did not answer; only then does the name heuristic apply.
     """
     if not endpoint or not model_id:
         return False

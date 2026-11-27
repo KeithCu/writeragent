@@ -21,7 +21,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
-from plugin.framework.constants import ALL_DOCUMENT_SERVICES
+from plugin.framework.doc_type import DOCUMENT_SERVICES
 from plugin.framework.tool import ToolBase
 
 if TYPE_CHECKING:
@@ -261,7 +261,7 @@ class ToolWriterFormBase(ToolWriterSpecialBase, ToolCalcSpecialBase, ToolDrawFor
     specialized_domain_description: ClassVar[str | None] = "Create and manage form templates and UI controls."
     # One registration per tool name serves Writer, Calc, and Draw/Impress, and the
     # delegate catalog checks only this class.
-    uno_services: list[str] | None = list(ALL_DOCUMENT_SERVICES)  # type: ignore[assignment]
+    uno_services: list[str] | None = list(DOCUMENT_SERVICES)  # type: ignore[assignment]
 
 
 class ToolMcpDomainBase(ToolWriterSpecialBase, ToolCalcSpecialBase, ToolDrawSpecialBase):
@@ -272,7 +272,7 @@ class ToolMcpDomainBase(ToolWriterSpecialBase, ToolCalcSpecialBase, ToolDrawSpec
     specialized_domain: ClassVar[str | None] = "mcp"
     specialized_domain_description: ClassVar[str | None] = DELEGATION_MCP_HINT
     required_core_tools: ClassVar[frozenset[str] | None] = frozenset()
-    uno_services: list[str] | None = list(ALL_DOCUMENT_SERVICES)  # type: ignore[assignment]
+    uno_services: list[str] | None = list(DOCUMENT_SERVICES)  # type: ignore[assignment]
 
 
 class ToolWriterWebResearchBase(ToolWriterSpecialBase):

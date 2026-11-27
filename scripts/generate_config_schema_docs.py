@@ -42,7 +42,6 @@ _DATACLASS_OMIT = frozenset(
         "last_python_script_name_writer",
         "model",  # legacy; ignored at read
         "saved_python_scripts",
-        "_extra_config",
     }
 )
 

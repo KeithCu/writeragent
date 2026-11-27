@@ -1266,7 +1266,8 @@ def test_delegate_mcp_returns_listing_errors() -> None:
 
 
 def test_mcp_server_schema_hides_chat_only_domain() -> None:
-    from plugin.framework.constants import ALL_DOCUMENT_SERVICES, DELEGATE_SUBAGENT_TOOL
+    from plugin.framework.constants import DELEGATE_SUBAGENT_TOOL
+    from plugin.framework.doc_type import CALC_DOCUMENT_SERVICE, DRAW_DOCUMENT_SERVICE
     from plugin.writeragent_hooks import register_writeragent_prompt_hooks, register_writeragent_tool_filters
 
     register_writeragent_prompt_hooks()
@@ -1280,8 +1281,8 @@ def test_mcp_server_schema_hides_chat_only_domain() -> None:
         for kwargs in (
             {"doc_type": None, "filter_doc_type": False},
             {"doc_type": "writer"},
-            {"doc_type": "calc", "uno_services_supported": frozenset({ALL_DOCUMENT_SERVICES[0]})},
-            {"doc_type": "draw", "uno_services_supported": frozenset({ALL_DOCUMENT_SERVICES[2]})},
+            {"doc_type": "calc", "uno_services_supported": frozenset({CALC_DOCUMENT_SERVICE})},
+            {"doc_type": "draw", "uno_services_supported": frozenset({DRAW_DOCUMENT_SERVICE})},
         ):
             schemas = registry.get_schemas("mcp", **kwargs)
             delegate = next(s for s in schemas if s["name"] == DELEGATE_SUBAGENT_TOOL)
