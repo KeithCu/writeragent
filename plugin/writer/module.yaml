@@ -5,7 +5,7 @@ provides_services: [writer_bookmarks, writer_tree, writer_proximity, writer_inde
 
 config: {}
 
-# Review fast-travel (#2): two actions to jump between the agent's pending tracked changes. Handlers
+# Review fast-travel (see docs/writer/reviewable-agent-edits.md, "Inline review UI"): two actions to jump between the agent's pending tracked changes. Handlers
 # live in main.py (writer.review_prev / writer.review_next -> inline_review.goto_adjacent_agent_change).
 # The toolbar that exposes them is defined in the hand-maintained extension/Addons.xcu (the file that
 # actually ships), like every other toolbar/menu in this project.

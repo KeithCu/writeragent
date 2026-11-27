@@ -60,6 +60,7 @@ class WriterDocStub:
         self.url = f"test://{doc_type}"
         self._created = {}
         self._load_styles_calls = []
+        self.CharacterCount = 0
 
     def getText(self):
         class TextStub:

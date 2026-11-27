@@ -332,6 +332,9 @@ def test_begin_raises_on_15s_deadline(tmp_path, monkeypatch):
             patch("plugin.chatbot.web_research_firefox.find_browser_executable", return_value="/usr/bin/firefox"),
             patch("plugin.chatbot.web_research_firefox.spawn_local_browser") as mock_spawn,
             patch("plugin.chatbot.web_research_firefox.time.time", side_effect=fake_time),
+            # The launch deadline reads monotonic(); left real, it spun for 15 s of wall time with sleep faked,
+            # and the mocks' call history grew by gigabytes.
+            patch("plugin.chatbot.web_research_firefox.time.monotonic", side_effect=fake_time),
             patch("plugin.chatbot.web_research_firefox.time.sleep", side_effect=fake_sleep),
         ):
             mock_spawn.return_value.pid = 11111
