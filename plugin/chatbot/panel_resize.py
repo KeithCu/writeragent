@@ -389,7 +389,6 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
     _viewport_w: int
     _restore_focus: Any
     _pending_win: Any
-    _last_logged_size: tuple[int, int] | None
     last_response_rect: tuple[int, int, int, int] | None
     on_control_replaced: Any
 
@@ -405,7 +404,6 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
         self._parent_window = None
         self._viewport_w = 0
         self.last_response_rect = None
-        self._last_logged_size = None
         self.on_control_replaced = None
 
     def set_windows(self, root: Any, parent: Any) -> None:
@@ -489,9 +487,6 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
         w, h = r.Width, r.Height
         if w <= 0 or h <= 0:
             return
-        if (w, h) != self._last_logged_size:
-            self._last_logged_size = (w, h)
-            log.debug("[LAYOUT] size=(%d, %d)", w, h)
         # Cap h against the parent window height (getPosSize().Height) and
         # 3000px. In Calc's sidebar, moving bottom controls down resizes the
         # container, which fires windowResized with a larger height and

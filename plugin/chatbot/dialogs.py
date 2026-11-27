@@ -50,7 +50,7 @@ from plugin.framework.uno_listeners import BaseActionListener
 if TYPE_CHECKING:
     from com.sun.star.awt import ActionEvent
     from com.sun.star.datatransfer import DataFlavor
-from plugin.framework.errors import best_effort
+from plugin.framework.errors import best_effort, is_disposal
 from plugin.framework.log_redaction import redact_urls_in_text
 from plugin.framework.logging import set_waiting_for_user
 from plugin.framework.uno_context import (
@@ -648,7 +648,7 @@ def get_optional(root_window: Any, name: str) -> Any:
         # A disposed window is not a missing control name. Callers that must
         # ignore teardown already use suppress_disposed. A bare RuntimeException
         # stays "missing": some bridges use that for an unknown control id.
-        if "DisposedException" in type(e).__name__:
+        if is_disposal(e):
             log.warning("get_optional %s error: control disposed %s", name, e)
             raise
         log.debug("get_optional %s error: %s", name, e)

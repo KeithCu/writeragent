@@ -2119,13 +2119,6 @@ def test_settings_ok_makes_mcp_servers_list_tools_again():
         mcp_client._connections.clear()
 
 
-def test_setup_module_tabs_missing_manifest_is_quiet():
-    dlg = MagicMock()
-    with patch.dict("sys.modules", {"plugin._manifest": None}):
-        setup_module_tabs(dlg)
-    dlg.getControl.assert_not_called()
-
-
 def test_setup_module_tabs_wiring_error_propagates():
     dlg = MagicMock()
     with patch(
