@@ -111,7 +111,7 @@ def _find_control_shape(dp: Any, index: int | None = None, name: Any = None) -> 
         if shape.getShapeType() != "com.sun.star.drawing.ControlShape":
             continue
         model = shape.Control
-        model_name = model.Name or ""
+        model_name = model.Name
         shape_name = shape.Name
         if model_name == wanted or shape_name == wanted:
             hits.append((i, shape))
@@ -188,7 +188,7 @@ _STACK_GAP = 400
 
 def _preferred_control_name(shape: Any) -> str:
     shape_name = shape.Name
-    model_name = shape.Control.Name or ""
+    model_name = shape.Control.Name
     return shape_name or model_name
 
 
@@ -393,6 +393,10 @@ class FormCreateControl(ToolWriterFormBase):
         return record_write(ctx.doc, ctx.ctx, lambda: _create_control(ctx, **kwargs))[0]
 
 
+def _duplicate_name_error(name: str) -> dict[str, Any]:
+    return make_tool_error(f"A form control named '{name}' already exists on this page.")
+
+
 def _create_control(ctx: Any, *, page_cursors: Any = None, **kwargs: Any) -> dict[str, Any]:
     doc = ctx.doc
     control_type = str(kwargs.get("control", ""))
@@ -419,18 +423,17 @@ def _create_control(ctx: Any, *, page_cursors: Any = None, **kwargs: Any) -> dic
     except ToolExecutionError as exc:
         return format_error_payload(exc)
     cursor = None
-    duplicate_err = make_tool_error(f"A form control named '{name}' already exists on this page.")
     if page_cursors is not None and dp is not None:
         cursor = page_cursors.for_page(dp)
         if name in cursor.control_names:
-            return duplicate_err
+            return _duplicate_name_error(name)
     elif dp is not None:
         for i in range(dp.getCount()):
             shape_i = dp.getByIndex(i)
             try:
                 if shape_i.getShapeType() == "com.sun.star.drawing.ControlShape":
                     if _preferred_control_name(shape_i) == name:
-                        return duplicate_err
+                        return _duplicate_name_error(name)
             except Exception as exc:
                 log.debug("Failed to inspect shape for name collision: %s", exc)
 
@@ -778,7 +781,7 @@ class FormListControls(ToolWriterFormBase):
                 shape = dp.getByIndex(i)
                 if shape.getShapeType() == "com.sun.star.drawing.ControlShape":
                     model = shape.Control
-                    model_name = model.Name or ""
+                    model_name = model.Name
                     ctrl_name = _preferred_control_name(shape)
                     snap = control_snapshot(model)
                     info = {"index": i, "name": ctrl_name, "type": snap.get("type", "unknown")}

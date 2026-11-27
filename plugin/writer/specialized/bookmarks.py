@@ -33,15 +33,9 @@ from plugin.framework.uno_context import uno_same
 from plugin.framework.uno_listeners import BaseDocumentEventListener
 from ..specialized_base import ToolWriterBookmarkBase
 from ..target_resolver import require_selection_range
+from ..tree import MCP_BOOKMARK_PREFIX, is_mcp_bookmark_name, mcp_bookmark_miss_hint
 
 log = logging.getLogger("writeragent.writer.nav.bookmarks")
-
-
-MCP_BOOKMARK_PREFIX = "_mcp_"
-
-
-def is_mcp_bookmark_name(name: str) -> bool:
-    return name.startswith(MCP_BOOKMARK_PREFIX)
 
 
 # In-flight strip records keyed by DocumentService.doc_key (uid: survives Save As).
@@ -514,16 +508,11 @@ def _bookmark_target(
     has_bm = bookmarks.hasByName(name)
     if must_exist and not has_bm:
         names = list(bookmarks.getElementNames())
-        hint = f"Bookmark '{name}' not found."
-        if mcp_miss_hint and is_mcp_bookmark_name(name):
-            hint += (
-                " It may have been deleted or the document changed. "
-                "Use heading_text:<text> locator for resilient heading addressing, "
-                "or call get_tree to refresh bookmarks."
-            )
-            existing = [n for n in names if is_mcp_bookmark_name(n)]
-            if existing:
-                hint += " Existing bookmarks: %s" % ", ".join(existing[:10])
+        hint = (
+            mcp_bookmark_miss_hint(name, names)
+            if mcp_miss_hint and is_mcp_bookmark_name(name)
+            else f"Bookmark '{name}' not found."
+        )
         return tool._tool_error(
             hint,
             **name_miss_details(name, names, "bookmark_list"),

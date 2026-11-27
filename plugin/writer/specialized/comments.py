@@ -163,7 +163,7 @@ class AddComment(ToolBase):
             return self._tool_error("Provide content.")
 
         parent_name = (kwargs.get("parent_name") or "").strip()
-        author = kwargs.get("author", "WriterAgent").strip() or "WriterAgent"
+        author = kwargs["author"].strip() or "WriterAgent"
 
         # Reply path: look up the immediate parent by Name and insert at its anchor
         # (same shape as CommentResolve) without setting Resolved. Do not walk to the
@@ -196,7 +196,7 @@ class AddComment(ToolBase):
         # status="error" (not "not_found"): an anchor miss is a failure, so the chat FSM and
         # MCP host don't treat a no-op as success. anchor_text is returned on success only.
         found, err, mode = occurrence_range_or_error(
-            doc, search_text, kwargs.get("occurrence", 0), case_sensitive=case_sensitive, subject="search"
+            doc, search_text, kwargs["occurrence"], case_sensitive=case_sensitive, subject="search"
         )
         if found is None:
             assert err is not None

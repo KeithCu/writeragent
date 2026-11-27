@@ -40,6 +40,9 @@ _SPREADSHEET_DOC_SERVICE = "com.sun.star.sheet.SpreadsheetDocument"
 _TEXT_EMBEDDED_OBJECT = "com.sun.star.text.TextEmbeddedObject"
 
 
+_NOT_REGISTERED = "spreadsheet embedding is not registered"
+
+
 def _spreadsheet_clsid(uno_ctx: Any) -> str:
     """Resolve the Calc spreadsheet OLE ClassID from LibreOffice embedding registry."""
     smgr = uno_ctx.getServiceManager()
@@ -49,10 +52,9 @@ def _spreadsheet_clsid(uno_ctx: Any) -> str:
         "com.sun.star.configuration.ConfigurationAccess",
         (node_names,),
     )
-    _not_registered = ValueError("spreadsheet embedding is not registered")
     class_id = str(names_access.getByName("Calc").ClassID)
     if not class_id:
-        raise _not_registered
+        raise ValueError(_NOT_REGISTERED)
 
     node_objects = create_property_value("nodepath", "/org.openoffice.Office.Embedding/Objects")
     objects_access = config_provider.createInstanceWithArguments(
@@ -66,13 +68,13 @@ def _spreadsheet_clsid(uno_ctx: Any) -> str:
             match_name = str(element_name)
             break
     if match_name is None:
-        raise _not_registered
+        raise ValueError(_NOT_REGISTERED)
 
     entry = objects_access.getByName(match_name)
-    factory = str(entry.ObjectFactory or "")
-    doc_service = str(entry.ObjectDocumentServiceName or "")
+    factory = entry.ObjectFactory or ""
+    doc_service = entry.ObjectDocumentServiceName or ""
     if factory != _EMBED_FACTORY or doc_service != _SPREADSHEET_DOC_SERVICE:
-        raise _not_registered
+        raise ValueError(_NOT_REGISTERED)
     return class_id
 
 

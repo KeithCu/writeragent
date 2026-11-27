@@ -105,11 +105,13 @@ _SPACE_CODEPOINTS = (
     0x3000,  # IDEOGRAPHIC SPACE
 )
 SPACE_NORMALIZE_MAP = {cp: " " for cp in _SPACE_CODEPOINTS}
+
+
 def _char_class(cps: tuple[int, ...]) -> str:
     return "[" + "".join(f"\\u{cp:04x}" for cp in cps) + "]"
 
 
-HORIZONTAL_SPACE_CLASS = "[ \\t" + _char_class(_SPACE_CODEPOINTS)[1:]
+HORIZONTAL_SPACE_CLASS = _char_class((0x20, 0x09, *_SPACE_CODEPOINTS))
 
 
 # Quotes and dashes folding for lenient search. Straight or curly quotes and
@@ -1269,7 +1271,7 @@ def _regex_find_hits(pattern: str, text: str, flags: int) -> list[tuple[int, int
         return []
     err = box.get("err")
     if err is not None:
-        log.debug("shape_text_hits: regex match failed", exc_info=err)
+        log.debug("_regex_find_hits: regex match failed", exc_info=err)
         return []
     return box["hits"]
 
@@ -1416,21 +1418,18 @@ def iter_shape_hits(doc: Any, pattern: str, use_regex: bool, case_sensitive: boo
 
 
 def iter_comment_hits(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool) -> Iterator[tuple[str, str, str]]:
-    try:
-        fields = iter_annotations(doc)
-        for field in fields:
-            try:
-                content = field.Content
-                author = field.Author.strip()
-            except Exception as exc:
-                reraise_if_disposed(exc)
-                log.debug("iter_comment_hits: annotation field unreadable", exc_info=True)
-                continue
-            for hit in shape_text_hits(content, pattern, use_regex, case_sensitive):
-                yield hit, "comment by '%s'" % (author or "unknown"), content.strip()
-    except Exception as exc:
-        reraise_if_disposed(exc)
-        log.debug("iter_comment_hits: annotation field unreadable", exc_info=True)
+    if uno_read(lambda: doc.getTextFields().createEnumeration(), FAILED) is FAILED:
+        return
+    for field in iter_annotations(doc):
+        try:
+            content = field.Content
+            author = field.Author.strip()
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            log.debug("iter_comment_hits: annotation field unreadable", exc_info=True)
+            continue
+        for hit in shape_text_hits(content, pattern, use_regex, case_sensitive):
+            yield hit, "comment by '%s'" % (author or "unknown"), content.strip()
 
 
 def _search_descriptor(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool) -> Any:
@@ -1713,7 +1712,7 @@ class SearchInDocument(ToolBase):
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        max_results = kwargs.get("max_results", DEFAULT_SEARCH_RESULTS)
+        max_results = kwargs["max_results"]
         if max_results < 1:
             return self._tool_error("max_results must be a positive integer.", code="INVALID_PARAM")
 
@@ -1721,9 +1720,9 @@ class SearchInDocument(ToolBase):
         if not pattern:
             return self._tool_error("pattern is required.", code="INVALID_PARAM")
 
-        use_regex = kwargs.get("regex", False)
+        use_regex = kwargs["regex"]
         case_sensitive = resolve_case_sensitive(kwargs.get("case_sensitive"))
-        return_offsets = kwargs.get("return_offsets", False)
+        return_offsets = kwargs["return_offsets"]
 
         if return_offsets and use_regex:
             return self._tool_error(

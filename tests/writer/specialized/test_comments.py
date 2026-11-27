@@ -253,7 +253,7 @@ def test_add_comment_errors_when_annotation_does_not_register():
     empty = MagicMock()
     empty.createEnumeration.side_effect = lambda: FakeUnoEnum([])
     doc.getTextFields.return_value = empty
-    res = AddComment().execute(SimpleNamespace(doc=doc), content="note", search="hit", author="WriterAgent")
+    res = AddComment().execute(SimpleNamespace(doc=doc), content="note", search="hit", author="WriterAgent", occurrence=0)
     assert res["status"] == "error" and res["comment_added"] is False and res["matched"] is True
     assert res["code"] == "TOOL_EXECUTION_ERROR"
 
@@ -492,12 +492,12 @@ def test_add_comment_case_sensitive_distinguishes_cased_occurrences():
     with patch("plugin.writer.search.find_occurrence_range", side_effect=fake_find), \
          patch("plugin.writer.specialized.comments._set_annotation_date"):
         doc.getTextFields.return_value = _fields_that_grow()
-        res_default = AddComment().execute(ctx, content="note", search="the board approved", author="WriterAgent")
+        res_default = AddComment().execute(ctx, content="note", search="the board approved", author="WriterAgent", occurrence=0)
         assert res_default["status"] == "ok"
         assert res_default["anchor_text"] == "the board approved"
 
         doc.getTextFields.return_value = _fields_that_grow()
-        res_insensitive = AddComment().execute(ctx, content="note", search="the board approved", case_sensitive=False, author="WriterAgent")
+        res_insensitive = AddComment().execute(ctx, content="note", search="the board approved", case_sensitive=False, author="WriterAgent", occurrence=0)
         assert res_insensitive["status"] == "ok"
         assert res_insensitive["anchor_text"] == "The board approved"
 
@@ -996,7 +996,7 @@ def test_add_comment_reads_document_assigned_name():
     doc.getTextFields.return_value.createEnumeration.side_effect = _enum
     doc.createInstance.return_value.getPropertyValue.return_value = ""
     with patch("plugin.writer.specialized.comments._set_annotation_date"):
-        res = AddComment().execute(SimpleNamespace(doc=doc), content="note", search="hit", author="WriterAgent")
+        res = AddComment().execute(SimpleNamespace(doc=doc), content="note", search="hit", author="WriterAgent", occurrence=0)
     assert res["status"] == "ok", res
     assert res["name"] == "LO_NAME"
 

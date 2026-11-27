@@ -98,8 +98,6 @@ def scan_redlines(doc: Any, on_item: Callable[[Any], bool]) -> tuple[bool, int, 
             seen += 1
             if not on_item(rl):
                 reliable = False
-    except RedlineScanAbort:
-        return False, seen, total
     except Exception:
         # A per-redline read failed (for example the document closed mid-scan).
         # Fail closed in one place so callbacks can read properties directly.
