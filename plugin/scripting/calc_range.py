@@ -97,6 +97,7 @@ def pack_calc_range_envelope(
     return envelope
 
 
+# Read by the CrossHair stub in scripts/crosshair_domains.py.
 def _deal_grid_values_ok(values: object) -> bool:  # pyright: ignore[reportUnusedFunction]
     return (
         isinstance(values, list)

@@ -42,9 +42,6 @@ def show_new_script_dialog(
 
     Returns ``(script_name, attach_to_document)`` on OK, or ``None`` on Cancel.
     """
-    if not ctx:
-        log.warning("show_new_script_dialog: no ctx")
-        return None
     try:
         can_attach = doc is not None and not is_document_readonly_for_scripts(doc)
         dialog_title = title or _("New Python Script")

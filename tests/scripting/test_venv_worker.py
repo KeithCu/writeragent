@@ -541,7 +541,7 @@ def test_ppt_master_write_timeout_does_not_replay(monkeypatch):
     assert mgr._terminate_worker.call_count == 1
 
 def test_tool_call_then_broken_stdout_does_not_replay(monkeypatch):
-    """A tool_call that already ran must not be followed by a second copy of the script."""
+    """An intermediate frame (llm_request) that already ran must not be followed by a second copy of the script."""
     mgr, proc = _mock_mgr()
     mgr._write_frame_with_timeout = MagicMock()
     response_payload = pickle.dumps({'type': 'llm_request', 'status': 'host_request'}, protocol=5)

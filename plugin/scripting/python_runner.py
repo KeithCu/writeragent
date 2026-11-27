@@ -261,9 +261,6 @@ def insert_result_into_calc(doc: Any, uno_ctx: Any, result: Any) -> None:
     """
     if result is None:
         return
-    if is_shape_tool_status_result(result):
-        log.debug("Skipping Calc result insert for shape tool status dict (keys=%s)", sorted(result.keys()))
-        return
 
     # Determine anchor cell from selection
     controller = doc.getCurrentController()

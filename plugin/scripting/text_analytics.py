@@ -149,7 +149,7 @@ def _lang_of(obj: Any, where: str) -> str | None:
     for prop in ("CharLocale", "CharLocaleAsian", "CharLocaleComplex"):
         try:
             loc = obj.getPropertyValue(prop)
-            if loc and loc.Language:
+            if loc.Language:
                 lang = str(loc.Language).strip().lower()[:2]
                 if lang and lang != "zxx":
                     return lang

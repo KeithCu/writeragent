@@ -459,7 +459,6 @@ _PREAMBLE_LINES: tuple[str, ...] = (
     '        code = res.get("code")',
     '        if code == "USER_STOPPED":',
     '            from plugin.framework.ipc import UserStopped  # weight: only needed when cancelled',
-    '',
     '            return UserStopped(msg)',
     '        err = RuntimeError(msg)',
     '        if code is not None:',

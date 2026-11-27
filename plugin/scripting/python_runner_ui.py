@@ -384,7 +384,7 @@ class NativePythonScriptDialog:
                     try:
                         _report_run_outcome(ctx, lbl, outcome)
                         if not outcome.get("ok"):
-                            set_control_text(lbl, str(outcome.get("message") or _("Execution Error")))
+                            set_control_text(lbl, str(outcome.get("message") or _("Unknown error")))
                         elif save_res.channel == "builtin" and save_res.text:
                             set_control_text(lbl, save_res.text)
                     finally:
@@ -542,7 +542,7 @@ def show_python_input_dialog(
 def _report_run_outcome(ctx: Any, lbl: Any | None, outcome: dict[str, Any]) -> None:
     """Update native dialog status / msgboxes after Run."""
     if not outcome.get("ok"):
-        msgbox(ctx, _("Execution Error"), outcome.get("message") or _("Execution Error"))
+        msgbox(ctx, _("Execution Error"), outcome.get("message") or _("Unknown error"))
         return
     status_text = outcome.get("status_ok_text", _("Script executed successfully."))
     if outcome.get("no_output"):

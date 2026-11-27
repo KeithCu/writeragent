@@ -42,11 +42,6 @@ import sys
 import tempfile
 from typing import TYPE_CHECKING, Any, cast
 
-if TYPE_CHECKING:
-    from collections.abc import Iterator
-
-log = logging.getLogger(__name__)
-
 from plugin.framework.deal_shim import (
     DEAL_MAX_COL_INDEX,
     DEAL_MAX_ROW_INDEX,
@@ -54,6 +49,11 @@ from plugin.framework.deal_shim import (
     deal,
     inverse_ensure,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+log = logging.getLogger(__name__)
 
 # CrossHair may invoke deal post/ensure as ``fn(*call_args, result=return_value, **kwargs)``.
 # Naming a positional parameter ``result`` then raises TypeError (multiple values). Keep ``result`` keyword-only.
@@ -1830,8 +1830,8 @@ def wire_str_key(key: Any, used: set[str]) -> str:
 
     ``{str(k): ...}`` is last-wins, so ``{1: "a", "1": "b"}`` would lose ``"a"``;
     the egress sites share this helper. The second key that stringifies to an
-    value is overwritten. An exact ``str`` is kept; a subclass such as
-    ``np.str_`` becomes a builtin ``str``.
+    existing wire key raises ValueError before its value is overwritten. An exact
+    ``str`` is kept; a subclass such as ``np.str_`` becomes a builtin ``str``.
     """
     # crosshair: off
     sk = key if type(key) is str else str(key)
