@@ -49,8 +49,8 @@ def _chat_ctx(
         return get_draw_context_for_chat(model, max_context)
 
 
-def test_get_draw_context_for_chat_disposed_returns_fallback():
-    out = get_draw_context_for_chat(None, 8000)
+def test_get_draw_context_for_chat_no_draw_page_returns_fallback():
+    out = get_draw_context_for_chat(object(), 8000)
     assert "Unable to read Draw/Impress context" in out
 
 

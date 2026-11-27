@@ -581,7 +581,7 @@ def test_apply_character_properties() -> None:
 
 
 def test_apply_character_properties_italic_is_not_oblique() -> None:
-    """Without pyuno, italic falls back to FontSlant.ITALIC (2), not OBLIQUE (1)."""
+    """italic=True writes FontSlant.ITALIC (2), not OBLIQUE (1)."""
     target = FakePropertyObject({"CharPosture": 0})
     results = visual_helpers.apply_character_properties(target, italic=True)
     assert results == {"CharPosture": True}
