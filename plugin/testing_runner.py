@@ -20,7 +20,6 @@
 # docs/framework/uno-test-lifecycle.md
 
 import argparse
-import bisect
 import inspect
 import json
 import logging
@@ -70,21 +69,77 @@ class RunOptions:
     soak_repeat: int = 1
     show_window: bool = False
     use_user_profile: bool = False
-    # 1-based ``--shard`` from ``_UNO_SHARD_CUTS``; 0 runs every suite file.
+    # 1-based ``--shard`` from ``_UNO_SHARD_COUNT``; 0 runs every suite file.
     shard: int = 0
 
 
-# PR CI runs the UNO suites as parallel jobs, each with its own soffice. Shard N
-# holds the suite files whose repo-relative path sorts at or after cut N-1 and
-# before cut N, so every file lands in exactly one shard and a new file joins the
-# shard its path sorts into. The ``shard`` matrix of ``test-uno-shard`` in
-# ``.github/workflows/pr-ci.yml`` must list 1 .. len(_UNO_SHARD_CUTS) + 1.
-_UNO_SHARD_CUTS = ("tests/writer/test_", "tests/writer/test_hyperlink_fixup_uno")
+# PR CI runs the UNO suites as parallel jobs, each with its own soffice. Files
+# are packed by recorded suite duration (longest-processing-time, ties by path)
+# so the three jobs stay close to equal. Unknown files use the median recorded
+# duration and join the lightest shard. The ``shard`` matrix of
+# ``test-uno-shard`` in ``.github/workflows/pr-ci.yml`` must list
+# 1 .. _UNO_SHARD_COUNT.
+_UNO_SHARD_COUNT = 3
+_UNO_SHARD_DURATIONS_NAME = "uno_shard_durations.json"
+_uno_shard_durations_cache: dict[str, float] | None = None
 
 
-def _uno_shard(rel_path: str) -> int:
+def _load_uno_shard_durations() -> dict[str, float]:
+    """Repo-relative suite path -> seconds. Keys starting with ``_`` are ignored."""
+    global _uno_shard_durations_cache
+    if _uno_shard_durations_cache is not None:
+        return _uno_shard_durations_cache
+    path = Path(__file__).with_name(_UNO_SHARD_DURATIONS_NAME)
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError):
+        _uno_shard_durations_cache = {}
+        return _uno_shard_durations_cache
+    out: dict[str, float] = {}
+    if isinstance(raw, dict):
+        for key, value in raw.items():
+            if not isinstance(key, str) or key.startswith("_"):
+                continue
+            try:
+                out[key] = float(value)
+            except (TypeError, ValueError):
+                continue
+    _uno_shard_durations_cache = out
+    return out
+
+
+def _uno_shard_default_seconds(durations: dict[str, float] | None = None) -> float:
+    values = sorted((durations or _load_uno_shard_durations()).values())
+    if not values:
+        return 3.0
+    mid = len(values) // 2
+    if len(values) % 2:
+        return values[mid]
+    return (values[mid - 1] + values[mid]) / 2.0
+
+
+def _uno_shards_for(rel_paths: list[str]) -> dict[str, int]:
+    """Map repo-relative suite paths (``/`` separators) to a 1-based shard."""
+    durations = _load_uno_shard_durations()
+    default = _uno_shard_default_seconds(durations)
+    weights = {path: durations.get(path, default) for path in rel_paths}
+    order = sorted(rel_paths, key=lambda path: (-weights[path], path))
+    totals = [0.0] * _UNO_SHARD_COUNT
+    assigned: dict[str, int] = {}
+    for path in order:
+        index = min(range(_UNO_SHARD_COUNT), key=lambda i: (totals[i], i))
+        assigned[path] = index + 1
+        totals[index] += weights[path]
+    return assigned
+
+
+def _uno_shard(rel_path: str, rel_paths: list[str] | None = None) -> int:
     """1-based shard of a repo-relative suite path that uses ``/`` separators."""
-    return bisect.bisect_right(_UNO_SHARD_CUTS, rel_path) + 1
+    if rel_paths is None:
+        rel_paths = list(_load_uno_shard_durations())
+        if rel_path not in rel_paths:
+            rel_paths.append(rel_path)
+    return _uno_shards_for(rel_paths)[rel_path]
 
 
 class HarnessOffice:
@@ -590,7 +645,7 @@ def _parse_cli_args(argv: Sequence[str]) -> list[str]:
     parser.add_argument("--user-profile", action="store_true")
     parser.add_argument("--repeat", type=int, default=None)
     parser.add_argument("--pair", default=None)
-    parser.add_argument("--shard", type=int, choices=range(1, len(_UNO_SHARD_CUTS) + 2), default=0)
+    parser.add_argument("--shard", type=int, choices=range(1, _UNO_SHARD_COUNT + 1), default=0)
     known, filters = parser.parse_known_args(list(argv))
     _office.options.shard = known.shard
 
@@ -1672,12 +1727,22 @@ def run_all_tests(ctx: Any) -> str:
                 if filename in _DEMO_ONLY_UNO and os.environ.get("WRITERAGENT_DEMO") != "1":
                     continue
                 full_path = os.path.join(root, filename)
-                if options.shard:
-                    rel_path = os.path.relpath(full_path, repo_root).replace(os.sep, "/")
-                    if _uno_shard(rel_path) != options.shard:
-                        continue
-                if _module_matches_filters(full_path, options.filters):
-                    test_candidates.append(full_path)
+                test_candidates.append(full_path)
+
+        if options.shard and test_candidates:
+            # Pack the full discovered set first so ``--shard N`` plus a name
+            # filter matches the CI assignment, then apply filters.
+            shard_of = _uno_shards_for(
+                [os.path.relpath(path, repo_root).replace(os.sep, "/") for path in test_candidates]
+            )
+            test_candidates = [
+                path
+                for path in test_candidates
+                if shard_of[os.path.relpath(path, repo_root).replace(os.sep, "/")] == options.shard
+            ]
+        test_candidates = [
+            path for path in test_candidates if _module_matches_filters(path, options.filters)
+        ]
 
         if not test_candidates:
             reason = (
@@ -1875,8 +1940,9 @@ def main() -> int:
         make test-uno-soak PAIR=tree-math REPEAT=50
         make test-uno-soak FILTER="test_get_draw_tree test_insert_math_draw" REPEAT=50
 
-    ``--shard N`` runs only the suite files in shard N of ``_UNO_SHARD_CUTS``
-    (PR CI runs each shard as its own job). It combines with other filters.
+    ``--shard N`` runs only the suite files packed into shard N of
+    ``_UNO_SHARD_COUNT`` (PR CI runs each shard as its own job). It combines
+    with other filters.
 
     See ``docs/framework/uno-test-lifecycle.md``.
 

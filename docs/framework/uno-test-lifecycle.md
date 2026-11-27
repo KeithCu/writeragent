@@ -1032,23 +1032,24 @@ A `*_uno.py` module that raises on import or exec (such as `ImportError`, `Synta
 PR CI runs the full UNO set as three parallel `UNO Shard N/3 (<os>)` jobs
 (`test-uno-shard` in `.github/workflows/pr-ci.yml`), each with its own
 soffice, through `make test-uno-full FILTER="--shard N"`. `--shard N` keeps
-only the suite files whose repo-relative path sorts at or after cut N-1 and
-before cut N in `_UNO_SHARD_CUTS` (`plugin/testing_runner.py`):
+only the suite files that `_uno_shards_for` (`plugin/testing_runner.py`)
+packs into shard N. Packing uses longest-processing-time assignment against
+the recorded suite seconds in `plugin/uno_shard_durations.json` (unknown
+files use the median of those values and join the lightest shard). The
+check names stay `UNO Shard N/3 (<os>)`.
 
-| Shard | Files (sorted path) |
-|-------|---------------------|
-| 1 | everything before `tests/writer/test_` (all non-Writer suites plus `tests/writer/images`, `locale`, `math`, `specialized`) |
-| 2 | `tests/writer/test_` up to, not including, `tests/writer/test_hyperlink_fixup_uno` |
-| 3 | `tests/writer/test_hyperlink_fixup_uno` onward |
+A new suite file is still discovered and assigned; there is no hand-maintained
+file list. Refresh the durations file from recent green CI `SUITE start` /
+`SUITE end` timestamps when one shard becomes the long pole. Changing
+`_UNO_SHARD_COUNT` also needs a matching `shard` matrix and `N/3` in the
+job name; `test_pr_ci_shard_matrix_runs_every_shard` fails until the matrix
+matches, `test_uno_shards_cover_every_suite_file` checks that every
+discovered file lands in exactly one non-empty shard, and
+`test_uno_shard_durations_pack_nearly_even` checks that the recorded
+durations still pack closely.
 
-A new suite file joins the shard its path sorts into; there is no file
-list to maintain. Each shard keeps the runner's crash handling, so an
-soffice death skips the rest of that shard only. Move a cut when one shard
-becomes the long pole (timings are in each job's log). Adding a cut also
-needs a new entry in the workflow's `shard` matrix and the `N/3` in the job
-name; `test_pr_ci_shard_matrix_runs_every_shard` fails until the matrix
-matches, and `test_uno_shards_cover_every_suite_file_in_sorted_order`
-checks that every discovered file lands in exactly one non-empty shard.
+Each shard keeps the runner's crash handling, so an soffice death skips
+the rest of that shard only.
 
 There is no aggregate `UNO Tests` job. The UNO checks are the three
 `UNO Shard N/3 (<os>)` jobs, alongside `Test & Typecheck (<os>)`. A failed,
