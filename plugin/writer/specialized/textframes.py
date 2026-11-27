@@ -64,7 +64,6 @@ def _frame_or_error(tool: Any, ctx: Any, name: str | None) -> Any:
         ctx.doc,
         "getTextFrames",
         name,
-        missing_msg="Document does not support text frames.",
         not_found_msg="Text frame '%s' not found." % name,
         list_tool="frame_list",
         extra_names=lambda: [box_name for _idx, _shape, box_name in text_box_shapes(ctx.doc)],
@@ -117,9 +116,7 @@ class FrameList(ToolWriterTextFramesBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
-        text_frames = self.get_collection(doc, "getTextFrames", "Document does not support text frames.")
-        if isinstance(text_frames, dict):
-            return text_frames
+        text_frames = doc.getTextFrames()
 
         deletions = TrackedDeletions(doc)
 
@@ -135,14 +132,7 @@ class FrameList(ToolWriterTextFramesBase):
         return {"status": "ok", "frames": frames, "count": len(frames)}
 
 
-# ------------------------------------------------------------------
-# FrameGetInfo
-# ------------------------------------------------------------------
-
-
 class FrameGetInfo(ToolWriterTextFramesBase):
-    """Get detailed info about a text frame. content is capped at 4000 chars; content_length is the full visible length."""
-
     name: str | None = "frame_get_info"
     description: str = (
         "Get detailed info about a text frame. content is capped at 4000 chars; content_length is the full visible length."
@@ -205,11 +195,6 @@ class FrameGetInfo(ToolWriterTextFramesBase):
         return result
 
 
-# ------------------------------------------------------------------
-# FrameSetProperties
-# ------------------------------------------------------------------
-
-
 class FrameSetProperties(ToolWriterTextFramesBase):
     """Resize, re-anchor, or set the orientation of a text frame."""
 
@@ -224,7 +209,7 @@ class FrameSetProperties(ToolWriterTextFramesBase):
             "name": {"type": "string", "description": "Name of the text frame (from frame_list)."},
             "width_mm": {"type": "number", "description": "New width in millimetres (> 0)."},
             "height_mm": {"type": "number", "description": "New height in millimetres (> 0)."},
-            "anchor_type": {"type": "integer", "description": ("Anchor type: 0=AT_PARAGRAPH, 1=AS_CHARACTER, 2=AT_PAGE, 3=AT_FRAME, 4=AT_CHARACTER.")},
+            "anchor_type": {"type": "integer", "description": "Anchor type: 0=AT_PARAGRAPH, 1=AS_CHARACTER, 2=AT_PAGE, 3=AT_FRAME, 4=AT_CHARACTER."},
             "hori_orient": {"type": "integer", "description": "Raw UNO horizontal orientation integer."},
             "vert_orient": {"type": "integer", "description": "Raw UNO vertical orientation integer."},
         },
@@ -265,8 +250,6 @@ class FrameSetProperties(ToolWriterTextFramesBase):
             ("height_mm", height_mm),
             ("anchor_type", anchor_type),
         ):
-            if val is None:
-                continue
             err = _validate_frame_measurement(self, param_name, val)
             if err is not None:
                 return err
@@ -324,7 +307,7 @@ class FrameInsert(ToolWriterTextFramesBase):
             "anchor_type": {
                 "type": "integer",
                 "default": 0,
-                "description": ("Anchor type: 0=AT_PARAGRAPH, 1=AS_CHARACTER, 2=AT_PAGE, 3=AT_FRAME, 4=AT_CHARACTER."),
+                "description": "Anchor type: 0=AT_PARAGRAPH, 1=AS_CHARACTER, 2=AT_PAGE, 3=AT_FRAME, 4=AT_CHARACTER.",
             },
         },
         "required": [],

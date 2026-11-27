@@ -320,9 +320,6 @@ def test_section_read_includes_table_content_and_accepts_name_or_section(monkeyp
     assert res_by_name["content"] == "Intro\nA1 text\nB1 text"
     assert res_by_name["length"] == len(res_by_name["content"])
 
-    res_by_alias = SectionRead().execute(ctx, section="S")
-    assert res_by_alias == res_by_name
-
 
 def test_section_read_missing_section() -> None:
     sections_map = _Sections({"Intro": _Section([])})

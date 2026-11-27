@@ -22,7 +22,7 @@ Ported from mcp-libre services/writer/tree.py.
 from __future__ import annotations
 
 import logging
-from typing import Any, NamedTuple, cast
+from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 from plugin.framework.errors import ToolExecutionError, name_miss_details
 from plugin.framework.service import ServiceBase
@@ -39,13 +39,15 @@ from plugin.doc.text_helpers import (
     with_view_cursor_left_body_locked,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 log = logging.getLogger("writeragent.writer.nav.tree")
 
 
 def collect_heading_indices(node: dict[str, Any]) -> list[int]:
     """Heading paragraph indices in document order (iter_heading_nodes yields them ordered)."""
-    return [n["para_index"] for n in iter_heading_nodes(node) if n.get("para_index", -1) >= 0]
+    return [n["para_index"] for n in iter_heading_nodes(node)]
 
 
 def _preview_text(text: str, max_chars: int = 100) -> str:
@@ -55,7 +57,7 @@ def _preview_text(text: str, max_chars: int = 100) -> str:
     return text
 
 
-def _iter_body_paragraphs(para_ranges: list[Any], start_idx: int, end_idx: int):
+def _iter_body_paragraphs(para_ranges: list[Any], start_idx: int, end_idx: int) -> Iterator[int]:
     for idx, element in enumerate(para_ranges[start_idx:end_idx], start_idx):
         if element.supportsService("com.sun.star.text.Paragraph"):
             yield idx
@@ -64,21 +66,15 @@ def _iter_body_paragraphs(para_ranges: list[Any], start_idx: int, end_idx: int):
 def _named_doc_item(
     doc: Any,
     getter: str,
-    unsupported: str,
     missing: str,
     name: str,
     *,
-    list_tool: str | None = None,
+    list_tool: str,
 ) -> Any:
-    if not hasattr(doc, getter):
-        raise ToolExecutionError(unsupported)
     container = getattr(doc, getter)()
     if not container.hasByName(name):
-        details: dict[str, Any] | None = None
-        if list_tool:
-            names = [str(n) for n in container.getElementNames()]
-            details = name_miss_details(name, names, list_tool)
-        raise ToolExecutionError(missing % name, details=details)
+        names = [str(n) for n in container.getElementNames()]
+        raise ToolExecutionError(missing % name, details=name_miss_details(name, names, list_tool))
     return container.getByName(name)
 
 
@@ -91,15 +87,16 @@ def heading_ref(
     include_chapter: bool = False,
 ) -> dict[str, Any]:
     para_index = node["para_index"]
-    ref: dict[str, Any] = {}
-    ref["level"] = node["level"]
-    ref["text"] = node["text"]
-    ref["para_index"] = para_index
-    ref["bookmark"] = (bookmark_map or {}).get(para_index)
+    ref: dict[str, Any] = {
+        "level": node["level"],
+        "text": node["text"],
+        "para_index": para_index,
+        "bookmark": (bookmark_map or {}).get(para_index),
+    }
     if include_children_count:
-        ref["children_count"] = len(node.get("children") or [])
+        ref["children_count"] = len(node["children"])
     if include_body:
-        ref["body_paragraphs"] = node.get("body_paragraphs", 0)
+        ref["body_paragraphs"] = node["body_paragraphs"]
     if include_chapter and node.get("chapter_number"):
         ref["chapter_number"] = node["chapter_number"]
     return ref
@@ -178,16 +175,16 @@ class TreeService(ServiceBase):
         return root
 
     def heading_block_body_count(self, node: dict[str, Any]) -> int:
-        count = len(node.get("children", []))
-        for child in node.get("children", []):
+        count = len(node["children"])
+        for child in node["children"]:
             count += self.heading_block_body_count(child)
-        return count + node.get("body_paragraphs", 0)
+        return count + node["body_paragraphs"]
 
     def find_heading_by_para_index(self, node: dict[str, Any], para_index: int) -> dict[str, Any] | None:
-        if node.get("para_index") == para_index:
+        if node["para_index"] == para_index:
             return node
-        found = next((n for n in iter_heading_nodes(node) if n.get("para_index") == para_index), None)
-        return cast("dict[str, Any]", found) if found is not None else None
+        found = next((n for n in iter_heading_nodes(node) if n["para_index"] == para_index), None)
+        return cast("dict[str, Any] | None", found)
 
     # ── Content strategies ─────────────────────────────────────────
 
@@ -198,7 +195,7 @@ class TreeService(ServiceBase):
         ctx: _TreeContext,
     ) -> None:
         if strategy in ("first_lines", "full"):
-            para_idx = node.get("para_index", -1)
+            para_idx = node["para_index"]
             next_idx = ctx.next_heading_map.get(para_idx, len(ctx.para_ranges))
             if strategy == "first_lines":
                 preview_parts = []
@@ -238,18 +235,17 @@ class TreeService(ServiceBase):
             ),
         }
         self._apply_content_strategy(node, content_strategy, ctx)
-        if depth == 0 or current_depth < depth:
-            if child.get("children"):
-                node["children"] = [
-                    self._serialize_tree_node(
-                        sub,
-                        content_strategy,
-                        depth,
-                        ctx,
-                        current_depth + 1,
-                    )
-                    for sub in child["children"]
-                ]
+        if (depth == 0 or current_depth < depth) and child["children"]:
+            node["children"] = [
+                self._serialize_tree_node(
+                    sub,
+                    content_strategy,
+                    depth,
+                    ctx,
+                    current_depth + 1,
+                )
+                for sub in child["children"]
+            ]
         return node
 
     # ── Public tree API ────────────────────────────────────────────
@@ -302,7 +298,7 @@ class TreeService(ServiceBase):
             heading_para_index = resolved.get("para_index")
 
         if heading_para_index is None:
-            raise ToolExecutionError("Provide locator, heading_para_index, or heading_bookmark")
+            raise ToolExecutionError("Provide locator or heading_para_index")
 
         ctx = self._load_tree_context(doc)
         target = self.find_heading_by_para_index(ctx.tree, heading_para_index)
@@ -399,7 +395,6 @@ class TreeService(ServiceBase):
             section = _named_doc_item(
                 doc,
                 "getTextSections",
-                "Document does not support sections",
                 "Section '%s' not found",
                 loc_value,
                 list_tool="section_list",
@@ -415,7 +410,7 @@ class TreeService(ServiceBase):
             tree = self.build_heading_tree(doc)
             node = tree
             for part in parts:
-                children = node.get("children", [])
+                children = node["children"]
                 if part < 1 or part > len(children):
                     raise ToolExecutionError("Heading index %d out of range (1..%d) in 'heading:%s'" % (part, len(children), loc_value))
                 node = children[part - 1]
@@ -444,7 +439,6 @@ class TreeService(ServiceBase):
             table = _named_doc_item(
                 doc,
                 "getTextTables",
-                "Document does not support tables",
                 "Table '%s' not found",
                 loc_value,
                 list_tool="table_list",
@@ -462,8 +456,6 @@ class TreeService(ServiceBase):
         raise ToolExecutionError("Unknown Writer locator type: '%s'" % loc_type)
 
     def _resolve_bookmark_locator(self, doc: Any, bookmark_name: str) -> dict[str, Any]:
-        if not hasattr(doc, "getBookmarks"):
-            raise ToolExecutionError("Document doesn't support bookmarks")
         bookmarks = doc.getBookmarks()
         if not bookmarks.hasByName(bookmark_name):
             hint = "Bookmark '%s' not found." % bookmark_name
@@ -471,18 +463,14 @@ class TreeService(ServiceBase):
             details = name_miss_details(bookmark_name, names, "bookmark_list")
             if bookmark_name.startswith("_mcp_"):
                 hint += " Use heading_text:<text> locator for resilient heading addressing, or call get_tree to refresh bookmarks."
-                existing = [n for n in bookmarks.getElementNames() if n.startswith("_mcp_")]
+                existing = [n for n in names if n.startswith("_mcp_")]
                 if existing:
                     hint += " Existing bookmarks: " + ", ".join(existing[:10])
             raise ToolExecutionError(hint, details=details)
         bm = bookmarks.getByName(bookmark_name)
-        # Paragraph index for a bookmark that still has a name.
-        #
-        # paragraph_index_for_anchor returns None when the anchor cannot be
-        # placed. A stale _mcp_ mark after save/reopen or bookmark_cleanup
-        # still has a name, so it must not resolve to a paragraph.
-        # Index 0 is kept only when the anchor start is inside that paragraph.
-        # Anything else is an error, not a location.
+        # A stale _mcp_ bookmark still has a name after save/reopen or
+        # bookmark_cleanup, so a name hit is not enough: the anchor must be
+        # placed in a paragraph, otherwise it is an error.
         para_idx = self._confirm_anchor_placement(
             doc,
             bm,

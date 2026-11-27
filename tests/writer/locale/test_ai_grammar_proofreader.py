@@ -14,6 +14,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+import uno
 from plugin.writer.locale.grammar_settings import GrammarProfile
 
 uno_mod = sys.modules["uno"]
@@ -970,7 +971,7 @@ def test_proofreader_broadcast_proofread_again_notifies_listeners(
     pr.broadcast_proofread_again()
     listener.processLinguServiceEvent.assert_called_once()
     event = listener.processLinguServiceEvent.call_args[0][0]
-    assert event.nEvent == 8
+    assert event.nEvent == int(uno.getConstantByName("com.sun.star.linguistic2.LinguServiceEventFlags.PROOFREAD_AGAIN"))
     assert pr.removeLinguServiceEventListener(listener) is True
 
 
@@ -990,7 +991,7 @@ def test_broadcast_proofread_again_without_listeners_recovers_on_first_attach(
     ):
         assert pr.addLinguServiceEventListener(listener) is True
     listener.processLinguServiceEvent.assert_called_once()
-    assert listener.processLinguServiceEvent.call_args[0][0].nEvent == 8
+    assert listener.processLinguServiceEvent.call_args[0][0].nEvent == int(uno.getConstantByName("com.sun.star.linguistic2.LinguServiceEventFlags.PROOFREAD_AGAIN"))
     assert pr._pending_proofread_again is False
     extra = MagicMock()
     with (
@@ -1020,7 +1021,7 @@ def test_first_listener_while_harper_ready_triggers_one_rewalk(
         assert pr.addLinguServiceEventListener(first) is True
     first.processLinguServiceEvent.assert_called_once()
     second.processLinguServiceEvent.assert_not_called()
-    assert first.processLinguServiceEvent.call_args[0][0].nEvent == 8
+    assert first.processLinguServiceEvent.call_args[0][0].nEvent == int(uno.getConstantByName("com.sun.star.linguistic2.LinguServiceEventFlags.PROOFREAD_AGAIN"))
 
 
 def test_first_listener_while_harper_idle_does_not_rewalk(
@@ -1067,7 +1068,7 @@ def test_ensure_writeragent_proofreader_configured_triggers_harper_warmup() -> N
     ):
         ensure_writeragent_proofreader_configured(ctx)
         mock_warmup.assert_called_once()
-        assert mock_warmup.call_args.kwargs["user_config_dir"] == "/tmp/lo-user"
+        assert mock_warmup.call_args.args[0] == "/tmp/lo-user"
 
 
 def test_ensure_writeragent_proofreader_configured_skips_warmup_without_config_dir() -> None:
@@ -1234,6 +1235,8 @@ def test_llm_checker_identity_cache_roundtrip_preserves_rows_and_ignores(
             model="gpt-test",
             grammar_bcp47="en-US",
             max_tok=512,
+            detect_lang_mode="off",
+            spec=None,
         )
         err1 = {
             "wrong": "are",
@@ -1312,6 +1315,8 @@ def test_local_provider_checker_identity_and_persistence(
             model="",
             grammar_bcp47="en-US",
             max_tok=512,
+            detect_lang_mode="off",
+            spec=None,
         )
         err1 = {
             "wrong": "are",
@@ -1532,7 +1537,7 @@ def test_reset_ignore_rules_broadcasts_and_subsequent_call_returns_error(
         # Broadcasts PROOFREAD_AGAIN to listeners
         assert listener.processLinguServiceEvent.call_count == 1
         event = listener.processLinguServiceEvent.call_args[0][0]
-        assert event.nEvent == 8
+        assert event.nEvent == int(uno.getConstantByName("com.sun.star.linguistic2.LinguServiceEventFlags.PROOFREAD_AGAIN"))
 
         # Next call returns cached error without running provider or enqueuing
         res2 = pr.doProofreading("doc-reset", text, mock_locale_fixture, 0, len(text), ())

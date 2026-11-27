@@ -25,10 +25,10 @@ import json
 import logging
 import threading
 import weakref
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 
-log = logging.getLogger("writeragent.grammar")
-
+from plugin.framework.uno_context import get_runtime_uid, uno_same
+from plugin.framework.uno_listeners import BaseDocumentEventListener
 from plugin.writer.locale import grammar_settings
 from .grammar_proofread_locale import (
     GRAMMAR_CACHE_MAX_CHARS,
@@ -36,6 +36,11 @@ from .grammar_proofread_locale import (
     GRAMMAR_DOC_CACHE_UDPROP,
     normalize_for_sentence_cache,
 )
+
+if TYPE_CHECKING:
+    from plugin.writer.locale.ai_grammar_proofreader import WriterAgentAiGrammarProofreader
+
+log = logging.getLogger("writeragent.grammar")
 
 # v2 blobs with LLM-style errors have no model id. First `llm:…` identity to
 # touch the document adopts the rows (avoids a full recheck on older documents).
@@ -83,10 +88,6 @@ _SNIFF_PREFIXES: tuple[tuple[str, str], ...] = (
     ("languagetool||", "languagetool"),
     ("vale||", "vale"),
 )
-
-
-from plugin.framework.uno_context import get_runtime_uid, uno_same
-from plugin.framework.uno_listeners import BaseDocumentEventListener
 
 
 def sniff_v2_cache_identity(data: dict[str, Any]) -> str | None:
@@ -144,11 +145,19 @@ class GrammarRegistry:
         self.ignored_rules: set[str] = set()
         self.doc_locales: dict[str, set[str]] = {}
         self.lang_detect_cache: collections.OrderedDict[str, str] = collections.OrderedDict()
-        self.live_proofreaders: weakref.WeakSet[Any] = weakref.WeakSet()
+        self.live_proofreaders: weakref.WeakSet[WriterAgentAiGrammarProofreader] = weakref.WeakSet()
 
-    def register_live_proofreader(self, proofreader: Any) -> None:
+    def register_live_proofreader(self, proofreader: WriterAgentAiGrammarProofreader) -> None:
         """Keep the Linguistic-owned proofreader so Settings Recheck can fire PROOFREAD_AGAIN."""
         self.live_proofreaders.add(proofreader)
+
+    def broadcast_proofread_again(self, *, log_prefix: str = "[grammar]") -> None:
+        """Ask every registered proofreader to fire PROOFREAD_AGAIN."""
+        for pr in list(self.live_proofreaders):
+            try:
+                pr.broadcast_proofread_again()
+            except Exception:
+                log.debug("%s PROOFREAD_AGAIN failed", log_prefix, exc_info=True)
 
     def record_enqueued_locale(self, doc_id: str, locale: str) -> None:
         """Record an enqueued locale tag for doc_id."""
@@ -209,9 +218,7 @@ def get_document_model_for_id(doc_id: str) -> Any | None:
     """Return the Writer model for a proofreading document id, if already bound via get_persistence."""
     with grammar_registry.lock:
         p = grammar_registry.doc_persistence_instances.get(doc_id)
-        if p is not None and p.model is not None:
-            return p.model
-    return None
+        return p.model if p is not None else None
 
 
 # XDocumentEventListener extends com.sun.star.lang.XEventListener, so a single
@@ -243,6 +250,10 @@ class DocumentPersistence:
     _doc_id: str
     _teardown_done: bool
 
+    @property
+    def _short_id(self) -> str:
+        return self._doc_id[:32]
+
     def __init__(self, doc_id: str, *, model: Any = None) -> None:
         self._session_accessed: set[tuple[str, str]] = set()
         self._ignored_rules: set[str] = set()
@@ -261,7 +272,7 @@ class DocumentPersistence:
         if model is not None:
             self._bind_model(model)
         else:
-            log.debug("[grammar] DocumentPersistence: no model for doc_id=%s (in-memory only until resolved)", doc_id[:32] if doc_id else "")
+            log.debug("[grammar] DocumentPersistence: no model for doc_id=%s (in-memory only until resolved)", doc_id[:32])
 
     def mark_accessed(self, fp: str, locale: str) -> None:
         """Record that this fingerprint was used this session (udprop save filter).
@@ -275,7 +286,7 @@ class DocumentPersistence:
 
     def _bind_model(self, model: Any) -> None:
         """Attach the Writer model after init when ``get_persistence(..., model=...)`` runs."""
-        if self._teardown_done or model is None:
+        if self._teardown_done:
             return
         with self._lock:
             if self._teardown_done:
@@ -291,14 +302,11 @@ class DocumentPersistence:
         finally:
             self._register_listeners()
             self._load_done.set()
-        log.debug("[grammar] DocumentPersistence: bound model for doc_id=%s", self._doc_id[:32] if self._doc_id else "")
+        log.debug("[grammar] DocumentPersistence: bound model for doc_id=%s", self._short_id)
 
     def _register_listeners(self) -> None:
         if not _HAVE_UNO_DOC_EVENTS or self.model is None:
             return
-        # XDocumentEventListener handles both OnSave/OnUnload (via documentEventOccured)
-        # and broadcaster teardown (via disposing inherited from lang.XEventListener),
-        # so a single registration on XDocumentEventBroadcaster covers both paths.
         try:
             self._doc_listener = _GrammarDocumentEventListener(self)
             self.model.addDocumentEventListener(self._doc_listener)
@@ -349,7 +357,7 @@ class DocumentPersistence:
         log.warning(
             "[grammar] DocumentPersistence: unknown cache version %r on doc_id=%s; clearing",
             version,
-            self._doc_id[:32] if self._doc_id else "",
+            self._short_id,
         )
         with self._lock:
             self._clear_rows_for_identity_switch_locked()
@@ -358,12 +366,10 @@ class DocumentPersistence:
     def _load_from_udprops(self) -> None:
         from plugin.doc.udprops import get_document_property
 
-        if not self.model:
-            return
         try:
             raw = get_document_property(self.model, GRAMMAR_DOC_CACHE_UDPROP, None)
             if not raw or not isinstance(raw, str):
-                log.debug("[grammar] DocumentPersistence: no cached property on doc_id=%s", self._doc_id[:32] if self._doc_id else "")
+                log.debug("[grammar] DocumentPersistence: no cached property on doc_id=%s", self._short_id)
                 return
             if len(raw) > GRAMMAR_CACHE_MAX_CHARS:
                 self._reject_unknown_cache(f"length {len(raw)} > {GRAMMAR_CACHE_MAX_CHARS}")
@@ -400,13 +406,13 @@ class DocumentPersistence:
                 else:
                     log.debug(
                         "[grammar] DocumentPersistence: dropping unclassifiable v2 cache on doc_id=%s",
-                        self._doc_id[:32] if self._doc_id else "",
+                        self._short_id,
                     )
             elif version < 2:
                 log.debug(
                     "[grammar] DocumentPersistence: ignoring old-version cache (v=%s) on doc_id=%s",
                     version,
-                    self._doc_id[:32] if self._doc_id else "",
+                    self._short_id,
                 )
                 return
             else:
@@ -475,7 +481,7 @@ class DocumentPersistence:
             log.debug(
                 "[grammar] DocumentPersistence: loaded %s sentences from udprop (doc_id=%s, v=%s, blob=%s, current=%s)",
                 loaded_count,
-                self._doc_id[:32] if self._doc_id else "",
+                self._short_id,
                 version,
                 blob_identity,
                 current,
@@ -531,7 +537,7 @@ class DocumentPersistence:
                 if self._blob_identity == _V2_LLM_PENDING:
                     log.debug(
                         "[grammar] DocumentPersistence: skip save; v2 LLM blob not yet adopted (doc_id=%s)",
-                        self._doc_id[:32] if self._doc_id else "",
+                        self._short_id,
                     )
                     return
                 if (
@@ -543,14 +549,14 @@ class DocumentPersistence:
                         "[grammar] DocumentPersistence: skip save; unused mismatched blob %s (current %s, doc_id=%s)",
                         self._blob_identity,
                         current,
-                        self._doc_id[:32] if self._doc_id else "",
+                        self._short_id,
                     )
                     return
                 model_id = self._session_identity or self._blob_identity or current
                 ignored_rules_list = list(self._ignored_rules)
                 locales_out: dict[str, dict[str, Any]] = {}
                 for locale, fp in self._session_accessed:
-                    # Legacy rows without a CharLocale are never rewritten (locale-blind bug).
+                    # A legacy row without a CharLocale is not written back: it would be read under every locale.
                     if not locale:
                         continue
                     by_locale = self._entries.get(fp)
@@ -586,7 +592,7 @@ class DocumentPersistence:
                 "[grammar] DocumentPersistence: saved %s sentences (%s chars) to udprop (doc_id=%s, v=%s, model=%s)",
                 n_saved,
                 len(payload),
-                self._doc_id[:32] if self._doc_id else "",
+                self._short_id,
                 GRAMMAR_CACHE_VERSION,
                 model_id,
             )
@@ -623,9 +629,8 @@ class DocumentPersistence:
     ) -> list[dict[str, Any]] | None:
         """Return errors for ``fp`` under ``locale``.
 
-        L1 keys are ``sent|locale|identity|fp`` so the same sentence under different
-        CharLocales does not share another locale's cached diagnostics. Pass
-        ``locale`` for a real lookup.
+        Rows are keyed by (fingerprint, locale), so the same sentence under another
+        CharLocale does not return this locale's diagnostics.
 
         A single legacy v2/v3 bucket is adopted to ``locale`` when
         ``adopt_legacy`` is true (proofreading). Probes pass false so a
@@ -654,7 +659,7 @@ class DocumentPersistence:
         """Store ``errors`` for this fingerprint under ``locale``."""
         if self._teardown_done:
             return
-        locale_key = locale or _LEGACY_LOCALE
+        locale_key = locale
         with self._lock:
             by_locale = self._entries.setdefault(fp, {})
             # A located write retires the blind row so another locale cannot adopt it.
@@ -718,7 +723,7 @@ def persistence_for_model(model: Any) -> DocumentPersistence | None:
             continue
         if uid:
             other_uid = get_runtime_uid(other)
-            if other_uid and other_uid == uid:
+            if other_uid == uid:
                 return p
         if uno_same(other, model):
             return p

@@ -179,7 +179,7 @@ def test_fields_insert_recorded_accept_reject_and_token_uno(ctx, doc):
         set_body_text(doc, "dear NAME,")
         res_m = InsertField().execute(
             tool_ctx, column_name="First", data_source_name="Bib", table_name="biblio",
-            target="search", old_content="NAME",
+            command_type="table", target="search", old_content="NAME",
         )
         assert res_m["status"] == "ok", res_m
         assert res_m["tracked"] is True and res_m["pending_review"] is True, res_m

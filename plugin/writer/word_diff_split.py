@@ -243,7 +243,7 @@ def split_change(old: str, new: str, threshold: float = DEFAULT_THRESHOLD) -> Sp
             # Above the cap, strip matching word prefix/suffix before scoring so unchanged
             # affixes do not inflate the reported change fraction to 1.0.
             denom = prefix + suffix + mid_old_len + mid_new_len
-            fraction = (mid_old_len + mid_new_len) / denom if denom else 0.0
+            fraction = (mid_old_len + mid_new_len) / denom
             return SplitResult("block", fraction, [])
         opcodes = _opcodes_with_affix(old_words, new_words, prefix, suffix)
     else:
@@ -266,8 +266,8 @@ def split_change(old: str, new: str, threshold: float = DEFAULT_THRESHOLD) -> Sp
 
     # --- whole-block path ------------------------------------------------------
     # threshold <= 0 means "never split -- always land as ONE block": any actual change then goes
-    # block, including a whitespace-only edit whose word-fraction is 0.0. old == new is still
-    # a no-op (handled by the surgical path returning zero sub-edits below).
+    # block, including a whitespace-only edit whose word-fraction is 0.0. old == new never
+    # reaches here (early return above).
     if threshold <= 0.0 or fraction > threshold:
         return SplitResult("block", fraction, [])
 
@@ -298,9 +298,7 @@ def _build_surgical_edits(old: str, new: str, old_words: list[Token], new_words:
     words sit in one segment, so they AGGLUTINATE into a single sub-edit; a matched word
     between them splits them into two.
 
-    OP CLASSIFICATION (after trimming): empty old span -> ``insert``; empty new span ->
-    ``delete``; otherwise ``replace``. Segments whose old and new spans are equal (no
-    real change, e.g. anchors with identical separators) are dropped.
+    Segments whose old and new spans are equal are dropped.
 
     Returns sub-edits sorted by ``old_start`` (non-overlapping by construction).
     """

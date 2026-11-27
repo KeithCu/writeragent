@@ -25,7 +25,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 from plugin.framework.managed_subprocess import ManagedSubprocess
-from plugin.framework import config
 from plugin.framework.errors import best_effort
 from plugin.framework.queue_executor import main
 from plugin.framework.quit_hooks import register_quit_hook
@@ -113,7 +112,6 @@ _HARPER_FAIL_COOLDOWN_SEC = 30.0
 
 
 class HarperRuntimeState(enum.Enum):
-    # Enum members cannot take PEP 526 annotations (typing spec / ty / basedpyright).
     IDLE = "idle"
     RESOLVING = "resolving"
     READY = "ready"
@@ -225,12 +223,12 @@ class HarperRuntime:
         )
         with self.lock:
             current = self.clients.get(binary_path)
-            if current is not None and current is not built and current.is_alive():
+            if current is not None and current.is_alive():
                 built.close()
                 if heartbeat_fn is not None:
                     current._heartbeat_fn = heartbeat_fn
                 return current
-            if current is not None and current is not built:
+            if current is not None:
                 current.close()
             self.clients[binary_path] = built
             return built
@@ -268,9 +266,8 @@ class HarperRuntime:
         except Exception as exc:
             log.exception("[harper] Background ensure failed")
             get_grammar_status().failed("Harper", result=str(exc))
-            # An ensure failure always records FAILED with failed_at. The state is
-            # RESOLVING here (harper_ensure_ready_async sets it before submitting this
-            # job), so a "not RESOLVING" check would never record the failure.
+            # The state is RESOLVING here (ensure_async sets it before submitting this job);
+            # record FAILED and failed_at so the cooldown in ensure_async applies.
             with self.lock:
                 self.state = HarperRuntimeState.FAILED
                 self.failed_at = time.monotonic()
@@ -302,8 +299,7 @@ class HarperRuntime:
                 log.exception("[harper] Could not submit ensure job: %s", exc)
                 # The rollback is this same hold. A second timed acquire that fails would
                 # leave RESOLVING with no job, and a lint holder does not clear that bit.
-                if self.state is HarperRuntimeState.RESOLVING:
-                    self.state = HarperRuntimeState.IDLE
+                self.state = HarperRuntimeState.IDLE
                 return False
             return True
         finally:
@@ -365,11 +361,7 @@ class HarperRuntime:
         if not acquired:
             raise HarperLockTimeoutError("Harper LSP lock acquire timeout")
         try:
-            client: HarperLSClient | None = None
-            for c in self.clients.values():
-                if c.is_alive():
-                    client = c
-                    break
+            client = next((c for c in self.clients.values() if c.is_alive()), None)
             if client is None:
                 if self.state is HarperRuntimeState.READY:
                     log.error("[harper] lint missed: state READY but harper-ls process is dead")
@@ -517,15 +509,15 @@ class HarperLSClient:
             log.exception("[harper] Failed to start/initialize harper-ls")
             raise RuntimeError(f"Failed to start/initialize harper-ls: {e}") from e
 
-    def _read_loop(self, out_queue: queue.Queue[dict[str, Any] | None], stdout: Any) -> None:
+    def _read_loop(self, out_queue: queue.Queue[dict[str, Any] | None], stdout: BinaryIO) -> None:
         """Read LSP frames from the stream this thread was started with.
 
         Binding the queue and stream here keeps a superseded reader from
         pushing EOF onto the new client or consuming frames from the replacement.
         """
         try:
-            while stdout:
-                msg = json_rpc_framing.read_frame(cast("BinaryIO", stdout))
+            while True:
+                msg = json_rpc_framing.read_frame(stdout)
                 if msg is None:
                     break
                 out_queue.put(msg)
@@ -612,8 +604,6 @@ class HarperLSClient:
         not.
         """
         while _deadline_remaining(deadline) > 0:
-            # If harper-ls dies with an empty queue before publishDiagnostics,
-            # raise instead of returning an empty list that looks like a clean lint.
             if not self.is_alive() and self.stdout_queue.empty():
                 raise RuntimeError("harper-ls process died before publishDiagnostics")
             msg = self._read_and_handle(deadline)
@@ -658,7 +648,7 @@ class HarperLSClient:
         deadline: float | None = None,
         cancel_event: threading.Event | None = None,
     ) -> list[Any]:
-        # One lint at a time: venv worker IPC is serialized; grammar uses a single drain thread for Harper.
+        # One lint at a time: HarperRuntime.lint_now holds runtime.lock across this call.
         if deadline is None:
             deadline = time.monotonic() + _LINT_BUDGET_SEC
         previous_cancel = self._lint_cancel
@@ -691,8 +681,7 @@ class HarperLSClient:
         hung harper-ls fills the stdin pipe, ``stdin.write`` blocks forever,
         and the process (or an xdist worker) never exits.
         Closing **stdout** while ``_read_loop`` is blocked in ``readline`` also
-        deadlocks on Windows (Release Verify fixture timeout via
-        ``shutdown_harper_runtime`` → ``close``). Close stdin only, terminate/kill
+        deadlocks on Windows. Close stdin only, terminate/kill
         so process death unblocks the reader, join the stdout thread with a short
         timeout, then close stdout. ManagedSubprocess.close() and kill_tree() are
         a different shutdown and are not used here.
@@ -755,14 +744,7 @@ def _broadcast_proofread_again() -> None:
     """Writer may have already walked the document while harper-ls was starting."""
     from plugin.writer.locale.grammar_persistence import grammar_registry
 
-    for pr in list(grammar_registry.live_proofreaders):
-        fn = getattr(pr, "broadcast_proofread_again", None)
-        if not callable(fn):
-            continue
-        try:
-            fn()
-        except Exception:
-            log.debug("[harper] PROOFREAD_AGAIN failed", exc_info=True)
+    grammar_registry.broadcast_proofread_again(log_prefix="[harper]")
 
 
 def _schedule_proofread_again() -> None:
@@ -777,37 +759,15 @@ def harper_ensure_ready_async(user_config_dir: str, bcp47: str = "en-US") -> boo
     return runtime.ensure_async(user_config_dir, bcp47)
 
 
-def maybe_start_harper_async(
-    ctx: Any = None,
-    *,
-    user_config_dir: str | None = None,
-    bcp47: str = "en-US",
-) -> bool:
+def maybe_start_harper_async(user_config_dir: str) -> bool:
     """Start background warmup of harper-ls if Harper is the active/enabled grammar engine.
 
     Call after ``init_config`` so ``user_config_dir`` is the LibreOffice profile folder
-    (parent of writeragent.json). Empty path is a no-op. WriterAgent starts from OnStartApp;
-    LibreHarper from HarperProofreader after init_config (no Jobs.xcu). Returns True if submitted.
+    (parent of writeragent.json). Empty path is a no-op. Returns True if submitted.
     """
-    if grammar_settings.provider() != "harper":
+    if grammar_settings.provider() != "harper" or not user_config_dir:
         return False
-
-    ucd = user_config_dir
-    if not ucd:
-        try:
-            if ctx is not None:
-                config.init_config(ctx)
-            ucd = config.user_config_dir() or ""
-        except Exception:
-            ucd = ""
-
-    # Empty profile path would resolve harper/ relative to soffice cwd and FAIL,
-    # which blocks doProofreading for the fail cooldown (Writer will not walk again).
-    if not ucd:
-        log.debug("[harper] skip warmup: user config dir not ready")
-        return False
-
-    return harper_ensure_ready_async(ucd, bcp47=bcp47)
+    return harper_ensure_ready_async(user_config_dir)
 
 
 def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, ctx: Any) -> dict[str, Any] | None:
@@ -816,11 +776,10 @@ def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, ct
     Never downloads or ``Popen``s on the caller thread (UNO ``doProofreading``).
     A ``None`` return is never silent: failures log ERROR, not-ready walks emit obs.
 
-    When ``ctx`` is set (``doProofreading``), the blocking LSP wait runs on a
-    dedicated worker and the caller uses ``wait_while_pumping`` so typing stays
-    alive. Writer runs ``doProofreading`` on a linguistic worker (``Dummy-*``),
-    not VCL: the helper posts PE2I to the main thread instead of pumping on
-    this stack (in-loop PE2I there was a thread-violation dialog).
+    The blocking LSP wait runs on a dedicated worker and the caller uses
+    ``wait_while_pumping`` so typing stays alive. Writer runs ``doProofreading`` on a
+    linguistic worker (``Dummy-*``), not VCL, so the helper posts PE2I to the main
+    thread; pumping on this stack raises LibreOffice's thread-violation dialog.
     """
     if not user_config_dir:
         log.error("[harper] lint skipped: empty user config dir")
@@ -858,7 +817,7 @@ def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, ct
         wait_while_pumping(done, ctx, timeout=_deadline_remaining(deadline))
         if not done.is_set():
             # Cancel unblocks the worker's queue poll so join finishes within
-            # _HARPER_CANCEL_JOIN_SEC instead of holding runtime.lock for ~30s.
+            # _HARPER_CANCEL_JOIN_SEC instead of holding runtime.lock for the rest of _LINT_BUDGET_SEC.
             cancel_event.set()
             handle.join(timeout=_HARPER_CANCEL_JOIN_SEC)
             if not done.is_set():
@@ -896,8 +855,6 @@ def normalize_spaces_1to1(text: str) -> str:
     Preserves exact 1:1 character length and offsets for LSP coordinate mapping.
     Leaves newlines ('\\n', '\\r') untouched.
     """
-    if not text:
-        return ""
     return "".join(" " if ch.isspace() and ch not in "\r\n" else ch for ch in text)
 
 
@@ -924,7 +881,7 @@ def _diagnostics_to_errors(text: str, results: list[Any], lint_text: str) -> dic
 
         errors.append(
             {
-                "wrong": text[start_offset:end_offset] if length else "",
+                "wrong": text[start_offset:end_offset],
                 "correct": suggestions[0] if suggestions else "",
                 "n_error_start": start_offset,
                 "n_error_length": length,
