@@ -60,11 +60,6 @@ try:
 except Exception as e:
     log.warning("Could not register alias importer in editor child process: %s", e)
 
-try:
-    from plugin.scripting.venv.venv_sandbox import apply_auto_imports
-except ImportError:
-    apply_auto_imports = None  # type: ignore[assignment]
-
 _ASSETS_DIR = os.path.normpath(
     os.path.join(_SCRIPT_DIR, "..", "..", "contrib", "scripting", "assets", "editor")
 )
@@ -81,6 +76,7 @@ try:
         stamp_session,
         write_message,
     )
+    from plugin.scripting.venv.venv_sandbox import apply_auto_imports
 except ImportError as e:
     _fatal(f"editor_main: cannot import plugin.scripting dependencies ({e}). sys.path={sys.path!r}", exc=e)
 
@@ -111,9 +107,7 @@ class JediSession:
             return {"items": []}
 
         try:
-            lines_added = 0
-            if apply_auto_imports is not None:
-                code, lines_added = apply_auto_imports(code)
+            code, lines_added = apply_auto_imports(code)
             target_line = line + lines_added
             col_idx = max(0, column - 1)
 

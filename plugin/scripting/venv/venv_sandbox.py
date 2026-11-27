@@ -33,15 +33,9 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from contextvars import ContextVar, copy_context
 from typing import TYPE_CHECKING, Any
 
-log = logging.getLogger(__name__)
-
 if TYPE_CHECKING:
     from collections.abc import Callable
     from plugin.scripting.venv.sandbox_request import SandboxRequest
-
-# ``LocalPythonExecutor.timeout()`` needs an int ≥ 1.
-# ``child_runtime.Deadline.run_for()`` returns a float; ceil with a one-second floor matches alarm semantics.
-_EXECUTOR_ALARM_MIN_SEC = 1.0
 
 from plugin.contrib.smolagents.local_python_executor import (
     ExecutionTimeoutError,
@@ -93,8 +87,13 @@ from plugin.scripting.sandbox import (
     policy_relaxed_roots,
 )
 
+log = logging.getLogger(__name__)
+
 install_alias_authorizer()
 
+# ``LocalPythonExecutor.timeout()`` needs an int ≥ 1.
+# ``child_runtime.Deadline.run_for()`` returns a float; ceil with a one-second floor matches alarm semantics.
+_EXECUTOR_ALARM_MIN_SEC = 1.0
 _MAX_ISOLATED_INIT_SNAPSHOTS = 32
 _INIT_SCRIPT_FILE = "<init script>"
 
@@ -453,16 +452,7 @@ _CELL_OWNED_NAMES = (
     "scoped_dir",
     *_DUCKDB_HELPER_NAMES,
 )
-_INIT_STATE_SKIP_KEYS = frozenset(
-    {
-        "__name__",
-        # _snapshot_init_bindings already drops key.startswith("_"). These two
-        # stay so a future filter change does not seed the framework counters.
-        "_print_outputs",
-        "_operations_count",
-        *_CELL_OWNED_NAMES,
-    }
-)
+_INIT_STATE_SKIP_KEYS = frozenset(_CELL_OWNED_NAMES)
 
 
 class CellNamespace:
@@ -718,6 +708,8 @@ def _snapshot_init_bindings(init_session_id: str) -> dict[str, Any]:
     executor = SESSIONS.executor(init_session_id)
     if executor is None:
         return {}
+    # The '_' prefix test also keeps executor bookkeeping (__name__, _print_outputs,
+    # _operations_count) out of the next cell.
     return {
         key: value
         for key, value in executor.state.items()
