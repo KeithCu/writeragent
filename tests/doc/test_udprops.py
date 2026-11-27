@@ -56,38 +56,18 @@ def test_set_document_property_twice_uses_set_not_add():
 
 def test_set_document_property_no_bag_returns_false():
     class _NoBag:
-        pass
+        def getDocumentProperties(self):
+            return None
 
     assert set_document_property(_NoBag(), "P", "v") is False
 
     class _NoUserDefined:
         def getDocumentProperties(self):
             class _PropsWithoutUserDefined:
-                pass
+                UserDefinedProperties = None
             return _PropsWithoutUserDefined()
 
     assert set_document_property(_NoUserDefined(), "P", "v") is False
-
-
-def test_set_document_property_existing_without_setter_does_not_add():
-    class _Info:
-        def hasPropertyByName(self, name):
-            return True
-
-    class _PropsWithoutSetter:
-        def __init__(self):
-            self.add_calls = []
-
-        def getPropertySetInfo(self):
-            return _Info()
-
-        def addProperty(self, name, attrs, value):
-            self.add_calls.append((name, value))
-
-    props = _PropsWithoutSetter()
-    doc = _DocWithUserDefinedProperties(props)
-    assert set_document_property(doc, "P", "v") is False
-    assert len(props.add_calls) == 0
 
 
 def test_set_document_property_add_collision_raises_uno_object_error():
@@ -109,7 +89,8 @@ def test_set_document_property_add_collision_raises_uno_object_error():
 
 def test_remove_document_property_absent_and_present():
     class _NoBag:
-        pass
+        def getDocumentProperties(self):
+            return None
 
     assert remove_document_property(_NoBag(), "P") is True
 

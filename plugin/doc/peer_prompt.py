@@ -4,7 +4,10 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 # Module import, not a name import: tests patch plugin.doc.peer_message.list_v1_peers
 # at the owner, and that one patch must also cover this prompt builder.
@@ -148,12 +151,12 @@ PEER_INNER_CHOICE_RULES = (
 )
 
 
-def format_peer_outer_delegate_hint(model: Any) -> str:
+def format_peer_outer_delegate_hint() -> str:
     """Outer DO+why with the sub-agent gateway name."""
     return PEER_OUTER_DELEGATE_HINT.format(delegate=DELEGATE_SUBAGENT_TOOL)
 
 
-def _peer_block_on_main_thread(build: Any, fail_log: str) -> str:
+def _peer_block_on_main_thread(build: Callable[[], str], fail_log: str) -> str:
     """Run a peer-catalog prompt builder on the UI thread. Empty string on failure."""
     try:
         return main.run(build)
@@ -176,7 +179,7 @@ def get_peer_messaging_prompt_block(model: Any, ctx: Any) -> str:
         peers = peer_message.list_v1_peers(ctx, model)
         if not peers:
             return ""
-        return format_peer_outer_delegate_hint(model)
+        return format_peer_outer_delegate_hint()
 
     return _peer_block_on_main_thread(_build, "peer messaging prompt block failed")
 

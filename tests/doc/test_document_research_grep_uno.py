@@ -141,7 +141,7 @@ def test_grep_writer_hides_multi_para_tracked_deletion_uno(ctx, doc):
 
     strike_across_paragraphs(doc, doc.getText())
     services = get_services()
-    gone_matches, _ = _grep_text_in_writer(doc, services, "gone2", max_results=5)
+    gone_matches, _ = _grep_text_in_writer(doc, services, "gone2", regex=False, case_sensitive=False, max_results=5)
     assert gone_matches == [], gone_matches
-    after_matches, _ = _grep_text_in_writer(doc, services, "After", max_results=5)
+    after_matches, _ = _grep_text_in_writer(doc, services, "After", regex=False, case_sensitive=False, max_results=5)
     assert len(after_matches) == 1, after_matches

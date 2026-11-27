@@ -44,7 +44,7 @@ def _user_defined_properties(model: Any) -> Any:
     doc_props = _document_properties_bag(model)
     if doc_props is None:
         return None
-    return thread_guard.unwrap_uno(getattr(doc_props, "UserDefinedProperties", None))
+    return thread_guard.unwrap_uno(doc_props.UserDefinedProperties)
 
 
 def read_document_property(model: Any, name: str, default: Any = None) -> Any:
@@ -93,12 +93,8 @@ def set_document_property(model: Any, name: str, value: Any) -> bool:
             return False
 
         if _user_defined_property_exists(props, name):
-            if not hasattr(props, "setPropertyValue"):
-                return False
             uno_call(lambda: props.setPropertyValue(name, str(value)), "Set property value")
         else:
-            if not hasattr(props, "addProperty"):
-                return False
             REMOVABLE = uno.getConstantByName("com.sun.star.beans.PropertyAttribute.REMOVABLE")
             uno_call(lambda: props.addProperty(name, REMOVABLE, str(value)), "Add property")
         return True
@@ -123,8 +119,6 @@ def _document_properties_bag(model: Any) -> Any | None:
     raw_model = thread_guard.unwrap_uno(model)
     if raw_model is None:
         raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
-    if not hasattr(raw_model, "getDocumentProperties"):
-        return None
     return uno_call(raw_model.getDocumentProperties, "Get document properties")
 
 
@@ -135,8 +129,6 @@ def list_user_defined_document_properties(model: Any) -> list[str]:
         return []
     try:
         info = uno_call(props.getPropertySetInfo, "Get user-defined property set info")
-        if info is None:
-            return []
         names: list[str] = []
         for prop in uno_call(info.getProperties, "List user-defined properties"):
             if prop.Name:
@@ -147,14 +139,6 @@ def list_user_defined_document_properties(model: Any) -> list[str]:
     except Exception:
         log.exception("list_user_defined_document_properties failed")
         return []
-
-
-def _keywords_to_str_list(keywords: Any) -> list[str]:
-    if keywords is None:
-        return []
-    if isinstance(keywords, (list, tuple)):
-        return [str(k) for k in keywords]
-    return [str(keywords)]
 
 
 _BUILTIN_DOCUMENT_PROPERTY_FIELDS: tuple[tuple[str, str], ...] = (
@@ -169,22 +153,16 @@ def read_builtin_document_properties(model: Any) -> dict[str, Any]:
     """Built-in metadata on ``getDocumentProperties()`` (strings + keyword list)."""
     doc_props = _document_properties_bag(model)
     if doc_props is None:
-        return {
-            "title": "",
-            "subject": "",
-            "author": "",
-            "description": "",
-            "keywords": [],
-        }
+        return {**{k: "" for k, _unused in _BUILTIN_DOCUMENT_PROPERTY_FIELDS}, "keywords": []}
     out: dict[str, Any] = {}
     for field_key, attr in _BUILTIN_DOCUMENT_PROPERTY_FIELDS:
 
         def _read_field(a: str = attr, dp: Any = doc_props) -> str:
-            return str(getattr(dp, a, None) or "")
+            return str(getattr(dp, a) or "")
 
         out[field_key] = uno_call(_read_field, f"Read {attr}")
-    keywords_raw = uno_call(lambda: getattr(doc_props, "Keywords", None), "Read Keywords")
-    out["keywords"] = _keywords_to_str_list(keywords_raw)
+    keywords_raw = uno_call(lambda: doc_props.Keywords, "Read Keywords")
+    out["keywords"] = [str(k) for k in keywords_raw]
     return out
 
 
@@ -208,7 +186,7 @@ def write_builtin_document_properties(model: Any, **fields: Any) -> list[str]:
         kw = fields["keywords"]
 
         def _write_keywords(k: Any = kw, dp: Any = doc_props) -> None:
-            setattr(dp, "Keywords", tuple(str(item) for item in k))
+            dp.Keywords = tuple(str(item) for item in k)
 
         uno_call(_write_keywords, "Write Keywords")
         updated.append("keywords")

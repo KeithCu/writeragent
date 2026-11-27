@@ -30,7 +30,7 @@ from plugin.framework.tool_schema import page_index_param
 from plugin.framework.uno_context import enum_has_more, uno_same
 
 if TYPE_CHECKING:
-    from plugin.framework.tool import ToolContext
+    from plugin.framework.tool import ToolBase, ToolContext
 
 # offapi/com/sun/star/office/XAnnotationAccess.idl — implemented on Impress/Draw pages in
 # sd/source/ui/inc/unopage.hxx (SdGenericDrawPage), though drawing.DrawPage does not publish it.
@@ -79,7 +79,7 @@ def _page_supports_annotations(page: Any) -> bool:
     )
 
 
-def _annotations_unavailable(tool: Any, page_index: int) -> dict[str, Any]:
+def _annotations_unavailable(tool: ToolBase, page_index: int) -> dict[str, Any]:
     return tool._tool_error(
         "Page %d does not support comments (annotations)." % page_index,
         code="ANNOTATIONS_UNAVAILABLE",
@@ -91,19 +91,13 @@ def _iter_annotations_on_page(page: Any) -> list[Any]:
     """Return annotations in ``createAnnotationEnumeration`` order.
 
     That order is the ``index`` contract for ``page_comment_delete`` (see
-    ``offapi/com/sun/star/office/XAnnotationAccess.idl``). ``createAnnotationEnumeration``
-    (svx/source/annotation/AnnotationEnumeration.cxx, ``createAnnotationEnumeration``)
-    always returns an enumeration, empty when the page has no comments; the None guard
-    below only protects against a runtime or stub that hands back nothing, and yields
-    an empty list rather than raising.
+    ``offapi/com/sun/star/office/XAnnotationAccess.idl``).
     """
     try:
         enum = page.createAnnotationEnumeration()
     except Exception as exc:
         reraise_if_disposed(exc)
         raise
-    if enum is None:
-        return []
     items: list[Any] = []
     try:
         while enum_has_more(enum):
@@ -148,7 +142,7 @@ def _page_targets(
 
 
 def _collect_comments(
-    tool: Any,
+    tool: ToolBase,
     page_targets: list[tuple[int, Any]],
 ) -> tuple[list[tuple[int, int, Any]], dict[str, Any] | None]:
     rows: list[tuple[int, int, Any]] = []
@@ -166,7 +160,7 @@ def _list_truncation_hint(count: int, total: int, next_offset: int, *, one_page:
     return "Showing %d of %d. Pass offset=%d to continue, or page to one slide." % (count, total, next_offset)
 
 
-def _run_page_comment_mutation(tool: Any, doc: Any, mutate: Any) -> dict[str, Any] | None:
+def _run_page_comment_mutation(tool: ToolBase, doc: Any, mutate: Any) -> dict[str, Any] | None:
     return commit_or_rollback_mutation(
         tool,
         doc,
@@ -198,7 +192,7 @@ class ListPageComments(ToolDrawCommentBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         offset = kwargs["offset"]
-        if type(offset) is not int or offset < 0:
+        if offset < 0:
             return self._tool_error("offset must be a non-negative integer.", code="INVALID_PARAM")
 
         bridge = DrawBridge(ctx.doc)
@@ -265,8 +259,7 @@ class AddPageComment(ToolDrawCommentBase):
             return _annotations_unavailable(self, actual_idx)
 
         text = normalize_linebreaks(str(raw_text))
-        author_kw = kwargs.get("author")
-        author_strip = (author_kw or "").strip() if author_kw is not None else ""
+        author_strip = (kwargs.get("author") or "").strip()
 
         outcome: dict[str, Any] = {}
 
@@ -326,8 +319,8 @@ class DeletePageComment(ToolDrawCommentBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        index = kwargs.get("index")
-        if type(index) is not int or index < 0:
+        index = kwargs["index"]
+        if index < 0:
             return self._tool_error("index must be a non-negative integer.", code="INVALID_PARAM")
 
         bridge = DrawBridge(ctx.doc)

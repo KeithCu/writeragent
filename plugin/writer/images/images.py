@@ -573,7 +573,7 @@ class ImageListNearbyFiles(ToolWriterImageBase):
         filt = kwargs.get("filter")
 
         def _run() -> dict[str, Any]:
-            return list_nearby_files(ctx.ctx, ctx.doc, filter=filt, file_kind="images")
+            return list_nearby_files(ctx.ctx, ctx.doc, name_filter=filt, file_kind="images")
 
         return main.run(_run, timeout=60.0)
 

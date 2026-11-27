@@ -95,8 +95,8 @@ def is_writer_like(doc_type: str) -> bool:
     return doc_type in ("writer", "web")
 
 
-# 1 inch = 2540 1/100 mm = 96 CSS px. Round both directions: truncating
-# px_to_units made units_to_px(px_to_units(10)) return 9.
+# 1 inch = 2540 1/100 mm = 96 CSS px. Both directions round; with truncation
+# units_to_px(px_to_units(10)) would be 9.
 UNITS_PER_INCH = 2540
 PX_PER_INCH = 96
 
@@ -104,7 +104,7 @@ PX_PER_INCH = 96
 # round(float(mm) * 100) preserves fractional millimetres in 1/100 mm units—int(mm) truncates.
 def mm_to_unit(mm: int | float) -> int:
     """Nearest LibreOffice 1/100 mm. Python round (half to even)."""
-    return int(round(float(mm) * 100))
+    return round(float(mm) * 100)
 
 
 def mm_to_units(width_mm: int | float, height_mm: int | float) -> tuple[int, int]:
@@ -113,7 +113,7 @@ def mm_to_units(width_mm: int | float, height_mm: int | float) -> tuple[int, int
 
 def px_to_units(width_px: int | float, height_px: int | float) -> tuple[int, int]:
     """Convert 96-DPI pixels to LibreOffice 1/100 mm units."""
-    return int(round(width_px * UNITS_PER_INCH / PX_PER_INCH)), int(round(height_px * UNITS_PER_INCH / PX_PER_INCH))
+    return round(width_px * UNITS_PER_INCH / PX_PER_INCH), round(height_px * UNITS_PER_INCH / PX_PER_INCH)
 
 
 # On-page inset for generated (and other px-sized) graphics. API pixels are
@@ -142,8 +142,8 @@ def px_to_display_units(width_px: int | float, height_px: int | float) -> tuple[
 
 def units_to_px(width_units: int | float, height_units: int | float, *, minimum: int = 1) -> tuple[int, int]:
     """Convert LibreOffice 1/100 mm units to 96-DPI pixels."""
-    width_px = int(round(width_units * PX_PER_INCH / UNITS_PER_INCH))
-    height_px = int(round(height_units * PX_PER_INCH / UNITS_PER_INCH))
+    width_px = round(width_units * PX_PER_INCH / UNITS_PER_INCH)
+    height_px = round(height_units * PX_PER_INCH / UNITS_PER_INCH)
     return max(minimum, width_px), max(minimum, height_px)
 
 
@@ -151,21 +151,13 @@ def graphic_pixel_size(graphic: Any) -> tuple[int | None, int | None]:
     """Read pixel dimensions from an XGraphic, falling back to a 96-DPI frame from Size100thMM."""
     if graphic is None:
         return None, None
-    try:
-        px = safe_get_property(graphic, "SizePixel")
-        if px is not None and getattr(px, "Width", 0) > 0 and getattr(px, "Height", 0) > 0:
-            return int(px.Width), int(px.Height)
-    except Exception as ex:
-        if is_disposal(ex):
-            raise
-    try:
-        hmm = safe_get_property(graphic, "Size100thMM")
-        if hmm is not None and (getattr(hmm, "Width", 0) > 0 or getattr(hmm, "Height", 0) > 0):
-            # units_to_px rounds (1000 1/100 mm → 38 px) and applies minimum=1.
-            return units_to_px(float(hmm.Width), float(hmm.Height))
-    except Exception as ex:
-        if is_disposal(ex):
-            raise
+    px = safe_get_property(graphic, "SizePixel")
+    if px is not None and px.Width > 0 and px.Height > 0:
+        return int(px.Width), int(px.Height)
+    hmm = safe_get_property(graphic, "Size100thMM")
+    if hmm is not None and (hmm.Width > 0 or hmm.Height > 0):
+        # units_to_px rounds (1000 1/100 mm → 38 px) and applies minimum=1.
+        return units_to_px(float(hmm.Width), float(hmm.Height))
     return None, None
 
 
@@ -467,7 +459,6 @@ def _graphics_in_text_range(doc: Any, range_obj: Any) -> list[tuple[str, Any]]:
             found.append((name, graphic))
         except Exception as exc:
             log.debug("graphic %s anchor compare failed (%s)", name, type(exc).__name__)
-            continue
     return _sort_graphics_by_anchor(text, found)
 
 
@@ -886,15 +877,7 @@ def graphic_from_object(obj: Any) -> Any | None:
     """Return the UNO Graphic for a text graphic or draw GraphicObjectShape."""
     if obj is None:
         return None
-    graphic = safe_get_property(obj, "Graphic")
-    if graphic is not None:
-        return graphic
-    try:
-        return obj.Graphic
-    except Exception as ex:
-        reraise_if_disposed(ex)
-        log.debug("graphic_from_object missing Graphic: %s", ex)
-    return None
+    return safe_get_property(obj, "Graphic")
 
 
 def without_sheet_index_off_calc(params: dict[str, Any], doc_type: str | None) -> dict[str, Any]:

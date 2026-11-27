@@ -11,18 +11,15 @@ so the descriptions steer the model to undo only its own last action and to tell
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
 from plugin.framework.errors import is_disposal, reraise_if_disposed
 from plugin.framework.tool import ToolBase, ToolContext
 
-log = logging.getLogger("writeragent.undo")
-
 
 def commit_or_rollback_mutation(
-    tool: Any,
+    tool: ToolBase,
     doc: Any,
     undo_title: str,
     mutate: Any,

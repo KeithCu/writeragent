@@ -884,10 +884,6 @@ def test_graphic_from_object_reraise_disposed():
 
     class GraphicDisposedObject:
         def getPropertyValue(self, name: str):
-            return None
-
-        @property
-        def Graphic(self):
             raise DisposedException("closed")
 
     with pytest.raises(DocumentDisposedError):

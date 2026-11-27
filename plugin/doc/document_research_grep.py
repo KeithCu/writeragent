@@ -14,6 +14,7 @@ import os
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    import re
     from collections.abc import Callable
 
 from plugin.doc.document_research import (
@@ -29,7 +30,12 @@ from plugin.doc.document_research import (
 )
 from plugin.calc.spreadsheet_search import search_spreadsheet_cells
 from plugin.doc.paragraph_search import compile_search_pattern, search_paragraph_texts
-from plugin.doc.text_helpers import TrackedDeletions, get_string_without_tracked_deletions
+from plugin.doc.text_helpers import (
+    PARAGRAPH_SERVICE,
+    TEXT_TABLE_SERVICE,
+    TrackedDeletions,
+    get_string_without_tracked_deletions,
+)
 from plugin.framework.errors import make_tool_error, uno_read, user_stopped_payload
 from plugin.framework.queue_executor import main
 from plugin.framework.send_cancellation import SendCancelled, SendCancellation, is_cancelled
@@ -71,7 +77,7 @@ def resolve_grep_candidates(
     *file_subset* is a basename token (e.g. ``budget`` → ``*budget*.od*``),
     an absolute path (including ``~`` expansion), or a ``file://`` URL of one file.
     """
-    raw = unquote_path(file_subset) if file_subset else None
+    raw = file_subset
 
     if raw:
         target = resolve_file_target(raw)
@@ -83,7 +89,7 @@ def resolve_grep_candidates(
     listing = scan_nearby_files(
         ctx,
         active_model,
-        filter=raw,
+        name_filter=raw,
         file_kind="documents",
         state=state,
         cancel=cancel,
@@ -109,25 +115,24 @@ def _grep_text_in_writer(
     services: Any,
     pattern: str,
     *,
-    regex: bool = False,
-    case_sensitive: bool = False,
+    regex: bool,
+    case_sensitive: bool,
     max_results: int,
     cancel: SendCancellation | None = None,
 ) -> tuple[list[dict[str, Any]], bool]:
     doc_svc = services.document
     para_ranges = doc_svc.get_paragraph_ranges(model)
     para_texts: list[str] = []
-    # getString() includes tracked deletions, so a keyword the author
-    # removed still matched. Grep is a read of the visible document;
-    # this is the same helper other reads use. The search is already on
-    # the main thread.
+    # getString() includes tracked deletions, so the paragraphs are read with the
+    # tracked-deletion helper: grep must not match a keyword the author removed.
+    # The search is already on the main thread.
     state = TrackedDeletions(model).state_at(model.getText())
     for para in para_ranges:
         if is_cancelled(cancel):
             break
-        if para.supportsService("com.sun.star.text.Paragraph"):
+        if para.supportsService(PARAGRAPH_SERVICE):
             para_texts.append(get_string_without_tracked_deletions(para, state))
-        elif not state.in_delete and para.supportsService("com.sun.star.text.TextTable"):
+        elif not state.in_delete and para.supportsService(TEXT_TABLE_SERVICE):
             cell_texts = [
                 uno_read(lambda: get_string_without_tracked_deletions(para.getCellByName(name)), "")
                 for name in (para.getCellNames() or ())
@@ -162,8 +167,8 @@ def _grep_text_in_calc(
     model: Any,
     pattern: str,
     *,
-    regex: bool = False,
-    case_sensitive: bool = False,
+    regex: bool,
+    case_sensitive: bool,
     max_results: int,
     cancel: SendCancellation | None = None,
 ) -> tuple[list[dict[str, Any]], bool]:
@@ -183,29 +188,12 @@ def _grep_text_in_calc(
     return fetched[:max_results], partial
 
 
-def _shape_text_matches_pattern(
-    text: str,
-    pattern: str,
-    *,
-    regex: bool,
-    case_sensitive: bool,
-    compiled: Any,
-) -> bool:
-    if not text:
-        return False
-    if regex and compiled is not None:
-        return compiled.search(text) is not None
-    if case_sensitive:
-        return pattern in text
-    return pattern.lower() in text.lower()
-
-
 def _grep_text_in_draw(
     model: Any,
     pattern: str,
     *,
-    regex: bool = False,
-    case_sensitive: bool = False,
+    regex: bool,
+    case_sensitive: bool,
     max_results: int,
     cancel: SendCancellation | None = None,
 ) -> tuple[list[dict[str, Any]], bool]:
@@ -235,9 +223,6 @@ def _grep_text_in_draw(
         page_matches, shapes_visited, page_partial = _grep_shapes_on_page(
             page,
             page_idx,
-            pattern,
-            regex=regex,
-            case_sensitive=case_sensitive,
             compiled=compiled,
             max_results=remaining,
             shapes_visited=shapes_visited,
@@ -257,11 +242,8 @@ def _grep_text_in_draw(
 def _grep_shapes_on_page(
     xshapes: Any,
     page_index: int,
-    pattern: str,
     *,
-    regex: bool,
-    case_sensitive: bool,
-    compiled: Any,
+    compiled: re.Pattern[str],
     max_results: int,
     shapes_visited: int,
     path_prefix: str = "",
@@ -285,7 +267,7 @@ def _grep_shapes_on_page(
         shape_path = f"{path_prefix}{i}" if path_prefix else str(i)
 
         text = str(uno_read(lambda: shape.getString(), "") or "").strip()
-        if text and _shape_text_matches_pattern(text, pattern, regex=regex, case_sensitive=case_sensitive, compiled=compiled):
+        if text and compiled.search(text):
             snippet = _snippet(text)
             matches.append({"page_index": page_index, "shape_index": shape_path, "text": snippet})
 
@@ -293,9 +275,6 @@ def _grep_shapes_on_page(
             group_matches, shapes_visited, group_partial = _grep_shapes_on_page(
                 shape,
                 page_index,
-                pattern,
-                regex=regex,
-                case_sensitive=case_sensitive,
                 compiled=compiled,
                 max_results=max_results - len(matches),
                 shapes_visited=shapes_visited,

@@ -537,7 +537,7 @@ def _make_selection_range(*, compare: int = 0, is_shape: bool = False) -> MagicM
     rng.getEnd.return_value = MagicMock()
     rng.getText.return_value.compareRegionStarts.return_value = compare
     if is_shape:
-        rng.supportsService.side_effect = lambda s: 1 if s == "com.sun.star.drawing.Shape" else 0
+        rng.supportsService.side_effect = lambda s: s == "com.sun.star.drawing.Shape"
     return rng
 
 

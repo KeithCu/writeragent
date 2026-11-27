@@ -21,7 +21,10 @@ from __future__ import annotations
 import copy
 from dataclasses import dataclass, field
 import logging
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 from plugin.framework.constants import DELEGATE_SUBAGENT_TOOL
 from plugin.framework.doc_type import DOCUMENT_SERVICES
@@ -82,7 +85,7 @@ def _outer_turn_is_peer_work(ctx: ToolContext) -> bool:
         doc = ctx.doc
         if doc is None:
             return False
-        uid = get_runtime_uid(doc) or ""
+        uid = get_runtime_uid(doc)
         if not uid:
             return False
         panel = get_live_panel(uid)
@@ -112,11 +115,8 @@ def _outer_turn_is_peer_work(ctx: ToolContext) -> bool:
         return False
 
 
-def _main_thread_or_warn(fn: Any, what: str) -> Any:
-    """Marshal fn to the main thread. Re-raise real document disposal.
-
-    Re-raise document disposal when building specialized context; other failures keep the empty fallback.
-    """
+def _main_thread_or_warn(fn: Callable[[], Any], what: str) -> Any:
+    """Run *fn* on the main thread. Document disposal is re-raised; any other failure is logged and reads as ''."""
     try:
         return main.call(fn)
     except Exception as e:
@@ -624,7 +624,7 @@ class DelegateToSubagent(ToolBase):
         return payload
 
 
-def narrow_delegate_domain_enums(schemas: list[dict[str, Any]], tools: list[Any], uno_services: frozenset[str] | None) -> list[dict[str, Any]]:
+def narrow_delegate_domain_enums(schemas: list[dict[str, Any]], tools: list[ToolBase], uno_services: frozenset[str] | None) -> list[dict[str, Any]]:
     """Drop gateway ``domain`` enum values that cannot run on the document's UNO services.
 
     MCP: also rewrites the ``domain`` description so it lists only bound domains;

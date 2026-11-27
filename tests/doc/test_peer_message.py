@@ -113,6 +113,7 @@ def test_envelope_from_ctx_doc():
         uid=ident["uid"],
         url=ident["url"],
         message="Compute Q4.",
+        kind="work",
     )
     assert wrapped.startswith("[Peer work from: Budget 2026.ods | uid=uid-budget |")
     assert "peer_ask_id" not in wrapped
@@ -811,11 +812,11 @@ def test_format_peer_envelope_flattens_header_fields():
     assert header.count("|") == 2
     assert "uid=u 1" in header
     long_header = format_peer_envelope(
-        name="n" * 500, uid="u", url="", message="m"
+        name="n" * 500, uid="u", url="", message="m", kind="work"
     ).splitlines()[0]
     assert long_header.count("n") == 200
     long_url = "file:///tmp/" + "d/" * 150 + "x.odt"
-    url_header = format_peer_envelope(name="n", uid="u", url=long_url, message="m").splitlines()[0]
+    url_header = format_peer_envelope(name="n", uid="u", url=long_url, message="m", kind="work").splitlines()[0]
     assert f"url={long_url}]" in url_header
 
 
@@ -1100,16 +1101,6 @@ def test_peer_queue_pop_oldest_is_fifo_across_listeners():
     assert q.pop_oldest() == (listener_b, turn_b1)
     assert q.pop_oldest() == (listener_a, turn_a2)
     assert q.pop_oldest() is None
-
-
-def test_format_peer_envelope_none_message_is_empty_body():
-    res = format_peer_envelope(name="A", uid="u", url="", message=None, kind="result")
-    assert res == "[Peer result from: A | uid=u | url=]\n\n"
-    assert "None" not in res
-
-    work = format_peer_envelope(name="A", uid="u", url="", message=None, kind="work")
-    assert PEER_WORK_DELIVERY_FOOTER in work
-    assert "\n\nNone\n\n" not in work
 
 
 def test_resolve_self_display_name_is_peer_self():
