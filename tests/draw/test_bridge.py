@@ -26,7 +26,6 @@ def _chat_ctx(
     is_impress=False,
     url="file:///tmp/demo.odg",
     max_context=8000,
-    ctx=None,
 ):
     if page is None:
         page = MagicMock()
@@ -47,11 +46,11 @@ def _chat_ctx(
         patch("plugin.draw.bridge.DrawBridge", return_value=bridge),
         patch("plugin.draw.bridge.uno_call", side_effect=lambda fn, _msg: fn()),
     ):
-        return get_draw_context_for_chat(model, max_context, ctx=ctx)
+        return get_draw_context_for_chat(model, max_context)
 
 
-def test_get_draw_context_for_chat_disposed_returns_fallback():
-    out = get_draw_context_for_chat(None)
+def test_get_draw_context_for_chat_no_draw_page_returns_fallback():
+    out = get_draw_context_for_chat(object(), 8000)
     assert "Unable to read Draw/Impress context" in out
 
 
@@ -1193,7 +1192,7 @@ def test_get_draw_context_for_chat_speaker_notes_disposed():
     mock_page.getNotesPage.side_effect = DocumentDisposedError("stale")
 
     with pytest.raises(DocumentDisposedError):
-        _chat_ctx([], page=mock_page, is_impress=True, max_context=1000, ctx=MagicMock())
+        _chat_ctx([], page=mock_page, is_impress=True, max_context=1000)
 
 
 def test_get_draw_context_for_chat_includes_slide_dimensions():
@@ -1205,7 +1204,6 @@ def test_get_draw_context_for_chat_includes_slide_dimensions():
         is_impress=True,
         url="file:///tmp/deck.odp",
         max_context=1000,
-        ctx=MagicMock(),
     )
 
     assert "Slide Size: width=28000, height=15750 (1/100 mm)" in out

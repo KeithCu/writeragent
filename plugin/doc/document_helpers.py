@@ -200,7 +200,7 @@ def get_document_context_for_chat(
     selection: Any | None = None,
 ) -> str:
     """Build a single context string for chat. Handles Writer, Calc and Draw.
-    ctx: component context (required for Calc and Draw documents).
+    ctx: component context (required for Calc documents).
     selection: optional Writer text range to mark instead of reading the live view."""
     try:
         doc_type = _doc_type.get_document_type(model)
@@ -216,7 +216,7 @@ def get_document_context_for_chat(
         if doc_type in (_doc_type.DocumentType.DRAW, _doc_type.DocumentType.IMPRESS):
             from plugin.draw.bridge import get_draw_context_for_chat
 
-            return get_draw_context_for_chat(model, max_context, ctx)
+            return get_draw_context_for_chat(model, max_context)
 
         # Writer: plain-text start/end slices (hides tracked deletions). Math OLE is not
         # in getString(); we only hint to call get_content.

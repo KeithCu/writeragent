@@ -166,7 +166,7 @@ def test_create_custom_shape_octagon(ctx, doc):
 @with_native_doc("draw")
 def test_get_draw_context_for_chat(ctx, doc):
     from plugin.draw.bridge import get_draw_context_for_chat
-    ctx_str = get_draw_context_for_chat(doc, 8000, ctx)
+    ctx_str = get_draw_context_for_chat(doc, 8000)
     has_doc_type = "Draw Document" in ctx_str or "Impress Presentation" in ctx_str
     has_total = "Total" in ctx_str and ("Pages" in ctx_str or "Slides" in ctx_str)
     assert has_doc_type and has_total, "get_draw_context_for_chat missing expected headers"
