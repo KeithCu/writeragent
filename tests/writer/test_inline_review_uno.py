@@ -144,7 +144,6 @@ def _agent_edit(doc, ctx, *pairs):
     with EditReviewSession(doc, ctx, enabled=True) as session:
         for old, new in pairs:
             session.record_mutation(_tracked_replace_fn(doc, old, new))
-    session.cleanup()
     return session
 
 

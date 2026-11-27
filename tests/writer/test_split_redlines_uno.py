@@ -40,7 +40,6 @@ def test_split_small_change_makes_tight_surgical_changes_uno(ctx, doc):
     new = _LONG.replace("quick", "fast").replace("lazy", "sleepy")
     with EditReviewSession(doc, ctx, enabled=True) as session:
         record_preserve_replace(session, doc, found, new, True)
-    session.cleanup()
     changes = agent_changes(doc)
     assert len(changes) == 2, "a 2-word tweak must split into 2 surgical changes: %r" % changes
     assert sorted(c["old"] for c in changes) == ["lazy", "quick"], changes
@@ -56,7 +55,6 @@ def test_split_adjacent_words_agglutinate_into_one_change_uno(ctx, doc):
     new = _LONG.replace("quick brown", "slow grey")
     with EditReviewSession(doc, ctx, enabled=True) as session:
         record_preserve_replace(session, doc, found, new, True)
-    session.cleanup()
     changes = agent_changes(doc)
     assert len(changes) == 1, "adjacent changed words must agglutinate into 1 change: %r" % changes
     assert changes[0]["old"] == "quick brown" and changes[0]["new"] == "slow grey", changes[0]
@@ -71,7 +69,6 @@ def test_split_changes_resolve_individually_uno(ctx, doc):
     new = _LONG.replace("quick", "fast").replace("lazy", "sleepy")
     with EditReviewSession(doc, ctx, enabled=True) as session:
         record_preserve_replace(session, doc, found, new, True)
-    session.cleanup()
     changes = agent_changes(doc)
     assert len(changes) == 2, changes
     tok = [c["token"] for c in changes if c["new"] == "fast"][0]
@@ -88,7 +85,6 @@ def test_split_large_change_stays_single_block_uno(ctx, doc):
     found = find_first(doc, "alpha beta gamma")
     with EditReviewSession(doc, ctx, enabled=True) as session:
         record_preserve_replace(session, doc, found, "totally different replacement words", True)
-    session.cleanup()
     changes = agent_changes(doc)
     assert len(changes) == 1, "a >threshold change must stay a single block change: %r" % changes
 
@@ -103,7 +99,6 @@ def test_split_accept_all_reconstructs_new_text_uno(ctx, doc):
     found = find_first(doc, para)
     with EditReviewSession(doc, ctx, enabled=True) as session:
         record_preserve_replace(session, doc, found, new, True)
-    session.cleanup()
     assert len(agent_changes(doc)) == 2, agent_changes(doc)
     accept_all_changes(doc, ctx)
     assert _para_with(doc, "brown") == new, "accepting all surgical edits must yield the new text, got %r" % _para_with(doc, "brown")
@@ -118,7 +113,6 @@ def test_split_off_when_not_recording_single_change_uno(ctx, doc):
     new = _LONG.replace("quick", "fast").replace("lazy", "sleepy")
     with EditReviewSession(doc, ctx, enabled=True) as session:
         record_preserve_replace(session, doc, found, new, False)  # split=False
-    session.cleanup()
     changes = agent_changes(doc)
     assert len(changes) == 1, "split=False must keep the old single-change behaviour: %r" % changes
 
@@ -135,7 +129,6 @@ def test_review_payload_includes_final_text_uno(ctx, doc):
     with EditReviewSession(doc, ctx, enabled=True) as session:
         record_preserve_replace(session, doc, found, new, True)
         payload = session._review_payload(complete=False, timed_out=False)
-    session.cleanup()
     changes = payload["changes"]
     assert len(changes) == 2, changes
     fts = [c.get("final_text") or "" for c in changes]
@@ -172,7 +165,6 @@ def test_e2e_split_navigate_resolve_report_uno(ctx, doc):
         assert resolve_agent_change(doc, ctx, first, True)[0].status == ResolveStatus.RESOLVED, "accept that one alone"
         assert agent_change_presence(doc)[0] == 1, "the other stays pending"
         payload = session._review_payload(complete=False, timed_out=False)
-    session.cleanup()
     chs = payload["changes"]
     assert len(chs) == 2, chs
     # Each outcome is scoped to the change's own region, so a PARTIAL resolution of two changes
@@ -198,7 +190,6 @@ def test_pure_insertion_and_deletion_outcomes_uno(ctx, doc):
         assert len(chs) == 1 and "runs" in chs[0]["new"], chs
         assert resolve_agent_change(doc, ctx, chs[0]["token"], True)[0].status == ResolveStatus.RESOLVED
         ins = session._review_payload(complete=False, timed_out=False)["changes"][0]
-    session.cleanup()
     assert ins["outcome"] == "accepted" and "runs" in (ins["final_text"] or ""), ins
 
     # Pure deletion, rejected -> "rejected", restored word present in final_text.
@@ -209,7 +200,6 @@ def test_pure_insertion_and_deletion_outcomes_uno(ctx, doc):
         assert len(chs) == 1 and "lazy" in chs[0]["old"], chs
         assert resolve_agent_change(doc, ctx, chs[0]["token"], False)[0].status == ResolveStatus.RESOLVED
         dele = session._review_payload(complete=False, timed_out=False)["changes"][0]
-    session.cleanup()
     assert dele["outcome"] == "rejected" and "lazy" in (dele["final_text"] or ""), dele
 
 
@@ -230,7 +220,6 @@ def test_split_three_runs_resolve_individually_and_reconstruct_uno(ctx, doc):
         mid = [c for c in chs if "DELTA" in c["new"]][0]
         assert resolve_agent_change(doc, ctx, mid["token"], True)[0].status == ResolveStatus.RESOLVED  # accept the middle alone
         assert len(agent_changes(doc)) == 2, "the other two stay pending"
-    session.cleanup()
     accept_all_changes(doc, ctx)  # accept the remaining two
     assert _para_with(doc, "alpha") == new, "paragraph must reconstruct to the agent's text exactly"
 
@@ -247,7 +236,6 @@ def test_final_text_not_truncated_for_deep_change_uno(ctx, doc):
     with EditReviewSession(doc, ctx, enabled=True) as session:
         record_preserve_replace(session, doc, found, new, True)
         payload = session._review_payload(complete=False, timed_out=False)
-    session.cleanup()
     chs = payload["changes"]
     assert len(chs) == 1, chs
     ft = chs[0]["final_text"] or ""
@@ -339,7 +327,6 @@ def test_surgical_partial_apply_rolls_back_atomically_uno(ctx, doc):
     finally:
         fmt.replace_preserving_format = real
         edit_review.replace_preserving_format = real
-    session.cleanup()
 
     assert raised, "a mid-apply sub-edit failure must propagate (honest failure), not be swallowed"
     assert state["n"] == 2, "expected 1 ok + 1 failing apply, got %d calls" % state["n"]
@@ -390,7 +377,6 @@ def test_surgical_first_subedit_failure_preserves_prior_undo_uno(ctx, doc):
     finally:
         fmt.replace_preserving_format = real
         edit_review.replace_preserving_format = real
-    session.cleanup()
 
     assert raised, "the failure must propagate"
     assert "USEREDIT" in _para_with(doc, "Alpha"), \
@@ -436,7 +422,6 @@ def test_prior_surgical_batch_survives_later_empty_failed_batch_uno(ctx, doc):
 
         assert raised, "batch 2's failure must propagate"
         assert len(session.changes) == changes_after_b1, "batch 2 must not drop batch 1's records"
-    session.cleanup()
 
     # Batch 1's edit must still be present (NOT reverted by batch 2's rollback). _para_with skips the
     # tracked deletions, so the live paragraph reads as the post-accept text.
