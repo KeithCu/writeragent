@@ -212,7 +212,8 @@ def aggregate(function_num: Any, options: Any, *args: Any) -> float | str:
     # helper counts True as 1, which test_aggregate_stubs_and_bools forbids.
     fn = int(float(function_num))
     opt = int(float(options))
-    assert 1 <= fn <= 13
+    if not 1 <= fn <= 13:
+        raise ValueError(f"AGGREGATE function {fn} is not supported")
     flat = [np.asarray(arg, dtype=object).ravel() for arg in args]
     ignore_errors = opt in (2, 3, 6, 7)
     # COUNT (2) and COUNTA (3) never return an input error (AGGREGATE(2;4;…) counts the numbers).
@@ -279,12 +280,10 @@ def aggregate(function_num: Any, options: Any, *args: Any) -> float | str:
         # GetMedian sets NoValue (#VALUE!) on an empty vector. np.median([])
         # is NaN plus a RuntimeWarning. Keep the NaN, skip the call.
         return float(np.median(arr)) if arr.size else float("nan")
-    if fn == 13:
-        # ScModalValue on the numbers already kept above. mode() would
-        # count True as 1 if given the raw args. Tie-break is the lowest
-        # value. No repeat is #VALUE! in Calc (ScModalValue).
-        return mode(arr.tolist())
-    return float("nan")
+    # fn is 13: ScModalValue on the numbers already kept above. mode() would
+    # count True as 1 if given the raw args. Tie-break is the lowest value.
+    # No repeat is #VALUE! in Calc (ScModalValue).
+    return mode(arr.tolist())
 
 
 def _round_amor(value: float) -> float:

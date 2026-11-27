@@ -80,7 +80,7 @@ def _duckdb_version_tuple() -> tuple[int, ...]:
     if _DUCKDB_VERSION is not None:
         return _DUCKDB_VERSION
     duckdb = _require_duckdb()
-    raw_ver = str(getattr(duckdb, "__version__", ""))
+    raw_ver = str(duckdb.__version__)
     parts = raw_ver.split(".")[:2]
     if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
         _DUCKDB_VERSION = (int(parts[0]), int(parts[1]))
@@ -553,11 +553,9 @@ class GuardedDuckDBConnection:
         return getattr(self.__con, name)
 
 
-def _raw_duckdb(con: Any) -> Any:
+def _raw_duckdb(con: GuardedDuckDBConnection) -> Any:
     """The connection inside a guard. Module code only — not ``session_duckdb()._con``."""
-    if isinstance(con, GuardedDuckDBConnection):
-        return con._raw_connection()
-    return con
+    return con._raw_connection()
 
 
 def _strip_sql_comments_and_strings(sql: str) -> tuple[str, list[str]]:
@@ -755,8 +753,6 @@ def _register_flat_files(
         p = resolve_flat_file_path(scoped_dir, str(path))
         try:
             rel = _read_flat_relation(raw, p)
-        except SqlError:
-            raise
         except Exception as flat_err:
             raise SqlError(
                 "FLAT_FILE_READ_ERROR",
@@ -857,15 +853,15 @@ def _execute(
     validated: list[str] = []
     resolved_flat = dict(flat_files) if flat_files else {}
 
-    if isinstance(normalized_files, list):
-        validated = _validate_files(scoped_dir, normalized_files) if scoped_dir else []
+    # The check above guarantees files are empty when scoped_dir is; the
+    # scoped_dir tests below only narrow its type.
+    if isinstance(normalized_files, list) and scoped_dir:
+        validated = _validate_files(scoped_dir, normalized_files)
         for p in validated:
             bn = os.path.basename(p)
             if bn not in resolved_flat:
                 resolved_flat[bn] = p
-    elif isinstance(normalized_files, dict):
-        if not scoped_dir:
-            raise SqlError("MISSING_SCOPED_DIR", "scoped_dir is required for file-based queries")
+    elif isinstance(normalized_files, dict) and scoped_dir:
         for k, v in normalized_files.items():
             if k and str(v).strip():
                 resolved_flat[k] = resolve_flat_file_path(scoped_dir, v)

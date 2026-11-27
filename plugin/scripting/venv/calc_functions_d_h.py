@@ -26,6 +26,7 @@ from .calc_functions_util import (
     VALUE_NAN,
     approx_floor,
     as_nonzero,
+    cell_text,
     coupon_schedule,
     criterion_text,
     date_to_serial,
@@ -264,15 +265,14 @@ def _eval_d_criteria(db: Any, field: Any, criteria: Any) -> list[Any] | None:
         crit_cols.append(col)
 
     matching_vals: list[Any] = []
-    for r_idx in range(1, db_arr.shape[0]):
-        row = db_arr[r_idx]
+    for row in db_arr[1:]:
         if not any(
             all(
                 # lcl_createExcelQuery (doubleref.cxx): an error criterion cell has no text, so it restricts nothing.
                 is_criteria_blank(c) or is_calc_error(c) or match_criteria(row[crit_cols[j]], criterion_text(c))
-                for j, c in enumerate(crit_arr[i])
+                for j, c in enumerate(crit_row)
             )
-            for i in range(1, crit_arr.shape[0])
+            for crit_row in crit_arr[1:]
         ):
             continue
         matching_vals.append(row[f_idx])
@@ -421,10 +421,7 @@ def decimal(text: Any, radix: Any) -> float:
     r = approx_floor(float(radix))
     if r < 2 or r > 36:
         return ILLEGAL_ARGUMENT_NAN
-    if isinstance(text, float) and math.isfinite(text) and text.is_integer():
-        s = str(int(text))
-    else:
-        s = py_str(text).strip()
+    s = cell_text(text).strip()
     if not s:
         return float("nan")
     valid_chars = "0123456789abcdefghijklmnopqrstuvwxyz"[:r]
@@ -577,24 +574,18 @@ def duration(settlement: Any, maturity: Any, coupon: Any, yld: Any, frequency: A
     yf = y / f
     cf = c * 100.0 / f
 
-    if yf == 0:
-        pv = float(n * cf + 100.0)
-        if pv == 0:
-            return float("nan")
-        weighted_t = sum(((i - 1) + frac) * (cf + (100.0 if i == n else 0.0)) for i in range(1, n + 1))
-        res = (weighted_t / pv) / f
-    else:
-        pv = 0.0
-        weighted_t = 0.0
-        for i in range(1, n + 1):
-            t_i = (i - 1) + frac
-            cf_i = cf + (100.0 if i == n else 0.0)
-            disc = (1.0 + yf) ** t_i
-            pv += cf_i / disc
-            weighted_t += (t_i * cf_i) / disc
-        if pv == 0:
-            return float("nan")
-        res = (weighted_t / pv) / f
+    # At zero yield disc is exactly 1.0 (1.0 ** t_i), so this is the undiscounted cash-flow average.
+    pv = 0.0
+    weighted_t = 0.0
+    for i in range(1, n + 1):
+        t_i = (i - 1) + frac
+        cf_i = cf + (100.0 if i == n else 0.0)
+        disc = (1.0 + yf) ** t_i
+        pv += cf_i / disc
+        weighted_t += (t_i * cf_i) / disc
+    if pv == 0:
+        return float("nan")
+    res = (weighted_t / pv) / f
 
     return finite_or_nan(float(res))
 

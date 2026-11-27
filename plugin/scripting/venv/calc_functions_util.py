@@ -144,6 +144,17 @@ def py_str(val: Any) -> str:
     return "" if val is None else str(val)
 
 
+def cell_text(val: Any) -> str:
+    """Text of a cell read as a string argument: a whole-number float is "111", not "111.0".
+
+    Anything else is py_str. NaN and infinity are not integers, so they keep their str() text.
+    """
+    val = cell_value(val)
+    if isinstance(val, float) and val.is_integer():
+        return str(int(val))
+    return py_str(val)
+
+
 def whole_number(val: Any) -> int:
     """An index argument as GetInt32 reads it (interpr4.cxx): approxFloor toward zero, a blank cell is 0."""
     val = cell_value(val)
