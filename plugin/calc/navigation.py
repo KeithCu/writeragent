@@ -222,7 +222,7 @@ def _accessible_text(control: Any) -> Any | None:
             child = ctx.getAccessibleChild(i)
             if child is None:
                 continue
-            child_ctx = child.getAccessibleContext() if hasattr(child, "getAccessibleContext") else child
+            child_ctx = child.getAccessibleContext()
             if child_ctx is not None:
                 ax = query_interface(child_ctx, _XACCESSIBLE_TEXT)
                 if ax:
@@ -246,11 +246,9 @@ def _char_index_at_point(control: Any, x: int, y: int) -> int | None:
 
 def _click_text_index(control: Any, x: int, y: int) -> int | None:
     """Character index under the mouse, preferring the control caret after click."""
-    model = control.getModel() if control is not None and hasattr(control, "getModel") else None
-    if model is not None:
-        idx = getattr(model, "SelectionStart", None)
-        if isinstance(idx, int) and idx >= 0:
-            return idx
+    idx = getattr(control.getModel(), "SelectionStart", None)
+    if isinstance(idx, int) and idx >= 0:
+        return idx
     return _char_index_at_point(control, x, y)
 
 
@@ -294,7 +292,9 @@ def cell_address_from_font_state(state: Any) -> str | None:
 
 def _add_caret_font_status_listener(control: Any, listener: Any) -> Any | None:
     """Register *listener* for the caret's Asian font on the rich peer; return the dispatch."""
-    peer = control.getPeer() if hasattr(control, "getPeer") else None
+    # A plain UnoControlEdit peer (the fallback when the rich control is
+    # unavailable) is not an XDispatchProvider, so it has no caret status.
+    peer = control.getPeer()
     if peer is None or not hasattr(peer, "queryDispatch"):
         return None
     # ORichTextPeer::queryDispatch matches on URL.Complete only.

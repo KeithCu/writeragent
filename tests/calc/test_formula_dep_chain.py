@@ -238,6 +238,8 @@ def test_precedents_via_formula_query_reports_whole_column_total(monkeypatch, un
 
 def test_cell_snapshot_formula_text_and_error(uno_calc_stubs):
     class _FormulaCell:
+        FormulaResultType2 = 2  # FormulaResult.STRING
+
         def __init__(self, val: float, text: str, err: int = 0) -> None:
             self._val = val
             self._text = text

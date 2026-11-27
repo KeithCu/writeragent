@@ -137,7 +137,8 @@ def insert_tabular_result_into_calc(
         selection = controller.getSelection()
         if selection is not None and hasattr(selection, "getRangeAddress"):
             addr = selection.getRangeAddress()
-            col, row = int(addr.StartColumn), int(addr.StartRow)
+            col: int = addr.StartColumn
+            row: int = addr.StartRow
         else:
             col, row = 0, 0
         start_col = col if start_col is None else start_col

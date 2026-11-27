@@ -86,7 +86,7 @@ def _used_end(sheet: Any) -> tuple[int, int]:
     cursor = sheet.createCursor()
     cursor.gotoEndOfUsedArea(False)
     addr = cursor.getRangeAddress()
-    return (int(addr.EndRow), int(addr.EndColumn))
+    return (addr.EndRow, addr.EndColumn)
 
 
 def _arm_sheet(ctx: Any, doc: Any, state: WorkbookState, sheet: Any, sheet_name: str) -> None:
@@ -952,7 +952,7 @@ def _spill_is_blocked(
     if num_rows * num_cols <= 1:
         return False
 
-    if row + num_rows > int(sheet.getRows().getCount()) or col + num_cols > int(sheet.getColumns().getCount()):
+    if row + num_rows > sheet.getRows().getCount() or col + num_cols > sheet.getColumns().getCount():
         _record_spill_blocked(doc, code, sheet_name, row, col, num_rows, num_cols, None)
         return True
 
@@ -973,7 +973,7 @@ def _spill_is_blocked(
     for strip in strips:
         occupied = sheet.getCellRangeByPosition(*strip).queryContentCells(CELL_CONTENT_FLAGS).getRangeAddresses()
         if occupied:
-            blocker_row, blocker_col = min((int(a.StartRow), int(a.StartColumn)) for a in occupied)
+            blocker_row, blocker_col = min((a.StartRow, a.StartColumn) for a in occupied)
             log.debug("Spill: collision at %r", (blocker_row, blocker_col))
             _record_spill_blocked(doc, code, sheet_name, row, col, num_rows, num_cols, (blocker_col, blocker_row))
             return True

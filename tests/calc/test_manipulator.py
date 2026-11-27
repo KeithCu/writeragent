@@ -257,9 +257,8 @@ def test_write_formula_range_rejects_wide_array():
     rng.getRangeAddress.return_value = addr
     bridge.resolve_range_or_address.return_value = rng
     manipulator = CellManipulator(bridge)
-    with patch("plugin.calc.manipulator._uno_range_address", return_value=addr):
-        with pytest.raises(CalcError) as exc_info:
-            manipulator.write_formula_range("A1:B2", [[1, 2, 3], [4, 5, 6]])
+    with pytest.raises(CalcError) as exc_info:
+        manipulator.write_formula_range("A1:B2", [[1, 2, 3], [4, 5, 6]])
     msg = str(exc_info.value)
     assert "A1:B2" in msg
     assert "2×3" in msg
@@ -278,9 +277,8 @@ def test_write_formula_range_ragged_grid_names_row():
     rng.getRangeAddress.return_value = addr
     bridge.resolve_range_or_address.return_value = rng
     manipulator = CellManipulator(bridge)
-    with patch("plugin.calc.manipulator._uno_range_address", return_value=addr):
-        with pytest.raises(CalcError) as exc_info:
-            manipulator.write_formula_range("A1:B2", [[1, 2], [3]])
+    with pytest.raises(CalcError) as exc_info:
+        manipulator.write_formula_range("A1:B2", [[1, 2], [3]])
     msg = str(exc_info.value)
     assert "row 2" in msg
     assert "A1:B2" in msg
@@ -297,9 +295,8 @@ def test_write_formula_range_ragged_grid_single_cell_names_row():
     rng.getRangeAddress.return_value = addr
     bridge.resolve_range_or_address.return_value = rng
     manipulator = CellManipulator(bridge)
-    with patch("plugin.calc.manipulator._uno_range_address", return_value=addr):
-        with pytest.raises(CalcError) as exc_info:
-            manipulator.write_formula_range("A1", [[1, 2], [3]])
+    with pytest.raises(CalcError) as exc_info:
+        manipulator.write_formula_range("A1", [[1, 2], [3]])
     assert "row 2" in str(exc_info.value)
 
 
@@ -539,19 +536,19 @@ def test_oversized_write_raises_limit():
     mock_cursor.getRangeAddress.return_value = SimpleNamespace(EndColumn=0, EndRow=0)
     mock_sheet.createCursor.return_value = mock_cursor
     bridge.doc.getSheets.return_value.getByIndex.return_value = mock_sheet
-    bridge.resolve_range_or_address.return_value = MagicMock()
+    bridge.resolve_range_or_address.return_value.getRangeAddress.return_value = huge_addr
     manipulator = CellManipulator(bridge)
 
-    with patch("plugin.calc.manipulator._uno_range_address", return_value=huge_addr):
-        with pytest.raises(CalcError, match="write limit"):
-            manipulator.write_formula_range("A1:XFD1048576", "1")
+    with pytest.raises(CalcError, match="write limit"):
+        manipulator.write_formula_range("A1:XFD1048576", "1")
 
-        # Empty clear of huge range still works (clear_range is uncapped)
-        manipulator.clear_range("A1:XFD1048576")
+    # Empty clear of huge range still works (clear_range is uncapped)
+    manipulator.clear_range("A1:XFD1048576")
 
     # Exactly MAX_WRITE_CELLS is accepted (mocking setDataArray/write path)
     exact_addr = SimpleNamespace(StartColumn=0, EndColumn=MAX_WRITE_CELLS - 1, StartRow=0, EndRow=0, Sheet=0)
     mock_range = MagicMock()
+    mock_range.getRangeAddress.return_value = exact_addr
     mock_sheet = MagicMock()
     mock_range.getSpreadsheet.return_value = mock_sheet
     mock_range.getDataArray.return_value = ()
@@ -559,10 +556,9 @@ def test_oversized_write_raises_limit():
     bridge.doc.getNumberFormats.return_value = MagicMock()
     bridge.doc.getSheets.return_value.getByIndex.return_value = mock_sheet
 
-    with patch("plugin.calc.manipulator._uno_range_address", return_value=exact_addr):
-        with patch("plugin.calc.manipulator.resolve_document_locale", return_value=MagicMock()):
-            res = manipulator.write_formula_range("A1:range", ["1"] * MAX_WRITE_CELLS)
-            assert "filled with" in res["message"]
+    with patch("plugin.calc.manipulator.resolve_document_locale", return_value=MagicMock()):
+        res = manipulator.write_formula_range("A1:range", ["1"] * MAX_WRITE_CELLS)
+        assert "filled with" in res["message"]
 
 
 def test_array_preview_capped():
@@ -601,11 +597,11 @@ def test_sort_range_bounds_and_valid_types():
     bridge = MagicMock()
     mock_range = MagicMock()
     mock_addr = SimpleNamespace(StartColumn=0, EndColumn=1, StartRow=0, EndRow=10)
+    mock_range.getRangeAddress.return_value = mock_addr
     bridge.resolve_range_or_address.return_value = mock_range
 
     manipulator = CellManipulator(bridge)
     with (
-        patch("plugin.calc.manipulator._uno_range_address", return_value=mock_addr),
         patch("plugin.calc.manipulator.TableSortField", create=True) as tsf_cls,
     ):
         with pytest.raises(CalcError, match=r"0 to 1") as exc_info:
@@ -643,12 +639,12 @@ def test_sort_range_skips_key_read_for_single_data_row():
     bridge = MagicMock()
     mock_range = MagicMock()
     mock_addr = SimpleNamespace(StartColumn=0, EndColumn=1, StartRow=0, EndRow=1)
+    mock_range.getRangeAddress.return_value = mock_addr
     bridge.resolve_range_or_address.return_value = mock_range
     mock_range.createSortDescriptor.return_value = []
 
     manipulator = CellManipulator(bridge)
     with (
-        patch("plugin.calc.manipulator._uno_range_address", return_value=mock_addr),
         patch("plugin.calc.manipulator.TableSortField", create=True),
         patch("uno.Any"),
     ):
@@ -682,14 +678,14 @@ def test_range_sort_then_by_out_of_width_refused():
     bridge = MagicMock()
     mock_range = MagicMock()
     mock_addr = SimpleNamespace(StartColumn=0, EndColumn=1, StartRow=0, EndRow=10)
+    mock_range.getRangeAddress.return_value = mock_addr
     bridge.resolve_range_or_address.return_value = mock_range
 
     manipulator = CellManipulator(bridge)
-    with patch("plugin.calc.manipulator._uno_range_address", return_value=mock_addr):
-        with pytest.raises(CalcError, match=r"then_by column") as exc_info:
-            manipulator.plan_sort("A1:B10", [(0, True), (5, False)])
-        assert exc_info.value.code == "INVALID_PARAM"
-        assert "A1:B10" in str(exc_info.value)
+    with pytest.raises(CalcError, match=r"then_by column") as exc_info:
+        manipulator.plan_sort("A1:B10", [(0, True), (5, False)])
+    assert exc_info.value.code == "INVALID_PARAM"
+    assert "A1:B10" in str(exc_info.value)
     mock_range.sort.assert_not_called()
 
 
@@ -697,6 +693,7 @@ def test_range_sort_tie_reorder_is_not_no_rows_moved():
     bridge = MagicMock()
     mock_range = MagicMock()
     mock_addr = SimpleNamespace(StartColumn=0, EndColumn=1, StartRow=0, EndRow=2)
+    mock_range.getRangeAddress.return_value = mock_addr
     bridge.resolve_range_or_address.return_value = mock_range
     mock_range.createSortDescriptor.return_value = []
 
@@ -708,7 +705,6 @@ def test_range_sort_tie_reorder_is_not_no_rows_moved():
 
     manipulator = CellManipulator(bridge)
     with (
-        patch("plugin.calc.manipulator._uno_range_address", return_value=mock_addr),
         patch("plugin.calc.manipulator.TableSortField", create=True),
         patch("uno.Any"),
     ):
@@ -807,6 +803,7 @@ def test_commit_write_always_returns_a_message_record():
 
     small_addr = SimpleNamespace(StartColumn=0, EndColumn=1, StartRow=0, EndRow=0, Sheet=0)
     mock_range = MagicMock()
+    mock_range.getRangeAddress.return_value = small_addr
     mock_sheet = MagicMock()
     mock_range.getSpreadsheet.return_value = mock_sheet
     mock_range.getDataArray.return_value = ()
@@ -814,9 +811,8 @@ def test_commit_write_always_returns_a_message_record():
     bridge.doc.getNumberFormats.return_value = MagicMock()
     bridge.doc.getSheets.return_value.getByIndex.return_value = mock_sheet
 
-    with patch("plugin.calc.manipulator._uno_range_address", return_value=small_addr):
-        with patch("plugin.calc.manipulator.resolve_document_locale", return_value=MagicMock()):
-            res = manipulator.write_formula_range("A1:B1", ["1", "2"])
+    with patch("plugin.calc.manipulator.resolve_document_locale", return_value=MagicMock()):
+        res = manipulator.write_formula_range("A1:B1", ["1", "2"])
     assert set(res) == {"message"}
     assert "filled with" in res["message"]
 
@@ -1135,6 +1131,7 @@ def test_write_report_dialect_hint_only_when_formula_has_comma_or_bang(formula: 
 def test_commit_write_forwards_write_report() -> None:
     small_addr = SimpleNamespace(StartColumn=0, EndColumn=0, StartRow=0, EndRow=0, Sheet=0)
     mock_range = MagicMock()
+    mock_range.getRangeAddress.return_value = small_addr
     mock_sheet = MagicMock()
     mock_range.getSpreadsheet.return_value = mock_sheet
     mock_range.getDataArray.return_value = ()
@@ -1148,7 +1145,6 @@ def test_commit_write_forwards_write_report() -> None:
         "warnings": [{"code": "FORMULA_ERROR", "message": "1 formula cell(s)"}],
     }
     with (
-        patch("plugin.calc.manipulator._uno_range_address", return_value=small_addr),
         patch("plugin.calc.manipulator.resolve_document_locale", return_value=MagicMock()),
         patch("plugin.calc.manipulator._write_report", return_value=fake_report) as mock_report,
     ):

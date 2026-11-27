@@ -757,7 +757,7 @@ def test_read_image_bytes_reads_full_file(tmp_path):
     data = bytes(range(256)) * 80  # > 8 KB
     img_path = tmp_path / "x.png"
     img_path.write_bytes(data)
-    out = _read_image_bytes(None, str(img_path))
+    out = _read_image_bytes({}, str(img_path))
     assert out is not None
     assert len(out) == len(data)
     assert hashlib.sha256(out).digest() == hashlib.sha256(data).digest()
