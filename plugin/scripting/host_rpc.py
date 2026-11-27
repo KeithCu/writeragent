@@ -226,13 +226,7 @@ def _format_script_api_catalog_cached(domains_tuple: tuple[str, ...]) -> str:
     methods = _proxy_methods_by_tool(api)
     if not methods:
         return ""
-    domains: list[str] = []
-    seen: set[str] = set()
-    for name in ("core", *domains_tuple):
-        if name not in tools or name in seen:
-            continue
-        seen.add(name)
-        domains.append(name)
+    domains = [n for n in dict.fromkeys(("core", *domains_tuple)) if n in tools]
     blocks: list[str] = []
     for domain in domains:
         entries: list[str] = []
@@ -484,7 +478,7 @@ def _dispatch_named_script(
             "Document scripts cannot be loaded during =PY() recalculation off the UI thread. "
             "Use a user script (wa.scripts) or Run Python Script."
         )
-    user_scripts = get_user_scripts() if origin in (SCRIPT_ORIGIN_USER, SCRIPT_ORIGIN_DOCUMENT) else {}
+    user_scripts = get_user_scripts() if origin == SCRIPT_ORIGIN_USER else {}
     document_scripts = _document_script_store(script_session_id) if origin == SCRIPT_ORIGIN_DOCUMENT else {}
     return host_get_named_python_script(
         name=name, origin=origin, known_hash=known_hash, user_scripts=user_scripts, document_scripts=document_scripts
@@ -536,7 +530,6 @@ def handle_tool_call_frame(
         try:
             stdin_write(frame)
         except (OSError, ValueError):
-            # ValueError can be raised when writing to a closed file in Python.
             log.warning(failure_log, exc_info=True)
 
     if not isinstance(tool_name, str):

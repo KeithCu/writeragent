@@ -200,7 +200,7 @@ def _modal_probe_harness(*, translate_prefix: str | None = None):
         stack.enter_context(patch("plugin.scripting.venv_probe_ui.get_toolkit", return_value=MagicMock()))
         stack.enter_context(patch("plugin.scripting.venv_probe_ui._dialog_parent_for_child", return_value="settings-peer"))
         stack.enter_context(patch("plugin.scripting.venv_probe_ui.run_in_background", side_effect=lambda fn, **kw: fn()))
-        stack.enter_context(patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: fn()))
+        stack.enter_context(patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *a, **kw: fn(*a, **kw)))
         stack.enter_context(patch("plugin.framework.queue_executor.main.is_current", return_value=True))
         stack.enter_context(patch("plugin.scripting.venv_probe_ui.process_events_to_idle"))
         stack.enter_context(patch("plugin.scripting.venv_probe_ui.set_control_enabled", side_effect=fake_set_control_enabled))

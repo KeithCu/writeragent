@@ -28,10 +28,10 @@ from plugin.calc.calc_addin_data import (
     split_python_addin_data_args,
     values_from_inspector_range,
 )
+from plugin.framework.config_schema import get_config_schema
 from plugin.framework.errors import DocumentDisposedError
 from plugin.scripting.calc_range import ensure_rectangular_2d
 from plugin.scripting.calc_range import CalcRange, is_calc_range_payload, materialize_inputs
-from plugin.scripting.config_limits import _schema_int
 from plugin.scripting.payload_codec import is_multi_data, is_split_grid, wire_cell_count
 from plugin.tests.testing_utils import DisposedException
 
@@ -66,13 +66,13 @@ def test_column_vector_stays_nx1():
 def test_check_python_data_size_rejects_large():
     big = [[0] * 1000 for _ in range(300)]
     assert wire_cell_count(big) == 300_000
-    err = check_python_data_size(big, max_cells=_schema_int("python_max_data_cells", "default", required=True))
+    err = check_python_data_size(big, max_cells=get_config_schema("scripting.python_max_data_cells")["default"])
     assert err is not None
     assert "300000" in err.replace(",", "")
 
 
 def test_check_python_data_size_ok():
-    assert check_python_data_size([1, 2], max_cells=_schema_int("python_max_data_cells", "default", required=True)) is None
+    assert check_python_data_size([1, 2], max_cells=get_config_schema("scripting.python_max_data_cells")["default"]) is None
 
 
 def test_values_from_inspector_range():

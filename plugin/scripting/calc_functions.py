@@ -17,4 +17,4 @@ def __getattr__(name: str) -> Any:
 
 def __dir__() -> list[str]:
     mod = importlib.import_module("plugin.scripting.venv.calc_functions")
-    return sorted(set(dir(mod)))
+    return dir(mod)

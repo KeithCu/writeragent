@@ -334,8 +334,8 @@ def apply_rewrite(src: str, calls: list[_XlCall], *, index_map: dict[int, int]) 
     """Rewrite binding call sites in *src* to quoted xl("%Pn%", ...) with remapped indices."""
     new_code = src
     for call in sorted(calls, key=lambda c: c.start, reverse=True):
-        # Skip calls whose placeholder index is missing or outside the supported range
-        # (an assert would crash conversion on odd user code instead of leaving it untouched).
+        # analyze_xl_calls already marks these fatal; this satisfies `_placeholder_to_data_index`'s
+        # contract for direct callers.
         if call.p_num is None or not 2 <= call.p_num <= 2 + DEAL_MAX_PLACEHOLDER_INDEX:
             continue
         orig_idx = _placeholder_to_data_index(call.p_num)

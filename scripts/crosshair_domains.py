@@ -512,9 +512,6 @@ def _patch_audio_silence_detector(module: Any) -> None:
 
 def _patch_calc_range(module: Any) -> None:
     module._DEAL_GRID_DIM = 1
-    module._DEAL_CELL_INT_ABS = 0
-    module._DEAL_CELL_STR_LEN = 1
-    module._DEAL_COL_NAME_LEN = 1
 
     module._deal_inner_grid_cell_ok = lambda c: (
         c is None
@@ -556,7 +553,7 @@ def _patch_editor_ipc(module: Any) -> None:
 
 def _patch_helper_domain(module: Any) -> None:
     _swap_code(module.ScriptFacts.first_run_spec, _stub_script_facts_first_run_spec)
-    _swap_code(module._elapsed_since, _stub_elapsed_since)
+    _swap_code(module.elapsed_since, _stub_elapsed_since)
 
 
 def _patch_payload_codec(module: Any) -> None:

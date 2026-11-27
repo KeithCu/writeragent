@@ -254,21 +254,37 @@ def test_insert_result_into_calc_exception_propagates():
     with pytest.raises(RuntimeError, match="no controller"):
         insert_result_into_calc(doc, MagicMock(), 1)
 
-def test_insert_result_into_calc_skips_shape_status_dict():
-    from plugin.scripting.python_runner import insert_result_into_calc
+def test_finish_script_execution_skips_shape_status_dict():
+    from plugin.scripting.python_runner import PreparedScript, _finish_script_execution
 
     doc = MagicMock()
-    with patch("plugin.scripting.python_runner.insert_cell_html_rich") as rich:
-        insert_result_into_calc(
-            doc,
-            MagicMock(),
+    prepared = PreparedScript(
+        ctx=MagicMock(),
+        doc=doc,
+        code="result = {}",
+        t0=0.0,
+        bindings=None,
+        py_data=None,
+        session_id=None,
+        script_session_id=None,
+    )
+    with (
+        patch("plugin.scripting.python_runner.get_post_venv_domains", return_value=()),
+        patch("plugin.scripting.python_runner.is_calc", return_value=True),
+        patch("plugin.scripting.python_runner.insert_cell_html_rich") as rich,
+    ):
+        _finish_script_execution(
+            prepared,
             {
                 "status": "ok",
-                "message": "Created star24",
-                "index": 0,
-                "page": 0,
-                "shape_count_after": 1,
-                "geometry_applied": True,
+                "result": {
+                    "status": "ok",
+                    "message": "Created star24",
+                    "index": 0,
+                    "page": 0,
+                    "shape_count_after": 1,
+                    "geometry_applied": True,
+                },
             },
         )
     rich.assert_not_called()

@@ -208,7 +208,7 @@ def test_worker_error_message_strips_command_path():
 def test_run_code_in_user_venv_passes_cancel():
     """run_code_in_user_venv must pass cancel to the manager's execute method."""
     scope = SendCancellation()
-    with patch('plugin.scripting.venv_worker._get_worker_manager') as mock_mgr_ctx, patch(
+    with patch('plugin.scripting.venv_worker.get_worker_manager') as mock_mgr_ctx, patch(
         'plugin.scripting.venv_worker.get_config', return_value=''
     ):
         mock_mgr = MagicMock()
@@ -521,7 +521,7 @@ def test_ppt_master_write_timeout_does_not_replay(monkeypatch):
         "plugin.scripting.venv_worker.write_packed_frame_with_timeout",
         MagicMock(side_effect=subprocess.TimeoutExpired(cmd=sys.executable, timeout=1)),
     )
-    response_payload = pickle.dumps({'status': 'host_request'}, protocol=5)
+    response_payload = pickle.dumps({'type': 'llm_request', 'status': 'host_request'}, protocol=5)
     mgr._read_response_bytes = MagicMock(return_value=response_payload)
     mgr._terminate_worker = MagicMock()
     dispatch_calls = []
@@ -541,10 +541,10 @@ def test_ppt_master_write_timeout_does_not_replay(monkeypatch):
     assert mgr._terminate_worker.call_count == 1
 
 def test_tool_call_then_broken_stdout_does_not_replay(monkeypatch):
-    """A tool_call that already ran must not be followed by a second copy of the script."""
+    """An intermediate frame (llm_request) that already ran must not be followed by a second copy of the script."""
     mgr, proc = _mock_mgr()
     mgr._write_frame_with_timeout = MagicMock()
-    response_payload = pickle.dumps({'status': 'host_request'}, protocol=5)
+    response_payload = pickle.dumps({'type': 'llm_request', 'status': 'host_request'}, protocol=5)
     mgr._read_response_bytes = MagicMock(side_effect=[response_payload, RuntimeError('Worker closed stdout')])
     mgr._terminate_worker = MagicMock()
 
@@ -821,7 +821,7 @@ def test_run_code_in_user_venv_reads_sandbox_policy_flags():
             return ''
         with patch('plugin.scripting.venv_worker.get_config', side_effect=fake_get_config):
             run_code_in_user_venv('result = 1')
-            assert mock_execute.call_args.args[0].sandbox_policy == {'network': False, 'files': True, 'os': True, 'extra_modules': 'custom_mod'}
+            assert mock_execute.call_args.args[0].sandbox_policy == {'network': False, 'files': False, 'os': True, 'extra_modules': 'custom_mod'}
         mock_execute.reset_mock()
 
         def fake_get_config_net_files(key: str):
@@ -1381,13 +1381,13 @@ def test_reset_python_session_does_not_spawn_when_worker_is_dead(monkeypatch: py
     monkeypatch.setattr(PythonWorkerManager, 'execute', _execute)
     dead = PythonWorkerManager('/tmp/python-dead', {'PATH': '/usr/bin'})
     assert dead._is_worker_alive() is False
-    monkeypatch.setattr(venv_worker_module, '_get_worker_manager', lambda pool='default': (dead, None))
+    monkeypatch.setattr(venv_worker_module, 'get_worker_manager', lambda pool='default': (dead, None))
     res = reset_python_session('calc:file:///closed.ods')
     assert res['status'] == 'ok'
     assert calls == []
     alive = PythonWorkerManager('/tmp/python-alive', {'PATH': '/usr/bin'})
     _install_mock_proc(alive, _MockProc(None))
-    monkeypatch.setattr(venv_worker_module, '_get_worker_manager', lambda pool='default': (alive, None))
+    monkeypatch.setattr(venv_worker_module, 'get_worker_manager', lambda pool='default': (alive, None))
     res_live = reset_python_session('calc:file:///live.ods')
     assert res_live['status'] == 'ok'
     assert calls == ['reset_session']
@@ -1403,7 +1403,7 @@ def test_reset_python_session_passes_lease_wait_sec(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(PythonWorkerManager, 'execute', _execute)
     alive = PythonWorkerManager('/tmp/python-alive', {'PATH': '/usr/bin'})
     _install_mock_proc(alive, _MockProc(None))
-    monkeypatch.setattr(venv_worker_module, '_get_worker_manager', lambda pool='default': (alive, None))
+    monkeypatch.setattr(venv_worker_module, 'get_worker_manager', lambda pool='default': (alive, None))
     res = reset_python_session('calc:file:///live.ods', timeout_sec=3, lease_wait_sec=3)
     assert res['status'] == 'ok'
     assert len(calls) == 1
@@ -1940,7 +1940,6 @@ def test_intermediate_dispatch_observes_serving_flag(frame_type: str | None, rai
             io.BytesIO(),
             io.BytesIO(),
             ExecRequest(allow_heartbeat=False, timeout_sec=1),
-            {"id": "t1"},
             turn_state,
             host_read_timeout_sec=1.0,
             write_timeout_sec=1.0,
@@ -2301,8 +2300,8 @@ def test_allowed_tools_resolved_before_request_write(monkeypatch: pytest.MonkeyP
         events.append('write')
     mgr._write_frame_with_timeout = _write
 
-    def _read(stdout: Any, stdin: Any, req: Any, wire: dict[str, Any], *args: Any, **kwargs: Any) -> Terminal:
-        return Terminal({'id': wire['id'], 'status': 'ok', 'result': 1})
+    def _read(stdout: Any, stdin: Any, req: Any, *args: Any, **kwargs: Any) -> Terminal:
+        return Terminal({'id': req.request_id, 'status': 'ok', 'result': 1})
     mgr._read_until_terminal = _read
     result = _run_ipc_with_mock(mgr, ExecRequest(code='result = 1', timeout_sec=1, python_tool_domain=''), proc)
     assert result['status'] == 'ok'

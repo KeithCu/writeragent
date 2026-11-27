@@ -732,12 +732,8 @@ def test_convert_dag_report_preserves_return_type_drops_legacy_ordering():
 
 
 def test_dag_meta_payload_roundtrip():
-    from plugin.calc.excel_py_convert.convert import (
-        cell_meta_key,
-        dag_report_to_meta_payload,
-        load_dag_meta_from_doc,
-        store_dag_meta_on_doc,
-    )
+    from plugin.calc.excel_py_convert.convert import cell_meta_key, dag_report_to_meta_payload
+    from plugin.calc.excel_py_convert.uno_snapshot import load_dag_meta_from_doc, store_dag_meta_on_doc
     from unittest.mock import MagicMock, patch
 
     report = ConversionReport(
@@ -768,14 +764,14 @@ def test_dag_meta_payload_roundtrip():
     assert DagCellMeta.from_dict(payload[cell_meta_key("S", "A1")]) == DagCellMeta(return_type=1, data_args=["B1"])
 
     doc = MagicMock()
-    with patch("plugin.doc.udprops.set_document_property") as set_prop:
+    with patch("plugin.calc.excel_py_convert.uno_snapshot.set_document_property") as set_prop:
         store_dag_meta_on_doc(doc, report)
         set_prop.assert_called_once()
         name, value = set_prop.call_args[0][1], set_prop.call_args[0][2]
         assert name == "ExcelPyDagMeta"
         assert "return_type" in value
 
-    with patch("plugin.doc.udprops.get_document_property", return_value=value):
+    with patch("plugin.calc.excel_py_convert.uno_snapshot.get_document_property", return_value=value):
         loaded = load_dag_meta_from_doc(doc)
         assert loaded[cell_meta_key("S", "A1")]["data_args"] == ["B1"]
 

@@ -89,7 +89,7 @@ class TextAnalyticsDialog:
     _dlg: Any | None
     _top_listener: Any | None
     _last_result: dict[str, Any] | None
-    _source_uid: str | None
+    _source_uid: str
 
     def __init__(self, ctx: Any) -> None:
         self._ctx = ctx
@@ -98,7 +98,7 @@ class TextAnalyticsDialog:
         self._busy = False
         self._top_listener = None
         self._last_result = None
-        self._source_uid = None
+        self._source_uid = ""
         self._open()
 
     def close(self, *, toolkit_teardown: bool = False) -> None:
@@ -159,8 +159,7 @@ class TextAnalyticsDialog:
             chk = self._dlg.getControl("ChkScope") if self._dlg is not None else None
             if chk is None:
                 return "whole"
-            # getattr(chk, "State", 0) only saw a forwarded model attribute, and a missing attribute was unchecked.
-            # get_checkbox_state uses getState() then model.State, which is what the other dialogs use.
+            # get_checkbox_state reads getState() then model.State, as the other dialogs do.
             return "whole" if get_checkbox_state(chk) == 1 else "selection"
         except Exception:
             # Scope read failure shows an error and aborts the run instead of defaulting to whole-document analysis.
@@ -182,7 +181,7 @@ class TextAnalyticsDialog:
 
     def _clear_result(self) -> None:
         self._last_result = None
-        self._source_uid = None
+        self._source_uid = ""
 
     def _results_ctrl(self) -> Any | None:
         return None if self._dlg is None else self._dlg.getControl("ResultsEdit")
@@ -242,7 +241,7 @@ class TextAnalyticsDialog:
                 )
                 return
 
-            self._source_uid = get_runtime_uid(doc) or None
+            self._source_uid = get_runtime_uid(doc)
             res_ctrl.getModel().Text = _("Analyzing...")
 
         self._set_busy(True)
@@ -342,7 +341,7 @@ class TextAnalyticsDialog:
             msgbox(ctx, _("Text Analytics"), _("Nothing to insert. Run an analysis first."))
             return
 
-        source = self._source_uid or ""
+        source = self._source_uid
         active = get_runtime_uid(doc) or ""
         # The source uid is taken on the UI thread before the worker starts, so a report computed
         # from document A is not written into document B after the user switches windows. Both ids

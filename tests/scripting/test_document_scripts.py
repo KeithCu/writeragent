@@ -44,12 +44,8 @@ from plugin.scripting.document_scripts import (
 )
 from plugin.framework.i18n import _
 from plugin.scripting.domain_registry import (
-    ANALYSIS_SCRIPT_DISPLAY_PREFIX,
-    SCRIPT_ORIGIN_ANALYSIS,
     SCRIPT_ORIGIN_DOCUMENT,
     SCRIPT_ORIGIN_USER,
-    SCRIPT_ORIGIN_VISION,
-    VISION_SCRIPT_DISPLAY_PREFIX,
     parse_picker_display_name,
 )
 from tests.writer.test_document_helpers import _DocWithUserDefinedProperties, _UserDefinedProperties
@@ -515,12 +511,11 @@ def test_resolve_run_script_selection_uses_config_default():
         "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
         return_value="last_python_script_name_writer",
     ):
-        name, code, merged = resolve_run_script_selection(
+        name, code = resolve_run_script_selection(
             doc, build_xdl_script_picker_state(doc, saved)
         )
     assert name == "Prime Numbers"
     assert code == "result = 'gaps'"
-    assert merged["Prime Numbers"] == "result = 'gaps'"
 
 
 def test_resolve_run_script_selection_falls_back_to_first_name():
@@ -530,7 +525,7 @@ def test_resolve_run_script_selection_falls_back_to_first_name():
         "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
         return_value="last_python_script_name_writer",
     ), patch("plugin.framework.config.save") as mock_set:
-        name, code, merged = resolve_run_script_selection(
+        name, code = resolve_run_script_selection(
             doc, build_xdl_script_picker_state(doc, saved)
         )
     assert name == "Alpha"
@@ -641,16 +636,16 @@ def test_build_scripts_list_includes_analysis_section_for_calc():
     ):
         msg = build_scripts_list_message(session_doc=doc, session_doc_url=None)
     section_ids = [s["id"] for s in msg["sections"]]
-    assert SCRIPT_ORIGIN_ANALYSIS in section_ids
-    analysis = next(s for s in msg["sections"] if s["id"] == SCRIPT_ORIGIN_ANALYSIS)
-    assert f"{ANALYSIS_SCRIPT_DISPLAY_PREFIX}describe_data" in analysis["scripts"]
+    assert "analysis" in section_ids
+    analysis = next(s for s in msg["sections"] if s["id"] == "analysis")
+    assert "[Analysis] describe_data" in analysis["scripts"]
 
 
 def test_resolve_analysis_script_picker_entry():
-    display = f"{ANALYSIS_SCRIPT_DISPLAY_PREFIX}describe_data"
-    origin_map = {display: SCRIPT_ORIGIN_ANALYSIS}
-    assert resolve_script_picker_entry(display, origin_map) == ("describe_data", SCRIPT_ORIGIN_ANALYSIS)
-    assert parse_picker_display_name(ANALYSIS_SCRIPT_DISPLAY_PREFIX, display) == "describe_data"
+    display = "[Analysis] describe_data"
+    origin_map = {display: "analysis"}
+    assert resolve_script_picker_entry(display, origin_map) == ("describe_data", "analysis")
+    assert parse_picker_display_name("[Analysis] ", display) == "describe_data"
 
 
 def test_build_scripts_list_includes_vision_section_for_writer():
@@ -660,10 +655,10 @@ def test_build_scripts_list_includes_vision_section_for_writer():
     ):
         msg = build_scripts_list_message(session_doc=doc, session_doc_url=None)
     section_ids = [s["id"] for s in msg["sections"]]
-    assert SCRIPT_ORIGIN_VISION in section_ids
-    vision = next(s for s in msg["sections"] if s["id"] == SCRIPT_ORIGIN_VISION)
-    assert f"{VISION_SCRIPT_DISPLAY_PREFIX}extract_text" in vision["scripts"]
-    assert f"{VISION_SCRIPT_DISPLAY_PREFIX}extract_structure" in vision["scripts"]
+    assert "vision" in section_ids
+    vision = next(s for s in msg["sections"] if s["id"] == "vision")
+    assert "[Vision] extract_text" in vision["scripts"]
+    assert "[Vision] extract_structure" in vision["scripts"]
 
 
 def test_build_scripts_list_includes_vision_section_for_calc():
@@ -675,9 +670,9 @@ def test_build_scripts_list_includes_vision_section_for_calc():
     ):
         msg = build_scripts_list_message(session_doc=doc, session_doc_url=None)
     section_ids = [s["id"] for s in msg["sections"]]
-    assert SCRIPT_ORIGIN_VISION in section_ids
-    vision = next(s for s in msg["sections"] if s["id"] == SCRIPT_ORIGIN_VISION)
-    assert f"{VISION_SCRIPT_DISPLAY_PREFIX}extract_text" in vision["scripts"]
+    assert "vision" in section_ids
+    vision = next(s for s in msg["sections"] if s["id"] == "vision")
+    assert "[Vision] extract_text" in vision["scripts"]
 
 
 def test_build_scripts_list_excludes_vision_section_for_draw():
@@ -689,7 +684,7 @@ def test_build_scripts_list_excludes_vision_section_for_draw():
     ), patch("plugin.vision.vision_runner.supports_vision_manual", return_value=False):
         msg = build_scripts_list_message(session_doc=doc, session_doc_url=None)
     section_ids = [s["id"] for s in msg["sections"]]
-    assert SCRIPT_ORIGIN_VISION not in section_ids
+    assert "vision" not in section_ids
 
 
 def test_build_xdl_script_picker_includes_vision_for_writer():
@@ -697,17 +692,17 @@ def test_build_xdl_script_picker_includes_vision_for_writer():
     with patch("plugin.vision.vision_runner.supports_vision_manual", return_value=True):
         items, merged, origin_map = build_xdl_script_picker_state(doc, {})
     for helper in ("extract_text", "extract_structure"):
-        display = f"{VISION_SCRIPT_DISPLAY_PREFIX}{helper}"
+        display = f"[Vision] {helper}"
         assert display in items
         assert display in merged
-        assert origin_map[display] == SCRIPT_ORIGIN_VISION
+        assert origin_map[display] == "vision"
 
 
 def test_resolve_vision_script_picker_entry():
-    display = f"{VISION_SCRIPT_DISPLAY_PREFIX}extract_text"
-    origin_map = {display: SCRIPT_ORIGIN_VISION}
-    assert resolve_script_picker_entry(display, origin_map) == ("extract_text", SCRIPT_ORIGIN_VISION)
-    assert parse_picker_display_name(VISION_SCRIPT_DISPLAY_PREFIX, display) == "extract_text"
+    display = "[Vision] extract_text"
+    origin_map = {display: "vision"}
+    assert resolve_script_picker_entry(display, origin_map) == ("extract_text", "vision")
+    assert parse_picker_display_name("[Vision] ", display) == "extract_text"
 
 
 def test_build_scripts_list_excludes_text_analytics_section_for_writer():
@@ -1254,7 +1249,7 @@ def test_build_scripts_list_message_loads_once_when_the_document_is_current():
         patch("plugin.framework.config.get_config", side_effect=lambda k: {} if k == "saved_python_scripts" else ""),
         patch("plugin.framework.config.save"),
     ):
-        expected_selected, _, _ = resolve_run_script_selection(
+        expected_selected, _ = resolve_run_script_selection(
             doc, build_xdl_script_picker_state(doc, get_user_scripts())
         )
 

@@ -75,6 +75,8 @@ def _get_tts_install_cmd() -> str:
         return TTS_INSTALL_CMD
     except ImportError:
         return _DEFAULT_TTS_INSTALL_CMD
+
+
 # Separate from the TTS recipe so a missing Whisper package does not print
 # the Kokoro/Piper install line (and the reverse).
 _WHISPER_INSTALL_CMD = 'uv pip install faster-whisper "av<14"'
@@ -116,12 +118,7 @@ _PROBE_KEY_TO_PIP: dict[str, str] = {
 }
 
 # Child stdout marker. _parse_probe_stdout searches for this prefix
-# anywhere on a line. A C extension can write a banner with no trailing
-# newline, so the probe print is glued to that banner and the line does
-# not start with the prefix. Parse from the prefix to the end of the
-# line. The six probe scripts below are built by _import_probe_script,
-# which emits print("WA_PROBE_JSON " + json.dumps(out)) (concatenation,
-# trailing space on the prefix unchanged).
+# anywhere on a line, because a C extension banner with no newline can precede it.
 _PROBE_JSON_PREFIX = "WA_PROBE_JSON "
 
 
@@ -152,8 +149,7 @@ def _import_probe_script(*chunks: str) -> str:
     """Wrap probe chunks with json header and the WA_PROBE_JSON print.
 
     Each chunk is either one _import_try_block or a hand-written snippet that
-    already has its own try/except. The print expression is concatenation, not
-    an f-string, so the prefix stays identical to _PROBE_JSON_PREFIX.
+    already has its own try/except.
     """
     body = "".join(chunks)
     if body and not body.endswith("\n"):
@@ -162,7 +158,7 @@ def _import_probe_script(*chunks: str) -> str:
         "import json\n"
         "out = {}\n"
         + body
-        + 'print("WA_PROBE_JSON " + json.dumps(out))\n'
+        + f"print({_PROBE_JSON_PREFIX!r} + json.dumps(out))\n"
     )
 
 
@@ -269,21 +265,9 @@ _VECTOR_SEARCH_PACKAGE_KEYS = (
     "python_docx",
     "langdetect",
 )
+_VECTOR_SEARCH_MODULES = {"odfpy": "odf", "python_docx": "docx"}
 _VECTOR_SEARCH_PROBE_SCRIPT = _import_probe_script(
-    _import_try_block("envwrap", "envwrap"),
-    _import_try_block("sentence_transformers", "sentence_transformers"),
-    _import_try_block("sqlite_vec", "sqlite_vec"),
-    _import_try_block("zvec", "zvec"),
-    _import_try_block("langgraph", "langgraph"),
-    _import_try_block("langchain_core", "langchain_core"),
-    _import_try_block("langchain_text_splitters", "langchain_text_splitters"),
-    _import_try_block("icu4py", "icu4py"),
-    _import_try_block("odfpy", "odf"),
-    _import_try_block("pandas", "pandas"),
-    _import_try_block("openpyxl", "openpyxl"),
-    _import_try_block("xlrd", "xlrd"),
-    _import_try_block("python_docx", "docx"),
-    _import_try_block("langdetect", "langdetect"),
+    *(_import_try_block(k, _VECTOR_SEARCH_MODULES.get(k, k)) for k in _VECTOR_SEARCH_PACKAGE_KEYS)
 )
 
 
@@ -320,18 +304,14 @@ def _run_json_probe(
     args: tuple[str, ...] = (),
 ) -> tuple[dict[str, Any], str | None]:
     """Run a one-shot ``python -c`` JSON probe outside the warm worker."""
-    # subprocess.run rejects timeout <= 0. Callers pass the probe timeout constants.
-    # The floor keeps a zero or negative value on TimeoutExpired.
-    limit = max(1.0, float(timeout))
     scrubbed_env = scrub_subprocess_env(dict(os.environ))
     # Child stdout is UTF-8: scrub_subprocess_env sets PYTHONIOENCODING=utf-8
-    # and PYTHONUTF8=1. text=True decodes with locale.getpreferredencoding(False).
-    # A cp1252 LibreOffice parent then raised UnicodeDecodeError on a
-    # non-ASCII banner and aborted the self-check (only TimeoutExpired and
-    # OSError were caught). errors="replace" keeps one bad byte from failing
-    # the probe. env is passed twice on purpose: wrap_command_for_sandbox
-    # turns it into flatpak-spawn --clear-env/--env, and subprocess.run(env=)
-    # is what a non-Flatpak spawn uses. flatpak-spawn does not forward Popen env.
+    # and PYTHONUTF8=1. text=True would decode with the parent's locale (cp1252
+    # on Windows) and raise UnicodeDecodeError on a non-ASCII banner.
+    # errors="replace" keeps one bad byte from failing the probe. env is passed
+    # twice on purpose: wrap_command_for_sandbox turns it into flatpak-spawn
+    # --clear-env/--env, and subprocess.run(env=) is what a non-Flatpak spawn
+    # uses. flatpak-spawn does not forward Popen env.
     try:
         # One-shot probe: kill the host child on timeout, unlike the warm venv worker.
         proc = subprocess.run(
@@ -339,7 +319,7 @@ def _run_json_probe(
             capture_output=True,
             encoding="utf-8",
             errors="replace",
-            timeout=limit,
+            timeout=timeout,
             env=scrubbed_env,
             **get_subprocess_creationflags(),
         )
@@ -348,13 +328,13 @@ def _run_json_probe(
     except OSError as exc:
         log.warning("%s package probe could not run: %s", log_label, exc)
         return {}, fail_hint
-    parsed = _parse_probe_stdout(proc.stdout or "")
+    parsed = _parse_probe_stdout(proc.stdout)
     if parsed is None:
         if proc.returncode != 0:
-            stderr = (proc.stderr or "").strip()[:200]
+            stderr = proc.stderr.strip()[:200]
             log.warning("%s package probe exit %s: %s", log_label, proc.returncode, stderr)
         else:
-            log.warning("%s package probe returned invalid JSON: %r", log_label, (proc.stdout or "")[:200])
+            log.warning("%s package probe returned invalid JSON: %r", log_label, proc.stdout[:200])
         return {}, fail_hint
     if proc.returncode != 0:
         log.warning("%s package probe printed a payload but exited %s", log_label, proc.returncode)
@@ -497,10 +477,9 @@ def _package_probe_script(module: str) -> str:
     """Return a sandbox-safe one-import probe script for a supported *module*."""
     if module not in _ALLOWED_PROBE_MODULES:
         raise ValueError(f"unsupported probe module: {module}")
-    import_stmt = f"import {module}"
     return f"""
 try:
-    {import_stmt}
+    import {module}
     result = 'present'
 except ImportError:
     result = None
@@ -538,12 +517,12 @@ def _vision_ocr_stack_ready(probe: dict[str, Any], backend: str) -> bool:
     DOCLING_API_MISMATCH fallback gate in vision.py.
     """
     if probe.get("docling") == "present":
-        ocr_backend = _docling_ocr_ready(probe, backend)
+        ocr_ready = _docling_ocr_ready(probe, backend)
     else:
-        ocr_backend = (
+        ocr_ready = (
             probe.get("paddleocr") == "present" and probe.get("paddle") == "present"
         )
-    return ocr_backend and probe.get("css_inline") == "present"
+    return ocr_ready and probe.get("css_inline") == "present"
 
 
 def _probe_key_to_pip(key: str) -> str | None:
@@ -710,7 +689,7 @@ class GroupResult:
                 tts_missing = [k for k in _TTS_OPTIONAL_KEYS if packages.get(k) != "present"]
                 if tts_missing:
                     lines.append(f"  {_('Local TTS engines (optional):')} {_get_tts_install_cmd()}")
-                if "faster_whisper" in self.packages and packages.get("faster_whisper") != "present":
+                if packages.get("faster_whisper") != "present":
                     lines.append(f"  {_('Local Whisper (optional):')} {_WHISPER_INSTALL_CMD}")
         return lines
 
@@ -791,7 +770,7 @@ class ProbeReport:
         first_line = f"{header} responds OK."
         if self.extra_lines_after_header:
             extras = " ".join(
-                line.strip() for line in self.extra_lines_after_header if line and line.strip()
+                line.strip() for line in self.extra_lines_after_header if line.strip()
             )
             if extras:
                 first_line = f"{first_line} {extras}"
@@ -801,8 +780,7 @@ class ProbeReport:
                 continue
             msg_lines.extend(group.render_lines(self.packages, include_install_footer=include_install_footer))
         for warning in self.probe_warnings:
-            if warning:
-                msg_lines.append(f"\nWarning: {warning}")
+            msg_lines.append(f"\nWarning: {warning}")
         if include_install_footer:
             missing_keys = self.collect_missing_keys()
             msg_lines.extend(_format_install_footer(missing_keys))
@@ -864,7 +842,7 @@ def run_venv_self_check_with_progress(
 
     # scripting.python_exec_timeout is the user-script budget. These probes
     # always use SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC, VISION_PROBE_TIMEOUT_SEC,
-    # and VECTOR_SEARCH_PROBE_TIMEOUT_SEC. There is no caller timeout argument.
+    # and VECTOR_SEARCH_PROBE_TIMEOUT_SEC.
     report_status = on_status if on_status is not None else lambda text: None
 
     report_status(_("Starting Python worker..."))
@@ -881,7 +859,7 @@ def run_venv_self_check_with_progress(
 
     if response.get("status") != "ok":
         msg = str(response.get("message", "Unknown error"))
-        # Must call on_display here: a bare (False, msg) never reached the LogArea.
+        # on_display is the only path to the LogArea; the return value alone is not shown.
         if "timed out" in msg.lower() or "timeout" in msg.lower():
             timeout_msg = "Timed out waiting for Python (check venv and try again)."
             on_display(timeout_msg)
@@ -891,7 +869,7 @@ def run_venv_self_check_with_progress(
 
     version_data = response.get("result")
     if not isinstance(version_data, dict):
-        # Must call on_display here: a bare (False, msg) never reached the LogArea.
+        # on_display is the only path to the LogArea; the return value alone is not shown.
         msg = f"Unexpected output from test run: {version_data!r}"
         on_display(msg)
         return False, msg
@@ -929,11 +907,10 @@ def run_venv_self_check_with_progress(
         report.groups.append(group_result)
 
         checked: list[str] = []
-        packages_seen = report.packages
         for pkg in group_spec.packages:
             report_status(f"{group_spec.title}: {pkg}")
             # sympy and matplotlib are listed in more than one group.
-            if pkg not in packages_seen:
+            if pkg not in report.packages:
                 pkg_resp = manager.execute(
                     ExecRequest(code=_package_probe_script(pkg), timeout_sec=SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC)
                 )
@@ -1002,11 +979,11 @@ def probe_venv_path_with_progress(
     include_vector_search: bool = True,
     include_audio: bool = True,
 ) -> tuple[bool, str]:
-    """Resolve *venv_dir* and run a self-check, refreshing the legacy grouped view."""
+    """Resolve *venv_dir* and run a self-check, refreshing the grouped Present/Missing view."""
     report_status = on_status if on_status is not None else lambda text: None
 
-    is_blank = not venv_dir or not str(venv_dir).strip()
-    if is_blank:
+    stripped = venv_dir.strip()
+    if not stripped:
         report_status(_("Using LibreOffice process Python..."))
         exe = resolve_libreoffice_python()
         if not exe:
@@ -1014,7 +991,6 @@ def probe_venv_path_with_progress(
             on_display(msg)
             return False, msg
     else:
-        stripped = str(venv_dir).strip()
         expanded = os.path.expanduser(os.path.expandvars(stripped))
         report_status(_("Resolving venv Python..."))
         exe = resolve_venv_python(stripped)
@@ -1041,6 +1017,6 @@ def probe_venv_path_with_progress(
         include_vector_search=include_vector_search,
         include_audio=include_audio,
     )
-    if is_blank and ok:
+    if not stripped and ok:
         return True, f"LibreOffice process Python ({exe}) responds OK."
     return ok, msg

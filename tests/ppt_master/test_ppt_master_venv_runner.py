@@ -182,7 +182,7 @@ def test_run_ppt_master_venv_turn_keeps_cancellation_on_the_host():
     manager = MagicMock()
     manager.execute_ppt_master_turn.return_value = {"status": "ok"}
     with (
-        patch("plugin.ppt_master.venv.host._get_worker_manager", return_value=(manager, None)),
+        patch("plugin.ppt_master.venv.host.get_worker_manager", return_value=(manager, None)),
         patch("plugin.ppt_master.venv.host.apply_data_root_env"),
         patch("plugin.ppt_master.venv.host.python_exec_timeout", return_value=30),
         patch("plugin.ppt_master.venv.host.get_config", return_value=8),
