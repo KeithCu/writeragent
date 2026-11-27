@@ -347,7 +347,7 @@ def _download_vec_pack(
 def run_vec_pack_download(
     on_display: Callable[[str], None],
     on_status: Callable[[str], None],
-) -> bool:
+) -> None:
     """Download the platform-specific Cython pack binary from contrib/vec_pack on GitHub.
 
     Does not insert sys.path or clear the accelerator; Settings binds on the
@@ -357,13 +357,12 @@ def run_vec_pack_download(
     _display_download_header(on_display, target_dir)
     _download_vec_pack(target_dir, ext_suffix, on_display, on_status)
     on_display("\nCython accelerator binary installed successfully.\n")
-    return True
 
 
 def run_audio_download(
     on_display: Callable[[str], None],
     on_status: Callable[[str], None],
-) -> bool:
+) -> None:
     """Download the pure-Python audio source zip and platform-specific compiled binaries from GitHub.
 
     Does not insert sys.path or clear the accelerator; Settings binds on the
@@ -440,4 +439,3 @@ def run_audio_download(
 
     _download_vec_pack(target_dir, ext_suffix, on_display, on_status)
     on_display("\nAll downloaded files installed successfully!\n")
-    return True

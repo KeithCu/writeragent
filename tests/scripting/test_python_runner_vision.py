@@ -60,7 +60,7 @@ _EXTRACT_STRUCTURE_CALC_RES = {
     ids=["extract_text_writer", "extract_text_calc", "extract_structure_writer", "extract_structure_calc"],
 )
 @patch("plugin.vision.vision_egress.insert_vision_result")
-@patch("plugin.vision.vision_runner.run_and_insert_vision_for_selection")
+@patch("plugin.scripting.python_runner.run_and_insert_vision_for_selection")
 def test_execute_and_insert_vision_venv_path(
     mock_orchestrator,
     mock_insert,
@@ -74,7 +74,7 @@ def test_execute_and_insert_vision_venv_path(
 
     with patch("plugin.scripting.python_runner.is_writer", return_value=is_writer_doc), patch(
         "plugin.scripting.python_runner.is_calc", return_value=not is_writer_doc
-    ), patch("plugin.vision.vision_runner.supports_vision_manual", return_value=True):
+    ), patch("plugin.scripting.python_runner.supports_vision_manual", return_value=True):
         def _fake_orchestrator(*_a, on_discovered=None, **_kw):
             if on_discovered is not None:
                 on_discovered([(individual_result.get("image_name", ""), None)])
@@ -101,13 +101,13 @@ def test_execute_and_insert_vision_venv_path(
         assert params.get("image_name") is None
 
 
-@patch("plugin.vision.vision_runner.run_and_insert_vision_for_selection")
+@patch("plugin.scripting.python_runner.run_and_insert_vision_for_selection")
 def test_execute_and_insert_vision_forwards_image_name(mock_orchestrator):
     ctx = MagicMock()
     doc = MagicMock()
 
     with patch("plugin.scripting.python_runner.is_writer", return_value=True), patch(
-        "plugin.vision.vision_runner.supports_vision_manual", return_value=True
+        "plugin.scripting.python_runner.supports_vision_manual", return_value=True
     ), patch("plugin.scripting.python_runner.run_code_in_user_venv", return_value={"status": "ok", "result": None}), patch(
         "plugin.vision.vision_egress.insert_vision_result"
     ):
@@ -139,7 +139,7 @@ def test_execute_and_insert_vision_rejects_unsupported_doc(mock_venv):
     doc = MagicMock()
     code = get_vision_script_templates()["extract_text"]
 
-    with patch("plugin.vision.vision_runner.supports_vision_manual", return_value=False):
+    with patch("plugin.scripting.python_runner.supports_vision_manual", return_value=False):
         outcome = execute_and_insert_result(ctx, doc, code)
 
     assert outcome["ok"] is False
@@ -154,7 +154,7 @@ def test_execute_and_insert_vision_surfaces_no_image_selected():
     code = get_vision_script_templates()["extract_text"]
 
     with patch("plugin.scripting.python_runner.is_writer", return_value=True), patch(
-        "plugin.vision.vision_runner.supports_vision_manual", return_value=True
+        "plugin.scripting.python_runner.supports_vision_manual", return_value=True
     ), patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[]):
         outcome = execute_and_insert_result(ctx, doc, code)
 
@@ -178,7 +178,7 @@ _REAL_IMPORT = builtins.__import__
 
 
 @patch("plugin.vision.vision_egress.insert_vision_result")
-@patch("plugin.vision.vision_runner.run_and_insert_vision_for_selection")
+@patch("plugin.scripting.python_runner.run_and_insert_vision_for_selection")
 def test_execute_and_insert_vision_venv_path_without_prompts_module(mock_orchestrator, mock_insert):
     """Run Python Script vision path must not require framework.prompts (LibrePy)."""
     ctx = MagicMock()
@@ -187,7 +187,7 @@ def test_execute_and_insert_vision_venv_path_without_prompts_module(mock_orchest
     with patch("builtins.__import__", side_effect=_import_without_prompts):
         with patch("plugin.scripting.python_runner.is_writer", return_value=True), patch(
             "plugin.scripting.python_runner.is_calc", return_value=False
-        ), patch("plugin.vision.vision_runner.supports_vision_manual", return_value=True):
+        ), patch("plugin.scripting.python_runner.supports_vision_manual", return_value=True):
             def _fake_orchestrator(*_a, on_discovered=None, **_kw):
                 if on_discovered is not None:
                     on_discovered([("", None)])
@@ -206,7 +206,7 @@ def test_execute_and_insert_vision_venv_path_without_prompts_module(mock_orchest
     mock_orchestrator.assert_called_once()
 
 
-@patch("plugin.vision.vision_runner.run_and_insert_vision_for_selection")
+@patch("plugin.scripting.python_runner.run_and_insert_vision_for_selection")
 @patch("plugin.doc.visual_helpers.graphic_objects_in_selection")
 def test_execute_and_insert_vision_multi_image_host_loop(mock_pairs, mock_orchestrator):
     ctx = MagicMock()
@@ -223,7 +223,7 @@ def test_execute_and_insert_vision_multi_image_host_loop(mock_pairs, mock_orches
 
     with patch("plugin.scripting.python_runner.is_writer", return_value=True), patch(
         "plugin.scripting.python_runner.is_calc", return_value=False
-    ), patch("plugin.vision.vision_runner.supports_vision_manual", return_value=True), patch(
+    ), patch("plugin.scripting.python_runner.supports_vision_manual", return_value=True), patch(
         "plugin.scripting.python_runner.run_code_in_user_venv"
     ), patch(
         "plugin.scripting.client.run_vision"
@@ -244,7 +244,7 @@ def test_execute_and_insert_vision_multi_image_host_loop(mock_pairs, mock_orches
     mock_run_vision.assert_not_called()
 
 
-@patch("plugin.vision.vision_runner.run_and_insert_vision_for_selection")
+@patch("plugin.scripting.python_runner.run_and_insert_vision_for_selection")
 @patch("plugin.doc.visual_helpers.graphic_objects_in_selection")
 def test_execute_and_insert_vision_single_image_in_text_range_uses_host_loop(mock_pairs, mock_orchestrator):
     """Text range with one image: selection export fails; host orchestrator must run."""
@@ -268,7 +268,7 @@ def test_execute_and_insert_vision_single_image_in_text_range_uses_host_loop(moc
 
     with patch("plugin.scripting.python_runner.is_writer", return_value=True), patch(
         "plugin.scripting.python_runner.is_calc", return_value=False
-    ), patch("plugin.vision.vision_runner.supports_vision_manual", return_value=True), patch(
+    ), patch("plugin.scripting.python_runner.supports_vision_manual", return_value=True), patch(
         "plugin.scripting.python_runner.run_code_in_user_venv"
     ), patch(
         "plugin.scripting.client.run_vision"
@@ -323,8 +323,8 @@ def test_execute_and_insert_vision_partial_failure_inserts_completed_results():
     with (
         patch("plugin.scripting.python_runner.is_writer", return_value=True),
         patch("plugin.scripting.python_runner.is_calc", return_value=False),
-        patch("plugin.vision.vision_runner.supports_vision_manual", return_value=True),
-        patch("plugin.vision.vision_runner.run_and_insert_vision_for_selection", side_effect=_fake_partial),
+        patch("plugin.scripting.python_runner.supports_vision_manual", return_value=True),
+        patch("plugin.scripting.python_runner.run_and_insert_vision_for_selection", side_effect=_fake_partial),
         patch("plugin.vision.vision_egress.insert_vision_result") as mock_insert,
     ):
         outcome = execute_and_insert_result(ctx, doc, code)
@@ -344,9 +344,9 @@ def test_prepare_rps_execution_vision_runs_before_calc_data():
 
     with (
         patch("plugin.scripting.python_runner.is_calc", return_value=True),
-        patch("plugin.vision.vision_runner.supports_vision_manual", return_value=True),
+        patch("plugin.scripting.python_runner.supports_vision_manual", return_value=True),
         patch("plugin.scripting.python_runner.resolve_python_data", side_effect=RuntimeError("selection is not a range")) as mock_calc_data,
-        patch("plugin.vision.vision_runner.run_and_insert_vision_for_selection", return_value={"status": "ok", "individual_results": []}),
+        patch("plugin.scripting.python_runner.run_and_insert_vision_for_selection", return_value={"status": "ok", "individual_results": []}),
     ):
         from plugin.scripting.python_runner import _prepare_rps_execution
 
@@ -391,8 +391,8 @@ def test_execute_and_insert_vision_inserts_each_individual_result():
     with (
         patch("plugin.scripting.python_runner.is_writer", return_value=True),
         patch("plugin.scripting.python_runner.is_calc", return_value=False),
-        patch("plugin.vision.vision_runner.supports_vision_manual", return_value=True),
-        patch("plugin.vision.vision_runner.run_and_insert_vision_for_selection", side_effect=_fake_payload),
+        patch("plugin.scripting.python_runner.supports_vision_manual", return_value=True),
+        patch("plugin.scripting.python_runner.run_and_insert_vision_for_selection", side_effect=_fake_payload),
         patch("plugin.vision.vision_egress.insert_vision_result") as mock_insert,
     ):
         outcome = execute_and_insert_result(ctx, doc, code)
@@ -449,8 +449,8 @@ def test_execute_and_insert_vision_does_not_read_results_key():
     with (
         patch("plugin.scripting.python_runner.is_writer", return_value=True),
         patch("plugin.scripting.python_runner.is_calc", return_value=False),
-        patch("plugin.vision.vision_runner.supports_vision_manual", return_value=True),
-        patch("plugin.vision.vision_runner.run_and_insert_vision_for_selection", return_value=mock_payload),
+        patch("plugin.scripting.python_runner.supports_vision_manual", return_value=True),
+        patch("plugin.scripting.python_runner.run_and_insert_vision_for_selection", return_value=mock_payload),
         patch("plugin.vision.vision_egress.insert_vision_result") as mock_insert,
     ):
         outcome = execute_and_insert_result(ctx, doc, code)
@@ -605,7 +605,7 @@ def test_rps_prepared_and_finish_passes_discovered_unnamed_shape():
         inserted_graphics.append(graphic)
         return "inserted"
 
-    with patch("plugin.vision.vision_runner.run_and_insert_vision_for_selection", side_effect=fake_selection):
+    with patch("plugin.scripting.python_runner.run_and_insert_vision_for_selection", side_effect=fake_selection):
         response = _run_prepared_rps(prepared)
 
     with (
@@ -649,7 +649,7 @@ def test_rps_prepared_and_finish_keeps_distinct_same_name_shapes():
         inserted_graphics.append(graphic)
         return "inserted"
 
-    with patch("plugin.vision.vision_runner.run_and_insert_vision_for_selection", side_effect=fake_selection):
+    with patch("plugin.scripting.python_runner.run_and_insert_vision_for_selection", side_effect=fake_selection):
         response = _run_prepared_rps(prepared)
 
     with (

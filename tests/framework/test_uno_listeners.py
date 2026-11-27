@@ -23,6 +23,7 @@ from plugin.framework.uno_listeners import (
     BaseDocumentEventListener,
     BaseModifyListener,
     BaseTerminateListener,
+    CallbackListener,
     ListenerBoundary,
     install_view_doc_listener,
 )
@@ -128,6 +129,16 @@ def test_mouse_click_failure_returns_false():
             raise RuntimeError("nope")
 
     assert Boom().mousePressed(MagicMock()) is False
+
+
+def test_callback_listener_calls_fn_on_click_and_item_change():
+    calls: list[str] = []
+    listener = CallbackListener(lambda: calls.append("fired"))
+
+    listener.actionPerformed(MagicMock())
+    listener.itemStateChanged(MagicMock())
+
+    assert calls == ["fired", "fired"]
 
 
 def test_disposed_exception_does_not_escape_listener():

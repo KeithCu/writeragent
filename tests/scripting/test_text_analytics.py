@@ -637,17 +637,6 @@ def test_format_sentiment_missing_package_and_model_load():
     assert "Sentiment: neutral" not in out_load
 
 
-def test_format_unknown_helper_is_one_line():
-    err_dict = {
-        "status": "error",
-        "code": "UNKNOWN_HELPER",
-        "helper": "nope",
-        "message": "Unknown text analytics helper 'nope'",
-    }
-    out = format_text_analytics_result_for_display("nope", err_dict)
-    assert out == "Error: Unknown text analytics helper 'nope'"
-
-
 def test_format_diagnostics_inner_error_still_shows_install():
     diag = {
         "status": "ok",

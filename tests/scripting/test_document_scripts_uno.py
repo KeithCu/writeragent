@@ -13,7 +13,7 @@ import uno
 
 from plugin.scripting.document_scripts import (
     DOCUMENT_SCRIPTS_UDPROP,
-    attach_document_script,
+    save_document_script,
     get_document_scripts,
 )
 from plugin.testing_runner import native_test
@@ -36,7 +36,7 @@ def test_document_scripts_survive_save_reopen(ctx):
     with tempfile.TemporaryDirectory(prefix="wa_doc_scripts_") as temp_dir:
         doc = TestingFactory.create_native_doc(ctx, "writer", hidden=True)
         try:
-            assert attach_document_script(doc, "RoundTrip", "result = 42") is None
+            assert save_document_script(doc, "RoundTrip", "result = 42") is None
             assert get_document_scripts(doc)["RoundTrip"] == "result = 42"
 
             saved_path = os.path.join(temp_dir, "doc_scripts_test.odt")

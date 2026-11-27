@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 
 from plugin.framework.i18n import N_, _
 from plugin.scripting.helper_domain import (
+    TemplateInvoke,
     build_helper_script_template,
     elapsed_since,
     format_elapsed_time,
@@ -83,7 +84,7 @@ class DomainWiring:
     insert_kwargs_from_code: str | None = None
     helper_domain: str | None = None
     rpc_domain: str | None = None
-    runner: str | None = None  # "sheet" or "symbolic"
+    runner: Literal["sheet", "symbolic"] | None = None
     error_code: str | None = None
     empty_data_message: str | None = None
     require_calc_or_writer: bool = False
@@ -95,7 +96,7 @@ class DomainWiring:
     data_expr: str = "data"
     context_expr: str = "{}"
     leading_data: bool = False
-    invoke: str = "direct"
+    invoke: TemplateInvoke = "direct"
     extra_comment_lines: tuple[str, ...] = ("# Edit the run call below, then Run.",)
 
     def insert(self, ctx: Any, doc: Any, result: dict[str, Any], **kwargs: Any) -> Any:
@@ -495,9 +496,9 @@ def parse_picker_display_name(prefix: str, display: str) -> str | None:
     return None
 
 
-def domain_template_entries(doc: Any | None) -> list[tuple[Any, dict[str, str]]]:
+def domain_template_entries(doc: Any | None) -> list[tuple[PickerWiring, dict[str, str]]]:
     """Return [(domain, {display_name: code})] for picker domains supporting *doc*."""
-    results: list[tuple[Any, dict[str, str]]] = []
+    results: list[tuple[PickerWiring, dict[str, str]]] = []
     for domain in PICKER_WIRING:
         if not domain.supports(doc):
             continue

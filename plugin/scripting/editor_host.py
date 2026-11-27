@@ -334,7 +334,7 @@ def spawn_editor_process(exe: str) -> subprocess.Popen[bytes]:
         drain_stderr=False,
         register=False,
         log_start_failure=False,
-        label="monaco-editor",
+        label="web-editor",
     )
     managed.start()
     return cast("subprocess.Popen[bytes]", managed.popen)
@@ -360,7 +360,7 @@ def error_frame(message: str, exc: BaseException | None = None) -> dict[str, Any
 
 
 class DeferredEditorResult:
-    """A save whose Monaco frame is delivered later, on the main thread.
+    """A save whose web editor frame is delivered later, on the main thread.
 
     ``start(deliver)`` runs the venv wait off the UI-thread save path so the dialog stays
     responsive. ``deliver`` is called once with the same dict a synchronous ``on_save`` would have
@@ -413,7 +413,7 @@ def _poll_readable(stream: Any, timeout: float) -> bool:
 
 
 class PersistentEditor:
-    """Manages a single Monaco editor subprocess and keeps it alive in the background."""
+    """Manages a single web editor subprocess (CodeMirror or Monaco) and keeps it alive in the background."""
 
     _stdin_lock: threading.Lock
     _stderr_tail_lock: threading.Lock
@@ -1067,11 +1067,11 @@ get_event_bus().subscribe("config:changed", _on_config_changed)
 def resolve_probeable_editor_python() -> str | None:
     """Return configured venv Python executable if the web editor is enabled and configured, else None."""
     if get_config("scripting.force_internal_script_editor"):
-        log.debug("monaco editor bypassed by scripting.force_internal_script_editor")
+        log.debug("web editor bypassed by scripting.force_internal_script_editor")
         return None
     exe, err = resolve_editor_python()
     if not exe:
-        log.debug("monaco editor venv python unavailable (%s)", err)
+        log.debug("web editor venv python unavailable (%s)", err)
         return None
     return exe
 
@@ -1104,7 +1104,7 @@ def monaco_editor_available() -> tuple[str | None, bool]:
 
 
 def monaco_session_needs_flush() -> bool:
-    """True when the running Monaco window has unsaved edits, in any mode."""
+    """True when the running web editor window has unsaved edits, in any mode."""
     editor = _PERSISTENT_EDITOR
     if not editor.is_running:
         return False
@@ -1144,7 +1144,7 @@ def _dirty_blocks_replace(state: EditorSessionState) -> bool:
 
 
 class DirtyBufferError(RuntimeError):
-    """Refused to replace a live Monaco buffer that still has unsaved edits."""
+    """Refused to replace a live web editor buffer that still has unsaved edits."""
 
 
 @main_thread_only
@@ -1235,6 +1235,8 @@ def _register_load_session(
         # Reuse makes this target current, so any queued switch is cancelled;
         # a pending load left here would be applied by a later unrelated save.
         existing._clear_pending()
+        # register_session sets focus for a new session; a reused one is focused here.
+        _PERSISTENT_EDITOR.focused_id = existing.session_id
         state = existing
     else:
         if focused is not None:
@@ -1249,7 +1251,6 @@ def _register_load_session(
         )
         _PERSISTENT_EDITOR.register_session(state)
 
-    _PERSISTENT_EDITOR.focused_id = state.session_id
     stamped = stamp_session(ipc_message, session_id=state.session_id, mode=mode, target=target)
     return state, stamped
 
@@ -1270,7 +1271,7 @@ def queue_save_then_load(
     on_save: EditorSaveCallback,
     on_closed: Callable[[], None],
 ) -> bool:
-    """Ask Monaco to save the current buffer, then load *load_message*."""
+    """Ask the web editor to save the current buffer, then load *load_message*."""
     focused = _PERSISTENT_EDITOR.focused()
     if focused is None:
         return False
@@ -1296,7 +1297,7 @@ def launch_monaco_editor(
     on_save: EditorSaveCallback,
     on_closed: Callable[[], None] | None = None,
 ) -> bool:
-    """Start or reuse the Monaco child and send *load_message*.
+    """Start or reuse the web editor child and send *load_message*.
 
     Returns True when the editor matches the request: the load was sent, the
     user kept the current buffer, or a save-then-load was queued. Returns False

@@ -40,7 +40,7 @@ import math
 import os
 import sys
 import tempfile
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from plugin.framework.deal_shim import (
     DEAL_MAX_COL_INDEX,
@@ -148,9 +148,6 @@ def _verify_accelerator(fn2d: Any, fn1d: Any) -> bool:
     """Perform a runtime canary test to ensure the Cython binary is correct and compatible."""
     # crosshair: off
     try:
-        if fn2d is None or fn1d is None:
-            return False
-
         # 2D Test: [[1.0, None], ["text", 2.0]]
         test_2d = [[1.0, None], ["text", 2.0]]
         buf2, strings2, _unused, has_none2, non_num2 = fn2d(test_2d, 2)
@@ -320,14 +317,11 @@ def load_cython_accelerator() -> None:
             fast_flatten_grid_2d = fn2d
             fast_flatten_grid_1d = fn1d
             _CYTHON_ACCELERATOR_LOCATION = loc
-            _CYTHON_ACCELERATOR_INACTIVE_REASON = None
             log.debug("payload_codec: Cython accelerator (%s) verified and loaded", loc)
         else:
-            _CYTHON_ACCELERATOR_LOCATION = None
             _CYTHON_ACCELERATOR_INACTIVE_REASON = "canary failed"
             log.warning("payload_codec: Cython accelerator found at %s but failed canary check; using pure Python", loc)
     else:
-        _CYTHON_ACCELERATOR_LOCATION = None
         _CYTHON_ACCELERATOR_INACTIVE_REASON = "not found"
         log.debug("payload_codec: Cython accelerator not found, using pure Python")
 
@@ -362,12 +356,8 @@ def host_cython_status_line(*, reload: bool = False) -> str:
         _CYTHON_ACCELERATOR_INACTIVE_REASON = None
         load_cython_accelerator()
     if fast_flatten_grid_2d is not None:
-        loc = _CYTHON_ACCELERATOR_LOCATION
-        # Location is a module name (contrib.vec_pack, writeragent_vec, …) or
-        # missing. It is never the literal "active".
-        if loc:
-            return f"Cython Accelerator: Active (Optimized, source: {loc})"
-        return "Cython Accelerator: Active (Optimized)"
+        # The location is the module name (contrib.vec_pack, writeragent_vec, …) set with the functions.
+        return f"Cython Accelerator: Active (Optimized, source: {_CYTHON_ACCELERATOR_LOCATION})"
     if _CYTHON_ACCELERATOR_INACTIVE_REASON:
         return f"Cython Accelerator: Inactive (Pure Python; {_CYTHON_ACCELERATOR_INACTIVE_REASON})"
     return "Cython Accelerator: Inactive (Pure Python)"
@@ -402,10 +392,7 @@ User scripts see :class:`plugin.scripting.calc_range.CalcRange`, not the raw wir
 BINARY_MIN_CELLS = 100
 """Use split_grid when total cell count is at least this."""
 
-MAX_BENCH_CELLS = 100_000
-"""Upper cap for benchmark grids (scripts/bench_serialization.py; production cap is scripting.python_max_data_cells)."""
-
-ForceBinary = str
+ForceBinary = Literal["auto", "always", "never"]
 # Envelope ``dtype`` tag only. The buffer codec hardcodes array.array("d") and np.float64.
 SPLIT_GRID_WIRE_DTYPE = "float64"
 # array.array("d") / np.float64 item size. Buffer length must be a multiple of this.
@@ -2034,8 +2021,8 @@ def _child_pack_result(
             grid = list(result)
             grid_shape = (len(grid),)
         if should_use_binary_envelope(grid_shape, min_cells=min_cells, force=force):
-            # Shared stdlib grid packer (also used by host_pack_data). The
-            # host_ name is historical; this path runs in the venv too.
+            # host_pack_split_grid is the stdlib grid packer that both the host
+            # (host_pack_data) and the venv use.
             return host_pack_split_grid(grid)
         out = grid_from_nested_list(grid)
         if log.isEnabledFor(logging.DEBUG):

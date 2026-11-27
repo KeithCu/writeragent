@@ -766,10 +766,10 @@ def test_persistent_editor_dispatches_script_actions():
         mock_save_doc.assert_called_once_with(doc, "DocScript", "y=2")
 
     pe.send.reset_mock()
-    with patch("plugin.scripting.document_scripts.attach_document_script") as mock_attach:
+    with patch("plugin.scripting.document_scripts.save_document_script") as mock_save_doc:
         pe._dispatch_incoming({"type": "attach_script", "name": "Attached", "code": "z=3", "overwrite": True})
         pe.send.assert_not_called()
-        mock_attach.assert_not_called()
+        mock_save_doc.assert_not_called()
 
 
 def test_show_python_input_dialog_save_as_button():

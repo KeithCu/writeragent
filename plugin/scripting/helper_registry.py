@@ -7,7 +7,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, Literal
+
+# How the venv binds a helper's call arguments.
+HelperBind = Literal["present", "format", "spec", "time_series", "params", "symbolic", "units", "text"]
 
 
 @dataclass(frozen=True)
@@ -16,7 +19,7 @@ class HelperSpec:
     name: str
     description: str
     defaults: tuple[tuple[str, Any], ...]   # template literals; () if none
-    bind: str                                 # present|format|spec|time_series|params|symbolic|units|text
+    bind: HelperBind
     allow: tuple[str, ...] = ()
     reject_unknown: bool = False             # True only for the three optimize helpers
     required_truthy: tuple[str, ...] = ()    # falsy params.get → MISSING_PARAM

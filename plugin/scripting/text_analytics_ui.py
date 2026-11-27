@@ -15,12 +15,7 @@ from __future__ import annotations
 from collections import Counter
 from functools import partial
 import logging
-from typing import TYPE_CHECKING, Any, Callable
-
-from plugin.framework.uno_listeners import BaseActionListener
-
-if TYPE_CHECKING:
-    from com.sun.star.awt import ActionEvent
+from typing import Any, Callable
 
 from plugin.chatbot.dialogs import get_checkbox_state, load_writeragent_dialog, msgbox, set_control_enabled
 from plugin.framework.doc_type import is_writer
@@ -28,6 +23,7 @@ from plugin.framework.errors import DocumentDisposedError
 from plugin.framework.i18n import _
 from plugin.framework.queue_executor import main
 from plugin.framework.uno_context import get_active_document, get_runtime_uid
+from plugin.framework.uno_listeners import CallbackListener
 from plugin.framework.worker_pool import run_in_background
 from plugin.scripting.client import run_text_analytics
 from plugin.scripting.helper_registry import is_text_diagnostics
@@ -55,19 +51,7 @@ _COMPUTE_BUTTONS: tuple[tuple[str, str], ...] = (
 
 _BUSY_CONTROL_IDS: tuple[str, ...] = tuple(row[0] for row in _COMPUTE_BUTTONS) + ("BtnInsert",)
 
-
-class _TextAnalyticsAction(BaseActionListener):
-    _fn: Callable[[], None]
-
-    def __init__(self, fn: Callable[[], None]) -> None:
-        super().__init__()
-        self._fn = fn
-
-    def on_action_performed(self, rEvent: ActionEvent) -> None:
-        try:
-            self._fn()
-        except Exception:
-            log.exception("Text analytics button failed")
+_FAILED_TEXT = "Error: Text analytics failed."
 
 
 class TextAnalyticsDialog:
@@ -144,37 +128,33 @@ class TextAnalyticsDialog:
         )
         buttons: tuple[tuple[str, Callable[[], None]], ...] = (*compute, *extra)
         for control_id, handler in buttons:
-            ctrl = self._dlg.getControl(control_id)
-            if ctrl is not None:
-                ctrl.addActionListener(_TextAnalyticsAction(handler))
+            self._dlg.getControl(control_id).addActionListener(CallbackListener(handler))
 
     def _on_compute(self, helper: str) -> None:
-        scope = "whole" if is_text_diagnostics(helper) else self._scope_from_dialog()
+        dlg = self._dlg
+        if self._closed or dlg is None:
+            return
+        scope = "whole" if is_text_diagnostics(helper) else self._scope_from_dialog(dlg)
         if scope is None:
             return
         self._compute(helper, scope)
 
-    def _scope_from_dialog(self) -> str | None:
+    def _scope_from_dialog(self, dlg: Any) -> str | None:
         try:
-            chk = self._dlg.getControl("ChkScope") if self._dlg is not None else None
-            if chk is None:
-                return "whole"
             # get_checkbox_state reads getState() then model.State, as the other dialogs do.
-            return "whole" if get_checkbox_state(chk) == 1 else "selection"
+            return "whole" if get_checkbox_state(dlg.getControl("ChkScope")) == 1 else "selection"
         except Exception:
             # Scope read failure shows an error and aborts the run instead of defaulting to whole-document analysis.
             log.exception("text analytics: scope checkbox failed")
-            self._report_scope_read_failure()
+            self._report_scope_read_failure(dlg)
             return None
 
-    def _report_scope_read_failure(self) -> None:
+    def _report_scope_read_failure(self, dlg: Any) -> None:
         self._clear_result()
         message = _("Could not read the scope checkbox.")
         try:
-            res = self._results_ctrl()
-            if res is not None:
-                res.getModel().Text = message
-                return
+            dlg.getControl("ResultsEdit").getModel().Text = message
+            return
         except Exception:
             log.exception("text analytics: could not show scope error in ResultsEdit")
         msgbox(self._ctx, _("Text Analytics"), message)
@@ -182,9 +162,6 @@ class TextAnalyticsDialog:
     def _clear_result(self) -> None:
         self._last_result = None
         self._source_uid = ""
-
-    def _results_ctrl(self) -> Any | None:
-        return None if self._dlg is None else self._dlg.getControl("ResultsEdit")
 
     def _set_busy(self, busy: bool) -> None:
         self._busy = busy
@@ -198,16 +175,14 @@ class TextAnalyticsDialog:
                 # Skip only this id: stopping the loop here would leave every later control
                 # disabled after the next re-enable.
                 continue
-            if ctrl is not None:
-                set_control_enabled(ctrl, not busy)
+            set_control_enabled(ctrl, not busy)
 
     def _compute(self, helper: str, scope: str) -> None:
-        if self._busy or self._closed:
+        dlg = self._dlg
+        if self._busy or self._closed or dlg is None:
             return
 
-        res_ctrl = self._results_ctrl()
-        if res_ctrl is None:
-            return
+        res_ctrl = dlg.getControl("ResultsEdit")
 
         # Clear _last_result at compute start so Insert cannot apply a report from a prior successful run after a failed attempt.
         self._clear_result()
@@ -290,9 +265,7 @@ class TextAnalyticsDialog:
         if self._closed or self._dlg is None:
             return
 
-        res_ctrl = self._results_ctrl()
-        if res_ctrl is None:
-            return
+        res_ctrl = self._dlg.getControl("ResultsEdit")
 
         if error is not None:
             self._clear_result()
@@ -323,7 +296,7 @@ class TextAnalyticsDialog:
             display_text = format_text_analytics_result_for_display(helper, result)
         except Exception:
             log.exception("Text analytics: format failed")
-            display_text = "Error: Text analytics failed."
+            display_text = _FAILED_TEXT
 
         # A raised ResultsEdit write is already logged by process_queue or the button listener.
         res_ctrl.getModel().Text = display_text
@@ -357,9 +330,11 @@ class TextAnalyticsDialog:
             msgbox(ctx, _("Text Analytics"), _("Insert failed: %s") % e)
             return
 
-        res_ctrl = self._results_ctrl()
-        if res_ctrl is not None:
-            res_ctrl.getModel().Text = (res_ctrl.getModel().Text or "") + "\n\n" + _("Inserted after selection/caret.")
+        # Re-check after the insert so a dialog closed in the meantime is not written to.
+        if self._closed or self._dlg is None:
+            return
+        res_ctrl = self._dlg.getControl("ResultsEdit")
+        res_ctrl.getModel().Text = (res_ctrl.getModel().Text or "") + "\n\n" + _("Inserted after selection/caret.")
 
 
 def _text_analytics_error_line(result: dict[str, Any] | None) -> str:
@@ -368,7 +343,7 @@ def _text_analytics_error_line(result: dict[str, Any] | None) -> str:
         msg = result.get("message")
         if isinstance(msg, str) and msg.strip():
             return f"Error: {msg.strip()}"
-    return "Error: Text analytics failed."
+    return _FAILED_TEXT
 
 
 def _format_metric_lines(mapping: dict[str, Any]) -> list[str]:
@@ -566,9 +541,4 @@ def format_text_analytics_result_for_display(helper: str, result: dict[str, Any]
 
     if is_text_diagnostics(helper):
         return _format_diagnostics(result, data)
-    formatter = _DISPLAY_FORMATTERS.get(helper)
-    if formatter is not None:
-        return formatter(result, data)
-    if result.get("status") != "ok":
-        return _text_analytics_error_line(result)
-    return "Error: Text analytics failed."
+    return _DISPLAY_FORMATTERS[helper](result, data)

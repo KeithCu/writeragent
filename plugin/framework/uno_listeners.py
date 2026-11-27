@@ -326,6 +326,26 @@ class BaseItemListener(BaseListener, _XItemListenerParent):
         pass
 
 
+class CallbackListener(BaseActionListener, BaseItemListener):
+    """Call a zero-argument function on a button click or a list/checkbox change.
+
+    The event is not passed on. Failures go through the base classes' ``_catch_and_log``,
+    so disposal and veto boundaries still reach the bridge.
+    """
+
+    _fn: Callable[[], Any]
+
+    def __init__(self, fn: Callable[[], Any]) -> None:
+        super().__init__()
+        self._fn = fn
+
+    def on_action_performed(self, rEvent: Any) -> None:
+        self._fn()
+
+    def on_item_state_changed(self, rEvent: Any) -> None:
+        self._fn()
+
+
 class BaseTextListener(BaseListener, _XTextListenerParent):
     @_catch_and_log
     def textChanged(self, rEvent: Any) -> None:  # noqa: N802 -- UNO signature

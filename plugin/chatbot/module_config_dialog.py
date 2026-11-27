@@ -32,10 +32,10 @@ from plugin.framework.queue_executor import main
 from plugin.framework.send_cancellation import SendCancellation, SendCancelled
 from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.uno_listeners import (
-    BaseActionListener,
     BaseAdjustmentListener,
     BaseTopWindowListener,
     BaseWindowListener,
+    CallbackListener,
 )
 from plugin.framework.worker_pool import run_in_background
 
@@ -192,13 +192,6 @@ class _PreviewPane:
         with suppress_disposed("module config: dispose preview container", logger=log):
             self._container.dispose()
 
-
-class _CallbackActionListener(BaseActionListener):
-    def __init__(self, callback: Callable[[Any], None]) -> None:
-        self._callback: Callable[[Any], None] = callback
-
-    def on_action_performed(self, rEvent: Any) -> None:
-        self._callback(rEvent)
 
 def _tab_buttons_in_order(dlg: Any) -> list[Any]:
     """btn_tab_* controls in dialog-model order (the order the XDL generator writes)."""
@@ -374,15 +367,15 @@ class ModuleConfigDialog:
     def _wire_buttons(self) -> None:
         assert self._dlg is not None
         for name, callback in (
-            ("btn_run", lambda ev: self._start_job(self._run_job, "run")),
-            ("btn_preview", lambda ev: self._start_job(self._preview_job, "preview")),
-            ("btn_apply", lambda ev: self._apply(close=False)),
-            ("btn_ok", lambda ev: self._apply(close=True)),
-            ("btn_close", lambda ev: self.close()),
+            ("btn_run", lambda: self._start_job(self._run_job, "run")),
+            ("btn_preview", lambda: self._start_job(self._preview_job, "preview")),
+            ("btn_apply", lambda: self._apply(close=False)),
+            ("btn_ok", lambda: self._apply(close=True)),
+            ("btn_close", self.close),
         ):
             btn = get_optional(self._dlg, name)
             if btn:
-                btn.addActionListener(_CallbackActionListener(callback))
+                btn.addActionListener(CallbackListener(callback))
 
     def _populate_fields(self) -> None:
         assert self._dlg is not None

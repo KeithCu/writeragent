@@ -10,7 +10,9 @@ from typing import Any
 
 import pytest
 
-from plugin.scripting.text_analytics_ui import TextAnalyticsDialog
+from plugin.framework.uno_listeners import ListenerBoundary
+from plugin.scripting.text_analytics_ui import _COMPUTE_BUTTONS, _DISPLAY_FORMATTERS, TextAnalyticsDialog
+from plugin.tests.testing_utils import DisposedException
 
 
 class FakeModel:
@@ -537,26 +539,22 @@ def test_scope_read_failure_uses_msgbox_when_results_edit_unavailable(monkeypatc
     assert dlg_obj._last_result is None
 
 
-def test_missing_scope_checkbox_still_analyzes_whole(monkeypatch):
+def test_disposal_in_a_button_handler_reaches_the_listener_boundary(monkeypatch):
     dlg_obj, fake_dlg = _make_dialog()
-    del fake_dlg.controls["ChkScope"]
     dlg_obj._wire()
 
-    monkeypatch.setattr("plugin.scripting.text_analytics_ui.get_active_document", lambda ctx: object())
-    monkeypatch.setattr("plugin.scripting.text_analytics_ui.is_writer", lambda doc: True)
+    def gone(ctx):
+        raise DisposedException("document gone")
 
-    recorded_scope: list[str] = []
+    monkeypatch.setattr("plugin.scripting.text_analytics_ui.get_active_document", gone)
 
-    def fake_resolve(doc, helper, scope="whole"):
-        recorded_scope.append(scope)
-        return "A" * 30, {}
+    with pytest.raises(ListenerBoundary):
+        fake_dlg.controls["BtnRead"].click()
 
-    monkeypatch.setattr("plugin.scripting.text_analytics_ui.resolve_text_analytics_document_inputs", fake_resolve)
-    monkeypatch.setattr("plugin.scripting.text_analytics_ui.run_in_background", lambda *a, **kw: None)
 
-    fake_dlg.controls["BtnRead"].click()
-
-    assert recorded_scope == ["whole"]
+def test_every_compute_button_has_a_display_formatter():
+    helpers = {helper for _btn, helper in _COMPUTE_BUTTONS}
+    assert helpers <= set(_DISPLAY_FORMATTERS) | {"diagnostics"}
 
 
 def test_set_busy_continues_after_one_control_failure():

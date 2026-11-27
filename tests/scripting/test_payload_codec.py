@@ -1676,8 +1676,11 @@ def test_host_cython_status_line_report_only_by_default() -> None:
             assert line == "Cython Accelerator: Inactive (Pure Python)"
 
             payload_codec.fast_flatten_grid_2d = object()
-            payload_codec._CYTHON_ACCELERATOR_LOCATION = None
-            assert payload_codec.host_cython_status_line(reload=True) == "Cython Accelerator: Active (Optimized)"
+            payload_codec._CYTHON_ACCELERATOR_LOCATION = "writeragent_vec"
+            assert (
+                payload_codec.host_cython_status_line(reload=True)
+                == "Cython Accelerator: Active (Optimized, source: writeragent_vec)"
+            )
             mock_load.assert_called_once()
     finally:
         payload_codec.fast_flatten_grid_2d = prev_2d

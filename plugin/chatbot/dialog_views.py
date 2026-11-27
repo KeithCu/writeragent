@@ -1486,10 +1486,9 @@ class DownloadAudioListener(_CtxDlgActionListener):
             # that nested loop already dispatches AsyncCallback for the
             # progress lines, so the bind does not wait on a thread blocked
             # outside the message loop.
-            ok = run_audio_download(on_display, on_status)
-            if ok:
-                main.call(bind_downloaded_audio_on_main)
-            return ok, ""
+            run_audio_download(on_display, on_status)
+            main.call(bind_downloaded_audio_on_main)
+            return True, ""
 
         VenvProbeProgressDialog(self._ctx, parent_dlg=self._dlg).run_modal_probe(
             probe,

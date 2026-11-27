@@ -248,8 +248,7 @@ def test_run_vec_pack_download_pins_sha_and_does_not_bind(tmp_path):
         patch("plugin.scripting.native_binaries.ensure_native_binaries_on_path") as mock_ensure,
         patch("plugin.scripting.payload_codec.invalidate_host_cython_accelerator") as mock_inv,
     ):
-        ok = run_vec_pack_download(lambda _t: None, lambda _s: None)
-    assert ok is True
+        run_vec_pack_download(lambda _t: None, lambda _s: None)
     mock_ensure.assert_not_called()
     mock_inv.assert_not_called()
     calls = mock_dl.call_args_list
@@ -269,8 +268,7 @@ def test_run_vec_pack_download_invalidates_import_caches(tmp_path):
         patch("sysconfig.get_config_var", return_value=".cpython-312-x86_64-linux-gnu.so"),
         patch("plugin.scripting.native_binaries._download_url_to_file"),
     ):
-        ok = run_vec_pack_download(lambda _t: None, lambda _s: None)
-    assert ok is True
+        run_vec_pack_download(lambda _t: None, lambda _s: None)
     mock_inval.assert_called_once()
 
 
@@ -548,9 +546,7 @@ def test_run_audio_download_selects_cffi_and_portaudio(
         patch("plugin.scripting.native_binaries._download_url_to_file", side_effect=fake_download),
         patch("plugin.scripting.native_binaries._download_vec_pack") as mock_vec,
     ):
-        result = run_audio_download(displayed.append, lambda _s: None)
-
-    assert result is True
+        run_audio_download(displayed.append, lambda _s: None)
 
     expected_dests = [zip_path, cffi_path]
     expected_basenames = ["audio_source.zip", cffi_name]
@@ -605,8 +601,7 @@ def test_run_audio_download_invalidates_import_caches(tmp_path):
         patch("zipfile.ZipFile", _MockZip),
         patch("plugin.scripting.native_binaries._download_vec_pack"),
     ):
-        ok = run_audio_download(lambda _t: None, lambda _s: None)
-    assert ok is True
+        run_audio_download(lambda _t: None, lambda _s: None)
     mock_inval.assert_called_once()
 
 

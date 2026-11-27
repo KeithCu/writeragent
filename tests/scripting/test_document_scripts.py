@@ -19,7 +19,7 @@ from plugin.scripting.document_scripts import (
     _closed_document_scripts_list,
     DocumentScriptError,
     DocumentScriptErrorCode,
-    attach_document_script,
+    save_document_script,
     build_scripts_list_message,
     build_xdl_script_picker_state,
     delete_document_script,
@@ -189,7 +189,7 @@ def test_unreadable_envelope_is_not_replaced_by_attach_or_init():
     props.values[DOCUMENT_SCRIPTS_UDPROP] = "not-json"
     doc = _DocWithUserDefinedProperties(props)
 
-    err = attach_document_script(doc, "A", "code")
+    err = save_document_script(doc, "A", "code")
     assert err is not None
     assert err.code == DocumentScriptErrorCode.UNREADABLE
     assert props.values[DOCUMENT_SCRIPTS_UDPROP] == "not-json"
@@ -211,7 +211,7 @@ def test_future_version_envelope_is_not_replaced():
     props.values[DOCUMENT_SCRIPTS_UDPROP] = raw
     doc = _DocWithUserDefinedProperties(props)
 
-    err = attach_document_script(doc, "New", "x = 2")
+    err = save_document_script(doc, "New", "x = 2")
     assert err is not None
     assert err.code == DocumentScriptErrorCode.UNREADABLE
     assert props.values[DOCUMENT_SCRIPTS_UDPROP] == raw
@@ -225,7 +225,7 @@ def test_non_string_script_entry_is_unreadable():
     doc = _DocWithUserDefinedProperties(props)
 
     assert get_document_scripts(doc) == {}
-    err = attach_document_script(doc, "C", "y")
+    err = save_document_script(doc, "C", "y")
     assert err is not None
     assert err.code == DocumentScriptErrorCode.UNREADABLE
     assert props.values[DOCUMENT_SCRIPTS_UDPROP] == raw
@@ -237,7 +237,7 @@ def test_python_literal_envelope_is_unreadable():
     props.values[DOCUMENT_SCRIPTS_UDPROP] = raw
     doc = _DocWithUserDefinedProperties(props)
 
-    err = attach_document_script(doc, "A", "y")
+    err = save_document_script(doc, "A", "y")
     assert err is not None
     assert err.code == DocumentScriptErrorCode.UNREADABLE
     assert props.values[DOCUMENT_SCRIPTS_UDPROP] == raw
@@ -256,14 +256,14 @@ def test_set_document_scripts_still_replaces_unreadable_property():
 def test_blank_property_is_not_unreadable():
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
-    err = attach_document_script(doc, "A", "x")
+    err = save_document_script(doc, "A", "x")
     assert err is None
     assert get_document_scripts(doc) == {"A": "x"}
 
     props2 = _UserDefinedProperties()
     props2.values[DOCUMENT_SCRIPTS_UDPROP] = ""
     doc2 = _DocWithUserDefinedProperties(props2)
-    err2 = attach_document_script(doc2, "B", "y")
+    err2 = save_document_script(doc2, "B", "y")
     assert err2 is None
     assert get_document_scripts(doc2) == {"B": "y"}
 
@@ -273,7 +273,7 @@ def test_missing_version_stays_unreadable_and_unsupported_version_names_the_vers
     props1 = _UserDefinedProperties()
     props1.values[DOCUMENT_SCRIPTS_UDPROP] = raw_missing
     doc1 = _DocWithUserDefinedProperties(props1)
-    err1 = attach_document_script(doc1, "B", "y")
+    err1 = save_document_script(doc1, "B", "y")
     assert getattr(err1, "code", None) == DocumentScriptErrorCode.UNREADABLE
     assert props1.values[DOCUMENT_SCRIPTS_UDPROP] == raw_missing
 
@@ -281,7 +281,7 @@ def test_missing_version_stays_unreadable_and_unsupported_version_names_the_vers
     props2 = _UserDefinedProperties()
     props2.values[DOCUMENT_SCRIPTS_UDPROP] = raw_v99
     doc2 = _DocWithUserDefinedProperties(props2)
-    err2 = attach_document_script(doc2, "B", "y")
+    err2 = save_document_script(doc2, "B", "y")
     assert getattr(err2, "code", None) == DocumentScriptErrorCode.UNREADABLE
     assert "99" in str(err2)
     assert props2.values[DOCUMENT_SCRIPTS_UDPROP] == raw_v99
@@ -337,12 +337,12 @@ def test_scripts_list_reports_unreadable_envelope():
 def test_attach_empty_and_reserved_name_do_not_store_the_error_code():
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
-    err_empty = attach_document_script(doc, "", "body")
+    err_empty = save_document_script(doc, "", "body")
     assert getattr(err_empty, "code", None) == DocumentScriptErrorCode.EMPTY_NAME
     assert DOCUMENT_SCRIPTS_UDPROP not in props.values
     assert get_document_scripts(doc) == {}
 
-    err_reserved = attach_document_script(doc, "[Doc] x", "body")
+    err_reserved = save_document_script(doc, "[Doc] x", "body")
     assert getattr(err_reserved, "code", None) == DocumentScriptErrorCode.RESERVED_NAME
     assert DOCUMENT_SCRIPTS_UDPROP not in props.values
     scripts = get_document_scripts(doc)
@@ -350,22 +350,13 @@ def test_attach_empty_and_reserved_name_do_not_store_the_error_code():
     assert "reserved_name" not in scripts
 
 
-def test_attach_without_overwrite_errors_on_collision():
-    props = _UserDefinedProperties()
-    doc = _DocWithUserDefinedProperties(props)
-    assert attach_document_script(doc, "A", "code1") is None
-    err = attach_document_script(doc, "A", "code2", overwrite=False)
-    assert err is not None
-    assert get_document_scripts(doc)["A"] == "code1"
-
-
 def test_attach_rejects_workbook_init_name():
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
-    err = attach_document_script(doc, "INIT", "result = 1")
+    err = save_document_script(doc, "INIT", "result = 1")
     assert err is not None and "INIT" in err
     assert get_document_scripts(doc) == {}
-    err_init = attach_document_script(doc, "Init", "result = 1")
+    err_init = save_document_script(doc, "Init", "result = 1")
     assert err_init is not None
     assert get_document_scripts(doc) == {}
 
@@ -390,7 +381,7 @@ def test_new_script_name_error_matches_attach_and_allows_user_init():
     assert new_script_name_error("MyScript", attach=True) is None
 
     doc = MagicMock()
-    err_attach = attach_document_script(doc, "INIT", "result = 1")
+    err_attach = save_document_script(doc, "INIT", "result = 1")
     assert err_attach is not None
     assert err_attach.code == DocumentScriptErrorCode.RESERVED_NAME
     assert "workbook init" in err_attach
@@ -409,7 +400,7 @@ def test_new_script_name_error_matches_attach_and_allows_user_init():
 def test_delete_document_script():
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
-    attach_document_script(doc, "A", "code")
+    save_document_script(doc, "A", "code")
     assert delete_document_script(doc, "A") is None
     assert get_document_scripts(doc) == {}
 
@@ -461,7 +452,7 @@ def test_readonly_document_returns_error():
 def test_build_xdl_script_picker_state():
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
-    attach_document_script(doc, "DocScript", "result = 2")
+    save_document_script(doc, "DocScript", "result = 2")
     with patch("plugin.vision.vision_runner.supports_vision_manual", return_value=True):
         items, merged, origin_map = build_xdl_script_picker_state(
             doc,
@@ -543,7 +534,7 @@ def test_build_scripts_list_message_sections():
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
     doc.getURL = MagicMock(return_value="file:///tmp/test.odt")
-    attach_document_script(doc, "Regional", "result = 3")
+    save_document_script(doc, "Regional", "result = 3")
     with patch("plugin.framework.config.get_config", side_effect=lambda k: {"Prime": "result = 2"} if k == "saved_python_scripts" else ""), patch(
         "plugin.scripting.document_scripts.resolve_run_script_name_config_key", return_value="last_python_script_name_writer"
     ):
@@ -563,7 +554,7 @@ def test_build_scripts_list_section_order_local_doc_vision_math_units_analysis()
     doc = _DocWithUserDefinedProperties(props)
     doc.getURL = MagicMock(return_value="file:///tmp/test.ods")
     doc.supportsService = MagicMock(side_effect=lambda s: s == "com.sun.star.sheet.SpreadsheetDocument")
-    attach_document_script(doc, "SheetHelper", "result = 1")
+    save_document_script(doc, "SheetHelper", "result = 1")
     with patch("plugin.framework.config.get_config", side_effect=lambda k: {"MyLocal": "result = 0"} if k == "saved_python_scripts" else ""), patch(
         "plugin.scripting.document_scripts.resolve_run_script_name_config_key", return_value="last_python_script_name_calc"
     ), patch(
@@ -602,7 +593,7 @@ def test_build_scripts_list_message_stale_when_url_changes():
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
     doc.getURL = MagicMock(return_value="file:///tmp/other.odt")
-    attach_document_script(doc, "A", "x")
+    save_document_script(doc, "A", "x")
     with patch("plugin.framework.config.get_config", side_effect=lambda k: {} if k == "saved_python_scripts" else ""), patch(
         "plugin.scripting.document_scripts.resolve_run_script_name_config_key", return_value="last_python_script_name_writer"
     ):
@@ -616,7 +607,7 @@ def test_build_scripts_list_untitled_save_is_not_stale():
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
     doc.getURL = MagicMock(return_value="file:///tmp/saved.odt")
-    attach_document_script(doc, "A", "x")
+    save_document_script(doc, "A", "x")
     with patch("plugin.framework.config.get_config", side_effect=lambda k: {} if k == "saved_python_scripts" else ""), patch(
         "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
         return_value="last_python_script_name_writer",
@@ -1094,7 +1085,7 @@ def test_document_script_reopen_after_select_and_save_uses_display_key():
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
     doc.getURL = MagicMock(return_value="file:///tmp/test.odt")
-    attach_document_script(doc, "Regional", "doc-code")
+    save_document_script(doc, "Regional", "doc-code")
     config: dict[str, object] = {
         "saved_python_scripts": {"Regional": "user-code"},
         "last_python_script_name_writer": "",
@@ -1154,7 +1145,7 @@ def test_scripts_list_keys_document_by_display_name_and_user_by_raw_name():
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
     doc.getURL = MagicMock(return_value="file:///tmp/test.odt")
-    attach_document_script(doc, "Regional", "result = 3")
+    save_document_script(doc, "Regional", "result = 3")
     with (
         patch("plugin.framework.config.get_config", side_effect=lambda k: {"Regional": "user-code"} if k == "saved_python_scripts" else ""),
         patch(
@@ -1211,7 +1202,7 @@ def test_build_scripts_list_message_loads_once_when_the_document_is_current():
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
     doc.getURL = MagicMock(return_value="file:///tmp/test.odt")
-    attach_document_script(doc, "Regional", "doc-code")
+    save_document_script(doc, "Regional", "doc-code")
 
     import plugin.scripting.document_scripts as ds
     import plugin.scripting.domain_registry as dr
@@ -1288,7 +1279,7 @@ def test_build_scripts_list_message_stale_doc_does_not_select_doc_script():
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
     doc.getURL = MagicMock(return_value="file:///tmp/opened.ods")
-    attach_document_script(doc, "SecretDocScript", "secret = 1")
+    save_document_script(doc, "SecretDocScript", "secret = 1")
     with patch("plugin.framework.config.get_config", side_effect=lambda k: {"UserScript": "x = 1"} if k == "saved_python_scripts" else "[Doc] SecretDocScript"), patch(
         "plugin.framework.config.save"
     ) as mock_set, patch(
@@ -1421,7 +1412,7 @@ def test_shared_save_selected_script_user_and_doc_and_builtin():
     """Cleanup: shared save_selected_script helper handles user, doc, and template entries."""
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
-    attach_document_script(doc, "DocScript", "x = 1")
+    save_document_script(doc, "DocScript", "x = 1")
 
     with patch("plugin.scripting.document_scripts.get_user_scripts", return_value={"UserScript": "u = 1"}), patch(
         "plugin.scripting.document_scripts.save_user_script",

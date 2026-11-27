@@ -22,7 +22,7 @@ import html
 import logging
 import re
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from plugin.framework.deal_shim import deal
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
@@ -34,6 +34,9 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("writeragent.scripting")
 
+# How a template calls its helper: "direct" calls the helper by name, "runner" passes a
+# spec dict to the domain's run_* function.
+TemplateInvoke = Literal["direct", "runner"]
 
 _UNRESOLVED: Any = object()
 
@@ -138,7 +141,7 @@ _RUN_DATA_BINDING_CALLS: frozenset[str] = frozenset({
 
 # Both SQL templates call query_folder_sql. The sheet template passes
 # {"data": data}. The folder template does not, and still shows the toolbar.
-_SHEET_SQL_CALL = "query_folder_sql"
+_SQL_DATA_BINDING_CALL = "query_folder_sql"
 
 _IMPORT_DATA_BINDING: frozenset[str] = frozenset({
     "writeragent.scripting.analysis",
@@ -217,7 +220,7 @@ class ScriptFacts:
                     name = func.attr
                 else:
                     name = None
-                if name in _RUN_DATA_BINDING_CALLS or name == _SHEET_SQL_CALL:
+                if name in _RUN_DATA_BINDING_CALLS or name == _SQL_DATA_BINDING_CALL:
                     self._needs_data_binding = True
                 else:
                     data_binding_candidate_calls.append(node)
@@ -235,7 +238,7 @@ class ScriptFacts:
                         break
 
     def _analyze_fallback(self, code: str) -> None:
-        for name in (*_RUN_DATA_BINDING_CALLS, _SHEET_SQL_CALL):
+        for name in (*_RUN_DATA_BINDING_CALLS, _SQL_DATA_BINDING_CALL):
             if re.search(rf"\b{re.escape(name)}\s*\(", code):
                 self._needs_data_binding = True
                 break
@@ -319,7 +322,7 @@ def build_helper_script_template(
     extra_comment_lines: tuple[str, ...] = ("# Edit the call below, then Run.",),
     positional_args: tuple[str, ...] = (),
     leading_data: bool = False,
-    invoke: str = "direct",
+    invoke: TemplateInvoke = "direct",
 ) -> str:
     """Build a Run Python Script template body."""
     if invoke == "runner":
@@ -603,9 +606,11 @@ def run_trusted_calc_data_helper(
     ``row`` supplies the error code, helper names, RPC target, and threading/doc-type
     flags; analysis, forecast, optimize, and viz share this function.
     """
-    wiring_id = row.id
-    error_code = row.error_code or ""
-    name = _checked_helper_name(helper, row.helper_domain or wiring_id, error_code)
+    # Every runner="sheet" row sets these four (test_domain_registry checks it).
+    assert row.error_code and row.helper_domain and row.rpc_domain and row.empty_data_message
+    error_code = row.error_code
+    empty_data_message = row.empty_data_message
+    name = _checked_helper_name(helper, row.helper_domain, error_code)
 
     dr = str(data_range).strip() if data_range else None
     if not dr and data is None:
@@ -613,7 +618,7 @@ def run_trusted_calc_data_helper(
 
     import plugin.scripting.client as client  # host only: client loads trusted_rpc
 
-    client_run = getattr(client, f"run_{row.rpc_domain or row.helper_domain or wiring_id}")
+    client_run = getattr(client, f"run_{row.rpc_domain}")
 
     def _read_sheet() -> tuple[Any, str | None, dict[str, Any]]:
         # UNO only. Callers are async workers; the venv IPC must not sit in this hop.
@@ -622,7 +627,7 @@ def run_trusted_calc_data_helper(
 
         # Doc-type check lives inside _read_sheet after the main-thread hop because get_document_type must not run on worker threads.
         if row.require_calc_or_writer and not is_calc(doc) and not is_writer(doc):
-            raise ToolExecutionError("Viz helpers require a Writer or Calc document.", code=error_code)
+            raise ToolExecutionError(f"{row.display_label} helpers require a Writer or Calc document.", code=error_code)
 
         py_data, err = resolve_python_data(doc, data_range=dr, data=data)
         context: dict[str, Any] = {}
@@ -651,7 +656,7 @@ def run_trusted_calc_data_helper(
     if err:
         raise ToolExecutionError(err, code=error_code)
     if py_data is None:
-        raise ToolExecutionError(row.empty_data_message or "", code=error_code)
+        raise ToolExecutionError(empty_data_message, code=error_code)
 
     spec: dict[str, Any] = {"helper": name, "headers": bool(headers)}
     if isinstance(params, dict) and params:

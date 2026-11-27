@@ -14,6 +14,7 @@ import logging
 import os
 import subprocess
 import sys
+from dataclasses import KW_ONLY, dataclass, field
 from typing import Any, Callable, NamedTuple
 
 from plugin.framework.constants import TESSERACT_PROGRAMS, WORKER_POOL_DIAGNOSTICS
@@ -620,32 +621,18 @@ def _format_vision_group_lines(
     return lines
 
 
+@dataclass
 class GroupResult:
     """Result of probing a group of packages."""
 
     key: str
     title: str
-    packages: tuple[str, ...]
-    optional_keys: tuple[str, ...]
-    failure: str | None
-    ocr_backend: str
-
-    def __init__(
-        self,
-        key: str,
-        title: str,
-        packages: tuple[str, ...] = (),
-        *,
-        optional_keys: tuple[str, ...] = (),
-        failure: str | None = None,
-        ocr_backend: str = DEFAULT_OCR_BACKEND,
-    ) -> None:
-        self.key = key
-        self.title = title
-        self.packages = packages
-        self.optional_keys = optional_keys
-        self.failure = failure
-        self.ocr_backend = ocr_backend
+    packages: tuple[str, ...] = ()
+    # Fields after this marker are keyword-only. It is not named "_" because that name is the i18n function here.
+    _kw: KW_ONLY
+    optional_keys: tuple[str, ...] = ()
+    failure: str | None = None
+    ocr_backend: str = DEFAULT_OCR_BACKEND
 
     def missing_keys(self, packages: dict[str, Any]) -> list[str]:
         if self.key == "vision":
@@ -728,32 +715,18 @@ def _format_install_footer(missing_probe_keys: list[str]) -> list[str]:
     return lines
 
 
+@dataclass
 class ProbeReport:
     """Aggregated report of all probed package groups."""
 
-    version: str
-    arch: str
-    packages: dict[str, Any]
-    groups: list[GroupResult]
-    probe_warnings: list[str]
-    extra_lines_after_header: tuple[str, ...] | None
-
-    def __init__(
-        self,
-        version: str = "unknown",
-        arch: str = "",
-        *,
-        packages: dict[str, Any] | None = None,
-        groups: list[GroupResult] | None = None,
-        probe_warnings: list[str] | None = None,
-        extra_lines_after_header: tuple[str, ...] | None = None,
-    ) -> None:
-        self.version = version
-        self.arch = arch
-        self.packages = packages if packages is not None else {}
-        self.groups = groups if groups is not None else []
-        self.probe_warnings = probe_warnings if probe_warnings is not None else []
-        self.extra_lines_after_header = extra_lines_after_header
+    version: str = "unknown"
+    arch: str = ""
+    # Fields after this marker are keyword-only. It is not named "_" because that name is the i18n function here.
+    _kw: KW_ONLY
+    packages: dict[str, Any] = field(default_factory=dict)
+    groups: list[GroupResult] = field(default_factory=list)
+    probe_warnings: list[str] = field(default_factory=list)
+    extra_lines_after_header: tuple[str, ...] | None = None
 
     def collect_missing_keys(self) -> list[str]:
         missing: list[str] = []
