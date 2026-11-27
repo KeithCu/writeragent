@@ -169,8 +169,6 @@ def notify_tunnel_url_acquired(provider: str, url: str) -> None:
 
 def sync_mcp_config_snippet(dlg: Any) -> None:
     """Synchronize MCP client config snippet according to port, tunnel_enabled, and provider."""
-    if not dlg:
-        return
     snippet_ctrl = get_optional(dlg, "mcp__client_config_snippet")
     if not snippet_ctrl:
         return

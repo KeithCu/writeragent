@@ -145,7 +145,6 @@ def test_caplog_redacts_credentials(caplog):
         assert secret not in caplog.handler.format(record)
 
 
-@patch("plugin.audio.tts_endpoint._default_endpoint_format", new=lambda: "mp3")
 def test_speak_endpoint_payload():
 
     cancel = SendCancellation()
@@ -198,7 +197,6 @@ def test_speak_endpoint_prefers_cached_openrouter_speech_id():
         assert payload["voice"] == "af_bella"
 
 
-@patch("plugin.audio.tts_endpoint._default_endpoint_format", new=lambda: "mp3")
 def test_endpoint_pcm_failure_is_remembered_and_wrapped():
     model = "google/gemini-2.5-flash-preview-tts"
     pcm = b"\x01\x00\x02\x00"
@@ -267,7 +265,6 @@ def test_pcm_wrap_defaults_to_24khz():
     assert struct.unpack_from("<H", wav, 34)[0] == 16
 
 
-@patch("plugin.audio.tts_endpoint._default_endpoint_format", new=lambda: "mp3")
 def test_endpoint_wav_error_retries_wav():
     model = "vendor/wav-only"
     calls: list[dict] = []
@@ -298,7 +295,6 @@ def test_endpoint_wav_error_retries_wav():
     assert clip.audio.startswith(b"RIFF")
 
 
-@patch("plugin.audio.tts_endpoint._default_endpoint_format", new=lambda: "mp3")
 def test_endpoint_mp3_success_does_not_cache_format():
     model = "x-ai/grok-voice-tts-1.0"
     calls: list[dict] = []
@@ -339,14 +335,12 @@ def test_two_origins_one_model_learned_format():
         calls_b.append(json.loads(data.decode("utf-8")))
         return _speech_meta(b"ID3fake", "audio/mpeg")
 
-    with patch("plugin.audio.tts_endpoint._default_endpoint_format", return_value="mp3"), \
-         patch("plugin.framework.client.requests.sync_request", side_effect=sync_a):
+    with patch("plugin.framework.client.requests.sync_request", side_effect=sync_a):
         download_endpoint_speech("Hi", "https://host-a.com/v1", "k", model=model, voice="v")
     key_a = _tts_format_key("https://host-a.com/v1", model)
     assert cfg.cached_tts_response_format(key_a) == "wav"
 
-    with patch("plugin.audio.tts_endpoint._default_endpoint_format", return_value="mp3"), \
-         patch("plugin.framework.client.requests.sync_request", side_effect=sync_b):
+    with patch("plugin.framework.client.requests.sync_request", side_effect=sync_b):
         download_endpoint_speech("Hi", "https://host-b.com/v1", "k", model=model, voice="v")
     assert calls_b[0]["response_format"] == "mp3"
 
@@ -368,8 +362,7 @@ def test_retry_status_gates():
             raise _speech_http_error(400, "unsupported response_format")
         return _speech_meta(b"RIFF" + b"\x00" * 40, "audio/wav")
 
-    with patch("plugin.audio.tts_endpoint._default_endpoint_format", return_value="mp3"), \
-         patch("plugin.framework.client.requests.sync_request", side_effect=fake_400):
+    with patch("plugin.framework.client.requests.sync_request", side_effect=fake_400):
         clip = download_endpoint_speech("Hi", "https://host.com/v1", "k", model="m", voice="v")
         assert clip is not None
         assert [c["response_format"] for c in calls_400] == ["mp3", "wav"]
@@ -384,8 +377,7 @@ def test_retry_status_gates():
             raise _speech_http_error(400, "bad format; use wav")
         return _speech_meta(b"RIFF" + b"\x00" * 40, "audio/wav")
 
-    with patch("plugin.audio.tts_endpoint._default_endpoint_format", return_value="mp3"), \
-         patch("plugin.framework.client.requests.sync_request", side_effect=fake_hint):
+    with patch("plugin.framework.client.requests.sync_request", side_effect=fake_hint):
         clip = download_endpoint_speech("Hi", "https://host.com/v1", "k", model="m2", voice="v")
         assert clip is not None
         assert [c["response_format"] for c in calls_hint] == ["mp3", "wav"]
@@ -402,8 +394,7 @@ def test_sniff_and_pcm_treatments():
 
     # Raw PCM with audio/L16;rate=22050 and requested mp3 -> starts with RIFF, rate 22050, remembered pcm
     pcm_data = b"\x01\x00\x02\x00"
-    with patch("plugin.audio.tts_endpoint._default_endpoint_format", return_value="mp3"), \
-         patch("plugin.framework.client.requests.sync_request", return_value=_speech_meta(pcm_data, "audio/L16;rate=22050")):
+    with patch("plugin.framework.client.requests.sync_request", return_value=_speech_meta(pcm_data, "audio/L16;rate=22050")):
         clip = download_endpoint_speech("H", "https://h.test", "k", model="m_pcm", voice="v")
         assert clip is not None
         assert clip.suffix == ".wav"
@@ -507,7 +498,6 @@ def test_endpoint_audio_suffix_from_content_type():
         assert clip2.audio.startswith(b"RIFF")
 
 
-@patch("plugin.audio.tts_endpoint._default_endpoint_format", new=lambda: "mp3")
 def test_endpoint_retry_remembers_format_without_content_type():
     """A successful retry with a generic Content-Type must stick for the next clip."""
     model = "vendor/wav-generic"

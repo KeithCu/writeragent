@@ -84,11 +84,9 @@ def test_find_project_pptx_missing_exports(tmp_path: Path):
     assert find_project_pptx(tmp_path) is None
 
 
-@patch("plugin.ppt_master.pptx_build.resolve_venv_python")
-@patch("plugin.ppt_master.pptx_build.get_config")
-def test_build_project_pptx_success(mock_cfg, mock_resolve, tmp_path: Path):
-    mock_cfg.return_value = "/venv"
-    mock_resolve.return_value = sys.executable
+@patch("plugin.ppt_master.pptx_build.configured_venv_python")
+def test_build_project_pptx_success(mock_python, tmp_path: Path):
+    mock_python.return_value = sys.executable
     exports = tmp_path / "exports"
     exports.mkdir()
     pptx = exports / "proj_20260101.pptx"
@@ -114,11 +112,9 @@ def test_build_project_pptx_success(mock_cfg, mock_resolve, tmp_path: Path):
         assert not any(getattr(inst, "_label", "") == "pptx-build" for inst in _instances)
 
 
-@patch("plugin.ppt_master.pptx_build.resolve_venv_python")
-@patch("plugin.ppt_master.pptx_build.get_config")
-def test_build_project_pptx_cancel_kills_child(mock_cfg, mock_resolve, tmp_path: Path):
-    mock_cfg.return_value = "/venv"
-    mock_resolve.return_value = sys.executable
+@patch("plugin.ppt_master.pptx_build.configured_venv_python")
+def test_build_project_pptx_cancel_kills_child(mock_python, tmp_path: Path):
+    mock_python.return_value = sys.executable
     data_root = tmp_path / "skill"
     (data_root / "scripts").mkdir(parents=True)
 
@@ -180,11 +176,9 @@ def test_build_project_pptx_cancel_kills_child(mock_cfg, mock_resolve, tmp_path:
                 pass
 
 
-@patch("plugin.ppt_master.pptx_build.resolve_venv_python")
-@patch("plugin.ppt_master.pptx_build.get_config")
-def test_build_project_pptx_deadline_kills_child(mock_cfg, mock_resolve, tmp_path: Path):
-    mock_cfg.return_value = "/venv"
-    mock_resolve.return_value = sys.executable
+@patch("plugin.ppt_master.pptx_build.configured_venv_python")
+def test_build_project_pptx_deadline_kills_child(mock_python, tmp_path: Path):
+    mock_python.return_value = sys.executable
     data_root = tmp_path / "skill"
     (data_root / "scripts").mkdir(parents=True)
     (data_root / "scripts" / "svg_to_pptx.py").write_text("import time\ntime.sleep(30)\n", encoding="utf-8")
@@ -213,11 +207,9 @@ def test_build_project_pptx_deadline_kills_child(mock_cfg, mock_resolve, tmp_pat
         shutdown_all()
 
 
-@patch("plugin.ppt_master.pptx_build.resolve_venv_python")
-@patch("plugin.ppt_master.pptx_build.get_config")
-def test_build_project_pptx_exception_in_poll_kills_child(mock_cfg, mock_resolve, tmp_path: Path):
-    mock_cfg.return_value = "/venv"
-    mock_resolve.return_value = sys.executable
+@patch("plugin.ppt_master.pptx_build.configured_venv_python")
+def test_build_project_pptx_exception_in_poll_kills_child(mock_python, tmp_path: Path):
+    mock_python.return_value = sys.executable
     data_root = tmp_path / "skill"
     (data_root / "scripts").mkdir(parents=True)
     (data_root / "scripts" / "svg_to_pptx.py").write_text("import time\ntime.sleep(30)\n", encoding="utf-8")
@@ -254,11 +246,9 @@ def test_build_project_pptx_exception_in_poll_kills_child(mock_cfg, mock_resolve
         shutdown_all()
 
 
-@patch("plugin.ppt_master.pptx_build.resolve_venv_python")
-@patch("plugin.ppt_master.pptx_build.get_config")
-def test_build_project_pptx_quit_kills_registered_child(mock_cfg, mock_resolve, tmp_path: Path):
-    mock_cfg.return_value = "/venv"
-    mock_resolve.return_value = sys.executable
+@patch("plugin.ppt_master.pptx_build.configured_venv_python")
+def test_build_project_pptx_quit_kills_registered_child(mock_python, tmp_path: Path):
+    mock_python.return_value = sys.executable
     data_root = tmp_path / "skill"
     (data_root / "scripts").mkdir(parents=True)
     (data_root / "scripts" / "svg_to_pptx.py").write_text("import time\ntime.sleep(30)\n", encoding="utf-8")
@@ -293,11 +283,9 @@ def test_build_project_pptx_quit_kills_registered_child(mock_cfg, mock_resolve, 
         shutdown_all()
 
 
-@patch("plugin.ppt_master.pptx_build.resolve_venv_python")
-@patch("plugin.ppt_master.pptx_build.get_config")
-def test_build_project_pptx_nonzero_uses_stderr(mock_cfg, mock_resolve, tmp_path: Path):
-    mock_cfg.return_value = "/venv"
-    mock_resolve.return_value = sys.executable
+@patch("plugin.ppt_master.pptx_build.configured_venv_python")
+def test_build_project_pptx_nonzero_uses_stderr(mock_python, tmp_path: Path):
+    mock_python.return_value = sys.executable
     data_root = tmp_path / "skill"
     (data_root / "scripts").mkdir(parents=True)
     script_content = "import sys\nsys.stderr.write('boom')\nsys.exit(2)\n"
@@ -310,9 +298,9 @@ def test_build_project_pptx_nonzero_uses_stderr(mock_cfg, mock_resolve, tmp_path
     assert "boom" in err
 
 
-@patch("plugin.ppt_master.pptx_build.get_config")
-def test_build_project_pptx_requires_venv(mock_cfg, tmp_path: Path):
-    mock_cfg.return_value = ""
+@patch("plugin.ppt_master.pptx_build.configured_venv_python")
+def test_build_project_pptx_requires_venv(mock_python, tmp_path: Path):
+    mock_python.return_value = None
     path, err = build_project_pptx(tmp_path, tmp_path)
     assert path is None
     assert err is not None

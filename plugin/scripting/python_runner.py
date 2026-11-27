@@ -290,7 +290,7 @@ def _prepare_vision(ctx: Any, doc: Any, facts: ScriptFacts, t0: float) -> Prepar
         )
     call_spec = facts.first_run_spec("run_vision") or {}
     raw_params = call_spec.get("params") if isinstance(call_spec.get("params"), dict) else None
-    params = merge_vision_params(ctx, raw_params)
+    params = merge_vision_params(raw_params)
     helper_name = str(call_spec.get("helper") or "extract_text").strip() or "extract_text"
 
     return PreparedVision(

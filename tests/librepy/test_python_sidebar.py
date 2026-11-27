@@ -59,7 +59,7 @@ def _mock_control(x, y, width, height):
 def test_format_runtime_status_isolated_embedded():
     with (
         patch("plugin.librepy.python_sidebar.python_session_mode", return_value="isolated"),
-        patch("plugin.librepy.python_sidebar.get_config", return_value=""),
+        patch("plugin.librepy.python_sidebar.configured_venv_path", return_value=""),
     ):
         text = format_runtime_status()
     assert "Isolated" in text
@@ -69,7 +69,7 @@ def test_format_runtime_status_isolated_embedded():
 def test_format_runtime_status_shared_with_venv():
     with (
         patch("plugin.librepy.python_sidebar.python_session_mode", return_value="shared"),
-        patch("plugin.librepy.python_sidebar.get_config", return_value="/tmp/myvenv"),
+        patch("plugin.librepy.python_sidebar.configured_venv_path", return_value="/tmp/myvenv"),
         patch("plugin.librepy.python_sidebar.resolve_venv_python", return_value="/tmp/myvenv/bin/python"),
     ):
         text = format_runtime_status()

@@ -345,14 +345,13 @@ def index_is_empty(
     create corpus.db; pass *listing_root* so the collection directory can be
     probed. Other modes keep the sqlite rule: a missing corpus.db is empty.
     """
-    mode = str(search_mode or "").strip().lower()
-    if mode in ("zvec", "lancedb"):
+    if search_mode in ("zvec", "lancedb"):
         # A missing corpus.db means empty for sqlite only. zvec and lancedb never
         # create it; they use chunk_count plus collection presence, the same
         # signals search_ui and the research tools use. Treating the missing file
         # as empty would resolve cold on every tick and let clear_folder_cache
         # delete the live collection.
-        return _vector_backend_is_empty(mode, listing_root, meta_path, meta=meta)
+        return _vector_backend_is_empty(search_mode, listing_root, meta_path, meta=meta)
     if db_path is None:
         db_path = meta_path.parent / CORPUS_DB_FILENAME
     if not db_path.is_file():
@@ -394,12 +393,11 @@ class FolderStore:
 
 def _search_path(mode: str, listing_root: str | None, db_path: Path | None) -> str | None:
     """Return the filesystem path to query after ``index_is_empty`` is false (no probing)."""
-    resolved = str(mode or "").strip().lower()
-    if resolved == "zvec":
+    if mode == "zvec":
         if not listing_root:
             return None
         return str(zvec_collection_path(listing_root, create_parent=True))
-    if resolved == "lancedb":
+    if mode == "lancedb":
         if not listing_root:
             return None
         return str(lancedb_collection_path(listing_root, create_parent=True))

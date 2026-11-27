@@ -40,7 +40,7 @@ from typing import IO, Any, Callable, cast
 
 from plugin.chatbot.dialogs import ask_save_discard_cancel, msgbox_with_report
 from plugin.framework.appearance import get_monaco_theme_info
-from plugin.framework.config import get_config
+from plugin.framework.config import configured_venv_path, get_config
 from plugin.framework.event_bus import get_event_bus
 from plugin.framework.i18n import _
 from plugin.framework.ipc import (
@@ -136,7 +136,7 @@ def build_editor_child_env() -> dict[str, str]:
 
 def resolve_editor_python() -> tuple[str | None, str]:
     """Return (venv python executable, error message). The web editor requires a user venv."""
-    venv_dir = str(get_config("scripting.python_venv_path") or "").strip()
+    venv_dir = configured_venv_path()
     if not venv_dir:
         return (
             None,

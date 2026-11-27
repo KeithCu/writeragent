@@ -342,9 +342,6 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
                 except OSError:
                     pass
 
-    def _read_body(self) -> Any:
-        return read_json_body(self)
-
     def log_message(self, format: str, *args: object) -> None:
         log.info("%s - %s", self.client_address[0], format % args)
 

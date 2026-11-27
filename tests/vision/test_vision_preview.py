@@ -498,7 +498,7 @@ def test_preview_closed_document_raises_document_disposed():
         patch("plugin.vision.vision_preview.get_active_document", return_value=doc),
         patch("plugin.vision.vision_preview.supports_vision_manual", return_value=True),
         patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[("Image1", MagicMock())]),
-        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {})),
+        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda params: dict(params or {})),
         patch("plugin.doc.visual_helpers.get_graphic_object_by_name", side_effect=DisposedException("SwXTextDocument not valid")),
         patch("plugin.vision.vision_runner.run_vision") as mock_run_vision,
     ):
@@ -528,7 +528,7 @@ def test_preview_exports_discovered_unnamed_shape_after_selection_changes():
         patch("plugin.vision.vision_runner.is_writer", return_value=False),
         patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[("", shape_a)]),
         patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=shape_b),
-        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, p: dict(p or {})),
+        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda p: dict(p or {})),
         patch("plugin.vision.vision_runner.export_graphic_object_to_bytes", side_effect=fake_export),
         patch("plugin.vision.vision_runner.get_lo_locale", return_value="en-US"),
         patch(

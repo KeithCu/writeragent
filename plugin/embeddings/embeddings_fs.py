@@ -64,7 +64,7 @@ class WriterFileEntry:
 
 def content_hash(text: str) -> str:
     """SHA-256 of normalized passage/chunk text (stable for incremental invalidation)."""
-    normalized = str(text or "").strip()
+    normalized = text.strip()
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 

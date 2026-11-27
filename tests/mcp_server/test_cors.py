@@ -703,14 +703,14 @@ def test_reload_cors_config_failure_propagates():
     set_extra_allowed_origins(["https://evil.example"])
     with patch("plugin.framework.config.get_config", side_effect=RuntimeError("config")):
         with pytest.raises(RuntimeError, match="config"):
-            reload_cors_policy_from_config(None)
+            reload_cors_policy_from_config()
     assert get_allow_private_origins() is True
     assert "https://evil.example" in get_extra_allowed_origins()
 
 
 def test_reload_cors_missing_private_key_stays_on():
     with patch("plugin.framework.config.get_config", return_value=None):
-        reload_cors_policy_from_config(None)
+        reload_cors_policy_from_config()
         assert get_allow_private_origins() is True
 
 
@@ -797,7 +797,7 @@ def test_reload_cors_bad_or_empty_origins_does_not_crash(bad_or_empty):
 
     # Bad or empty config values must not crash module reload or raise PreContractError.
     with patch("plugin.framework.config.get_config", side_effect=fake_get):
-        reload_cors_policy_from_config(None)
+        reload_cors_policy_from_config()
     if bad_or_empty == ["https://valid.example.com", "", 42, "not a url"]:
         assert "https://valid.example.com" in get_extra_allowed_origins()
     else:

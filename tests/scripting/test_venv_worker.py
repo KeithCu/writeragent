@@ -808,7 +808,7 @@ def test_exec_request_wire_sandbox_policy():
     assert trusted_wire['action'] == 'run_trusted_action'
 
 def test_run_code_in_user_venv_reads_sandbox_policy_flags():
-    with patch('plugin.framework.config.get_config', return_value=10), patch('plugin.scripting.venv_worker.resolve_libreoffice_python', return_value=sys.executable), patch('plugin.scripting.venv_worker.PythonWorkerManager.execute') as mock_execute:
+    with patch('plugin.framework.config.get_config', return_value=10), patch('plugin.scripting.venv_worker.configured_venv_path', return_value=''), patch('plugin.scripting.venv_worker.resolve_libreoffice_python', return_value=sys.executable), patch('plugin.scripting.venv_worker.PythonWorkerManager.execute') as mock_execute:
         mock_execute.return_value = {'status': 'ok', 'result': 1}
 
         def fake_get_config(key: str):
@@ -914,6 +914,7 @@ def test_retired_worker_does_not_respawn():
     finally:
         shutdown_venv_workers_for_tests()
 
+@patch('plugin.scripting.venv_worker.configured_venv_path', new=lambda: '')
 @patch('plugin.framework.config.get_config', return_value=10)
 @patch('plugin.scripting.venv_worker.get_config', return_value='')
 @patch('plugin.scripting.venv_worker.resolve_libreoffice_python', return_value=sys.executable)
@@ -930,7 +931,7 @@ def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mo
         mock_execute.reset_mock()
 
 def test_run_code_forwards_script_session_pin_apart_from_kernel_session():
-    with patch('plugin.framework.config.get_config', return_value=10), patch('plugin.scripting.venv_worker.get_config', return_value=''), patch('plugin.scripting.venv_worker.resolve_libreoffice_python', return_value=sys.executable), patch('plugin.scripting.venv_worker.PythonWorkerManager.execute') as mock_execute:
+    with patch('plugin.framework.config.get_config', return_value=10), patch('plugin.scripting.venv_worker.configured_venv_path', return_value=''), patch('plugin.scripting.venv_worker.resolve_libreoffice_python', return_value=sys.executable), patch('plugin.scripting.venv_worker.PythonWorkerManager.execute') as mock_execute:
         mock_execute.return_value = {'status': 'ok', 'result': 1}
         run_code_in_user_venv('result = 1', script_session_id='doc:pin')
     req = mock_execute.call_args.args[0]
@@ -2639,7 +2640,7 @@ def test_orphan_venv_harness_dies_with_parent(tmp_path: Any) -> None:
 
 def test_embeddings_pool_requires_configured_venv():
     with (
-        patch("plugin.scripting.venv_worker.get_config", return_value=""),
+        patch("plugin.scripting.venv_worker.configured_venv_path", return_value=""),
         patch("plugin.scripting.venv_worker.resolve_libreoffice_python") as mock_lo,
     ):
         exe, err = _resolve_worker_python(pool=WORKER_POOL_EMBEDDINGS)
@@ -2650,7 +2651,7 @@ def test_embeddings_pool_requires_configured_venv():
 
 
 def test_embeddings_pool_invalid_venv_path():
-    with patch("plugin.scripting.venv_worker.get_config", return_value="/no/such/venv"):
+    with patch("plugin.scripting.venv_worker.configured_venv_path", return_value="/no/such/venv"):
         exe, err = _resolve_worker_python(pool=WORKER_POOL_EMBEDDINGS)
     assert exe is None
     assert err is not None
@@ -2664,7 +2665,7 @@ def test_embeddings_pool_resolves_valid_venv(tmp_path):
     py = bindir / "python3"
     py.write_text("#!/bin/sh\necho ok\n")
     py.chmod(py.stat().st_mode | stat.S_IEXEC)
-    with patch("plugin.scripting.venv_worker.get_config", return_value=str(venv)):
+    with patch("plugin.scripting.venv_worker.configured_venv_path", return_value=str(venv)):
         exe, err = _resolve_worker_python(pool=WORKER_POOL_EMBEDDINGS)
     assert err is None
     assert exe == str(py)
@@ -2672,7 +2673,7 @@ def test_embeddings_pool_resolves_valid_venv(tmp_path):
 
 def test_default_pool_falls_back_to_lo_python_when_venv_empty():
     with (
-        patch("plugin.scripting.venv_worker.get_config", return_value=""),
+        patch("plugin.scripting.venv_worker.configured_venv_path", return_value=""),
         patch("plugin.scripting.venv_worker.resolve_libreoffice_python", return_value=sys.executable) as mock_lo,
     ):
         exe, err = _resolve_worker_python(pool=WORKER_POOL_DEFAULT)

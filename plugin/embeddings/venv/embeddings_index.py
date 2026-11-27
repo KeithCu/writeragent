@@ -43,7 +43,7 @@ def _is_hf_cache_miss(exc: BaseException) -> bool:
         return False
 
 
-def _load_sentence_transformers_model(loader: Callable[..., Any], model_name: str) -> Any:
+def load_sentence_transformers_model(loader: Callable[..., Any], model_name: str) -> Any:
     """Load offline when the HF cache already has *model_name*; download once otherwise.
 
     Without local_files_only, huggingface_hub validates every cached file with HEAD
@@ -58,7 +58,7 @@ def _load_sentence_transformers_model(loader: Callable[..., Any], model_name: st
         return loader(model_name)
 
 
-def _get_embedder(model_name: str) -> Any:
+def get_embedder(model_name: str) -> Any:
     cached = _MODEL_CACHE.get(model_name)
     if cached is not None:
         return cached
@@ -68,7 +68,7 @@ def _get_embedder(model_name: str) -> Any:
         cause = exc.__cause__
         detail = f"{exc}; caused by: {cause}" if cause else str(exc)
         raise ImportError(f"sentence-transformers failed to import in the configured Python venv ({detail}). Install with: {EMBEDDINGS_VENV_PIP_INSTALL}") from exc
-    embedder = _load_sentence_transformers_model(st_mod.SentenceTransformer, model_name)
+    embedder = load_sentence_transformers_model(st_mod.SentenceTransformer, model_name)
     _MODEL_CACHE[model_name] = embedder
     return embedder
 
@@ -111,7 +111,7 @@ def embed_texts(model_name: str, texts: list[str], *, normalize: bool = True, en
     st_batch = encode_batch_size if encode_batch_size is not None else EMBEDDINGS_INGEST_BATCH_SIZE
     st_batch = max(1, min(st_batch, len(valid_texts)))
 
-    embedder = _get_embedder(model)
+    embedder = get_embedder(model)
     max_seq_len = int(getattr(embedder, "max_seq_length", 0) or 0)
     likely_truncated = 0
     if max_seq_len > 0:

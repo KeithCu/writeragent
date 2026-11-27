@@ -15,7 +15,6 @@ from plugin.framework.tool import ToolRegistry
 from plugin.vision.vision_availability import (
     filter_unavailable_delegate_domains,
     filter_vision_specialized_tools,
-    vision_venv_configured,
 )
 from plugin.vision.vision_tools import ExtractStructureFromImage
 
@@ -108,21 +107,10 @@ def test_delegate_schema_hides_vision_when_unavailable(_mock_avail):
             },
         },
     }
-    filtered = filter_unavailable_delegate_domains([schema], MagicMock())
+    filtered = filter_unavailable_delegate_domains([schema])
     enum = filtered[0]["function"]["parameters"]["properties"]["domain"]["enum"]
     assert "vision" not in enum
     assert "images" in enum
-
-
-@patch("plugin.vision.vision_availability.resolve_venv_python", return_value="/venv/bin/python")
-@patch("plugin.vision.vision_availability.get_config", return_value="/home/user/venv")
-def test_vision_venv_configured_true_when_python_resolves(_cfg, _exe):
-    assert vision_venv_configured(MagicMock()) is True
-
-
-@patch("plugin.vision.vision_availability.get_config", return_value="")
-def test_vision_venv_configured_false_without_venv_path(_cfg):
-    assert vision_venv_configured(MagicMock()) is False
 
 
 def test_filter_vision_specialized_tools_removes_tool():
@@ -130,7 +118,7 @@ def test_filter_vision_specialized_tools_removes_tool():
     other = MagicMock()
     other.name = "workflow_finished"
     with patch("plugin.vision.vision_availability.vision_venv_configured", return_value=False):
-        filtered = filter_vision_specialized_tools([tool, other], MagicMock())
+        filtered = filter_vision_specialized_tools([tool, other])
     assert tool not in filtered
     assert other in filtered
 

@@ -20,14 +20,7 @@ def ctx():
     return MagicMock()
 
 
-@pytest.mark.parametrize(
-    "fn, helper_name, extra_args, extra_kwargs",
-    [
-        pytest.param(embeddings_service.hybrid_search, "hybrid_search", ("dspy", 20), {"near_slop": 10}, id="hybrid_search"),
-        pytest.param(embeddings_service.knn_search, "knn_search", ("query", 5), {}, id="knn_search"),
-    ],
-)
-def test_search_happy_path(ctx, tmp_path, fn, helper_name, extra_args, extra_kwargs):
+def test_hybrid_search_happy_path(ctx, tmp_path):
     corpus_db = str(tmp_path / "corpus.db")
     worker_payload = {"hits": [{"doc_url": "file:///a.odt", "para_index": 0, "score": 0.9}]}
     with (
@@ -36,30 +29,16 @@ def test_search_happy_path(ctx, tmp_path, fn, helper_name, extra_args, extra_kwa
         patch("plugin.embeddings.embeddings_service.configured_folder_search_mode", return_value="sqlite"),
         patch("plugin.framework.constants.folder_rerank_enabled", return_value=False),
     ):
-        result = fn(ctx, corpus_db, *extra_args, model=DEFAULT_EMBEDDING_MODEL, **extra_kwargs)
+        result = embeddings_service.hybrid_search(ctx, corpus_db, "dspy", 20, model=DEFAULT_EMBEDDING_MODEL, near_slop=10)
     assert result["hits"][0]["doc_url"] == "file:///a.odt"
     assert mock_run.call_args.kwargs["worker_pool"] == WORKER_POOL_EMBEDDINGS
-    assert mock_run.call_args.kwargs["helper"] == helper_name
+    assert mock_run.call_args.kwargs["helper"] == "hybrid_search"
     assert mock_run.call_args.kwargs["params"]["db_path"] == corpus_db
 
 
 @pytest.mark.parametrize(
     "invoke, mode_value",
     [
-        pytest.param(
-            lambda ctx, corpus_db, meta_json, _folder: embeddings_service.index_paragraphs(
-                ctx, corpus_db, meta_json, [{"text": "hi"}], model=DEFAULT_EMBEDDING_MODEL
-            ),
-            "zvec",
-            id="index_paragraphs_zvec",
-        ),
-        pytest.param(
-            lambda ctx, corpus_db, meta_json, _folder: embeddings_service.delete_paragraphs(
-                ctx, corpus_db, meta_json, [{"doc_url": "file:///a.odt", "para_index": 0}], model=DEFAULT_EMBEDDING_MODEL
-            ),
-            "lancedb",
-            id="delete_paragraphs_lancedb",
-        ),
         pytest.param(
             lambda ctx, _corpus_db, _meta_json, folder: embeddings_service.maintain_folder_index(
                 ctx, folder, model=DEFAULT_EMBEDDING_MODEL
@@ -96,32 +75,15 @@ def test_actions_pass_configured_search_mode(ctx, tmp_path, invoke, mode_value):
     assert mock_run.call_args.kwargs["params"]["search_mode"] == mode_value
 
 
-def test_index_paragraphs_worker_error(ctx, tmp_path):
+def test_worker_error_payload_raises(ctx, tmp_path):
     corpus_db = str(tmp_path / "corpus.db")
-    meta_json = str(tmp_path / "meta.json")
-    with patch("plugin.embeddings.embeddings_service.run_trusted_worker_action", side_effect=ToolExecutionError("boom", code="EMBEDDING_INDEX_ERROR")):
-        with patch("plugin.embeddings.embeddings_service.embeddings_worker_timeout_sec", return_value=120):
-            with patch("plugin.embeddings.embeddings_service.configured_folder_search_mode", return_value="sqlite"):
-                with pytest.raises(ToolExecutionError, match="boom"):
-                    embeddings_service.index_paragraphs(
-                        ctx,
-                        corpus_db,
-                        meta_json,
-                        [],
-                        model=DEFAULT_EMBEDDING_MODEL,
-                    )
-
-
-def test_collection_stats_rpc(ctx, tmp_path):
-    from plugin.embeddings.embedding_client import embedding_session_id
-
-    corpus_db = str(tmp_path / "corpus.db")
-    meta_json = str(tmp_path / "meta.json")
-    with patch("plugin.embeddings.embeddings_service.run_trusted_worker_action", return_value={"chunk_count": 5}) as mock_run:
-        with patch("plugin.embeddings.embeddings_service.embeddings_worker_timeout_sec", return_value=120):
-            result = embeddings_service.collection_stats(ctx, corpus_db, meta_json)
-    assert result["chunk_count"] == 5
-    assert mock_run.call_args.kwargs["session_id"] == embedding_session_id("corpus")
+    with (
+        patch("plugin.embeddings.embeddings_service.run_trusted_worker_action", return_value={"error": "boom"}),
+        patch("plugin.embeddings.embeddings_service.embeddings_worker_timeout_sec", return_value=120),
+        patch("plugin.embeddings.embeddings_service.configured_folder_search_mode", return_value="hybrid"),
+    ):
+        with pytest.raises(ToolExecutionError, match="boom"):
+            embeddings_service.hybrid_search(ctx, corpus_db, "q", 5, model=DEFAULT_EMBEDDING_MODEL)
 
 
 def test_maintain_folder_index_uses_heartbeat_rpc(ctx, tmp_path):

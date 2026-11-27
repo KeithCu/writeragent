@@ -6,6 +6,7 @@ from io import BytesIO
 from typing import Any
 
 from plugin.mcp_server.mcp_protocol import MCPProtocolHandler
+from plugin.mcp_server.server import read_json_body
 from tests.mcp_server.conftest import MockHandler
 
 def test_handle_mcp_post_unsupported_protocol_sets_content_length():
@@ -196,7 +197,7 @@ def test_handle_mcp_post_missing_content_length():
     services = MagicMock()
     mcp_protocol = MCPProtocolHandler(services)
 
-    # Missing Content-Length means _read_body returns {}
+    # Missing Content-Length means read_json_body returns {}
     # and _handle_mcp processes {} which results in a 400 JSON-RPC error.
     body_bytes = b'{"jsonrpc": "2.0", "method": "test"}'
     headers = {}  # No Content-Length
@@ -260,7 +261,7 @@ def test_generic_handler_body_cap_timeout_and_negative_length():
     oversized = _bare_generic_handler({"Content-Length": str(MCP_HTTP_MAX_BODY_BYTES + 1)}, b"{}")
     reads: list[int] = []
     oversized.rfile.read = lambda n=-1: reads.append(n)
-    assert oversized._read_body() is None
+    assert read_json_body(oversized) is None
     assert reads == []
     status, body = _response_json(oversized)
     assert status == 413
@@ -274,7 +275,7 @@ def test_generic_handler_body_cap_timeout_and_negative_length():
         raise TimeoutError("stalled")
 
     stalled.rfile.read = _timeout
-    assert stalled._read_body() is None
+    assert read_json_body(stalled) is None
     status, body = _response_json(stalled)
     assert status == 408
     assert body.get("code") == "PARSE_ERROR"
@@ -286,7 +287,7 @@ def test_generic_handler_body_cap_timeout_and_negative_length():
         raise AssertionError("negative length was read")
 
     negative.rfile.read = _refuse_read
-    assert negative._read_body() is None
+    assert read_json_body(negative) is None
     status, body = _response_json(negative)
     assert status == 400
     assert body.get("code") == "PARSE_ERROR"
@@ -300,7 +301,7 @@ def test_generic_handler_body_cap_timeout_and_negative_length():
         return b"{}"
 
     at_cap.rfile.read = _read_cap
-    assert at_cap._read_body() == {}
+    assert read_json_body(at_cap) == {}
     assert seen == [MCP_HTTP_MAX_BODY_BYTES]
 
 
@@ -312,7 +313,7 @@ def test_read_json_body_rejects_chunked_and_does_not_read():
         raise AssertionError("chunked body was read")
 
     chunked.rfile.read = _refuse_read
-    assert chunked._read_body() is None
+    assert read_json_body(chunked) is None
     status, body = _response_json(chunked)
     assert status == 400
     assert body.get("code") == "PARSE_ERROR"
@@ -325,7 +326,7 @@ def test_read_json_body_rejects_chunked_and_does_not_read():
         ping_bytes,
     )
     with_both.rfile.read = _refuse_read
-    assert with_both._read_body() is None
+    assert read_json_body(with_both) is None
     status, body = _response_json(with_both)
     assert status == 400
     assert body.get("code") == "PARSE_ERROR"
@@ -336,7 +337,7 @@ def test_read_json_body_rejects_chunked_and_does_not_read():
         {"Transfer-Encoding": "identity", "Content-Length": str(len(b"{}"))},
         b"{}",
     )
-    assert identity._read_body() == {}
+    assert read_json_body(identity) == {}
 
 
 def test_handle_error_timeout_does_not_call_super():

@@ -31,7 +31,6 @@ from plugin.audio.kokoro_pool import (
     SCRIPT_PATH as _KOKORO_WORKER_SCRIPT,
     WORKER_CANCELLED,
     get_kokoro_pool,
-    resolve_kokoro_python,
 )
 from plugin.audio.tts_endpoint import DEFAULT_ENDPOINT_TTS_MODEL, download_endpoint_speech
 from plugin.audio.tts_models import (
@@ -51,6 +50,7 @@ from plugin.framework.client.http_security import log_target
 from plugin.framework.errors import ConfigError, best_effort
 from plugin.framework.i18n import _, get_active_locale
 from plugin.framework.managed_subprocess import ManagedSubprocess
+from plugin.scripting.sandbox import configured_venv_python
 from plugin.framework.worker_pool import run_in_background
 
 
@@ -867,7 +867,7 @@ def _prepare_kokoro_misaki(
         utt.remember_misaki(lang, True)
         return True
     if py_exe is None:
-        py_exe = resolve_kokoro_python()
+        py_exe = configured_venv_python()
     if not py_exe:
         utt.remember_misaki(lang, False)
         return False
@@ -886,7 +886,7 @@ def _prepare_kokoro_misaki(
     ready = ensure_kokoro_misaki(
         py_exe,
         lang,
-        on_status=lambda message: notify_tts_status(message, on_status, progress=True),
+        on_status=on_status,
         cancel=cancel,
         run_cmd=_run_misaki_cmd,
     )
@@ -1206,7 +1206,7 @@ def _speak_local(
     log.info("Speaking via local %s (voice=%s, speed=%.2f)", engine, voice, speed)
     if is_cancelled(cancel):
         return
-    py_exe = resolve_kokoro_python()
+    py_exe = configured_venv_python()
     if not py_exe:
         log.warning(
             "Local %s TTS requires a configured Python venv. "
@@ -1355,7 +1355,7 @@ def _run_sentence_pipeline(
 ) -> None:
     """Play sentences in order while synthesis keeps running ahead."""
     cancel = utt.scope
-    py_exe = resolve_kokoro_python() if provider in ("kokoro", "piper") else None
+    py_exe = configured_venv_python() if provider in ("kokoro", "piper") else None
     if provider == "kokoro" and not py_exe:
         # Warn once per reply; _kokoro_audio_file does not log when the venv is missing.
         log.warning(

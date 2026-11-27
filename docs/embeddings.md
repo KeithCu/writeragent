@@ -316,7 +316,7 @@ Ingest batches: **`EMBEDDINGS_INGEST_BATCH_SIZE`** (64) chunks per embed window 
 | [`embeddings_ingest_graph.py`](../plugin/embeddings/venv/embeddings_ingest_graph.py) | LangGraph: split → embed → upsert |
 | [`embeddings_search_graph.py`](../plugin/embeddings/venv/embeddings_search_graph.py) | LangGraph: vec0 retrieve → MMR (vec-only) |
 | [`embeddings_index.py`](../plugin/embeddings/venv/embeddings_index.py) | Venv RPC facades |
-| [`embeddings_service.py`](../plugin/embeddings/embeddings_service.py) | Host index/search/stats RPC |
+| [`embeddings_service.py`](../plugin/embeddings/embeddings_service.py) | Host RPC: `maintain_folder_index` and `hybrid_search` |
 | [`embedding_client.py`](../plugin/embeddings/embedding_client.py) | Host `embed_texts()` RPC (provider call used by the index service) |
 
 ---

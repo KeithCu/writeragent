@@ -51,11 +51,8 @@ VISION_INSERT_MODES = frozenset({"html", "structured"})
 DEFAULT_VISION_INSERT_MODE = "html"
 
 
-def merge_vision_params(ctx: Any = None, template_params: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Apply persisted vision.* settings defaults; template params win on conflict.
-
-    ``get_config`` takes no ``ctx``, so Settings are read even when ``ctx`` is None.
-    """
+def merge_vision_params(template_params: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Apply persisted vision.* settings defaults; template params win on conflict."""
     merged: dict[str, Any] = {}
     try:
         from plugin.framework.config import get_config
@@ -71,18 +68,18 @@ def merge_vision_params(ctx: Any = None, template_params: dict[str, Any] | None 
     return merged
 
 
-def resolve_vision_insert_mode(ctx: Any = None, template_params: dict[str, Any] | None = None) -> str:
+def resolve_vision_insert_mode(template_params: dict[str, Any] | None = None) -> str:
     """Return html (Docling export) or structured (bbox layout / Calc cell grid)."""
-    merged = merge_vision_params(ctx, template_params)
+    merged = merge_vision_params(template_params)
     mode = str(merged.get("insert_mode") or DEFAULT_VISION_INSERT_MODE).strip().lower()
     if mode in VISION_INSERT_MODES:
         return mode
     return DEFAULT_VISION_INSERT_MODE
 
 
-def resolve_delete_image_after_insert(ctx: Any = None, template_params: dict[str, Any] | None = None) -> bool:
+def resolve_delete_image_after_insert(template_params: dict[str, Any] | None = None) -> bool:
     """Return True when the source image should be removed after a successful OCR insert."""
-    merged = merge_vision_params(ctx, template_params)
+    merged = merge_vision_params(template_params)
     if "delete_image_after_insert" not in merged:
         return False
     return vision_bool(merged["delete_image_after_insert"])

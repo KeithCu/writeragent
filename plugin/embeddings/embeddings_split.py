@@ -78,8 +78,7 @@ def _import_splitter() -> Any:
 )
 def split_passage_to_sentences(text: str, locale: str = DEFAULT_SENTENCE_LOCALE) -> list[tuple[int, int, str]]:
     """Split *text* into ``(char_start, char_end, sentence)`` relative to *text*."""
-    passage = str(text or "")
-    if not passage.strip():
+    if not text.strip():
         return []
 
     try:
@@ -92,17 +91,17 @@ def split_passage_to_sentences(text: str, locale: str = DEFAULT_SENTENCE_LOCALE)
 
     sentences: list[tuple[int, int, str]] = []
     search_from = 0
-    for piece in SentenceBreaker(passage, locale):
+    for piece in SentenceBreaker(text, locale):
         sent = str(piece)
         if not sent:
             continue
-        start = passage.find(sent, search_from)
+        start = text.find(sent, search_from)
         if start < 0:
             start = search_from
         end = start + len(sent)
         sentences.append((start, end, sent))
         search_from = end
-    return sentences or [(0, len(passage), passage)]
+    return sentences or [(0, len(text), text)]
 
 
 @deal.pre(
@@ -239,7 +238,7 @@ def _split_passage_whitespace_to_sentences(passage: str) -> list[tuple[int, int,
 
 def bcp47_to_icu_sentence_breaker_locale(bcp47: str) -> str:
     """Map a canonical BCP-47 tag to an ``icu4py`` ``SentenceBreaker`` locale (``@ss=standard``)."""
-    tag = grammar_rule_ids.normalize_detected_bcp47(bcp47) or str(bcp47 or "").strip()
+    tag = grammar_rule_ids.normalize_detected_bcp47(bcp47) or bcp47.strip()
     parts = tag.split("-") if tag else []
     lang = parts[0].lower() if parts else ""
     if not lang or lang == "en":
@@ -313,13 +312,12 @@ def split_passage_locale_runs_to_chunk_meta(
     doc_default_locale: str | None = None,
 ) -> list[dict[str, Any]]:
     """Split one passage using per-run locales; MIN_CHUNK glue never crosses locale boundaries."""
-    passage = str(text or "")
-    if not passage.strip() or not runs:
+    if not text.strip() or not runs:
         return []
 
     all_spans: list[tuple[int, int]] = []
     for run in runs:
-        run_text = passage[run.char_start : run.char_end]
+        run_text = text[run.char_start : run.char_end]
         if not run_text.strip():
             continue
         locale = run.locale_bcp47 if run.locale_bcp47 is not None else doc_default_locale
@@ -331,7 +329,7 @@ def split_passage_locale_runs_to_chunk_meta(
         return []
 
     all_spans.sort()
-    return _meta_chunks_from_spans(passage, all_spans, base_meta)
+    return _meta_chunks_from_spans(text, all_spans, base_meta)
 
 
 @deal.pre(
@@ -350,7 +348,7 @@ def split_passage_to_chunk_meta(
     """Split one passage into embed-sized chunks with char offsets relative to passage text."""
     from plugin.embeddings.embeddings_fs import LocaleTextRun
 
-    stripped = str(text or "").strip()
+    stripped = text.strip()
     if not stripped:
         return []
 

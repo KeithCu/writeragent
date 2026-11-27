@@ -9,16 +9,15 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
-from plugin.framework.config import get_config
 from plugin.framework.constants import DELEGATE_SUBAGENT_TOOL
-from plugin.scripting.sandbox import resolve_venv_python
+from plugin.scripting.sandbox import configured_venv_python
 
 log = logging.getLogger(__name__)
 
 _VISION_TOOL_NAME = "image_extract_structure"
 
 
-def specialized_domain_available(domain: str, ctx: Any = None) -> bool:
+def specialized_domain_available(domain: str) -> bool:
     """Whether a specialized domain can actually run, for the exposure layers that advertise it.
 
     Both the discovery catalog and the MCP tool list consult this single rule so
@@ -29,7 +28,7 @@ def specialized_domain_available(domain: str, ctx: Any = None) -> bool:
     least one configured external MCP server).
     """
     if domain == "vision":
-        return vision_venv_configured(ctx)
+        return vision_venv_configured()
     if domain == "mcp":
         # Lazy: LibrePy ships plugin/vision/ without plugin/mcp_client/ or plugin/mcp_server/.
         try:
@@ -41,21 +40,18 @@ def specialized_domain_available(domain: str, ctx: Any = None) -> bool:
     return True
 
 
-def vision_venv_configured(ctx: Any = None) -> bool:
+def vision_venv_configured() -> bool:
     """True when Settings venv path is set and a python executable resolves (no import probe).
 
     Used for schema/prompt gating on the main-thread Send path. Missing Docling/Paddle
     packages surface at OCR runtime or via Settings → Python → Test.
     """
-    venv_dir = str(get_config("scripting.python_venv_path") or "").strip()
-    if not venv_dir:
-        return False
-    return resolve_venv_python(venv_dir) is not None
+    return configured_venv_python() is not None
 
 
-def filter_vision_specialized_tools(tools: list[Any], ctx: Any = None) -> list[Any]:
+def filter_vision_specialized_tools(tools: list[Any]) -> list[Any]:
     """Omit image_extract_structure when no Settings venv is configured."""
-    if vision_venv_configured(ctx):
+    if vision_venv_configured():
         return tools
     return [t for t in tools if t.name != _VISION_TOOL_NAME]
 
@@ -92,6 +88,6 @@ def filter_delegate_domains(schemas: list[dict[str, Any]], keep: Callable[[str],
     return out
 
 
-def filter_unavailable_delegate_domains(schemas: list[dict[str, Any]], ctx: Any = None) -> list[dict[str, Any]]:
+def filter_unavailable_delegate_domains(schemas: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Remove unavailable domains (such as ``vision`` or ``mcp``) from delegate gateway domain enums."""
-    return filter_delegate_domains(schemas, lambda d: specialized_domain_available(d, ctx))
+    return filter_delegate_domains(schemas, specialized_domain_available)

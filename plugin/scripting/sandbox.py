@@ -729,6 +729,14 @@ def resolve_venv_python(venv_dir: str) -> str | None:
     return _first_executable_python(candidates)
 
 
+def configured_venv_python() -> str | None:
+    """Python executable of the Settings → Python venv, or None when unset or missing."""
+    # In-function import: the compute bundle ships this module without plugin/framework/config.py.
+    from plugin.framework.config import configured_venv_path
+
+    return resolve_venv_python(configured_venv_path())
+
+
 def install_alias_authorizer() -> None:
     """Register sandbox import checks for ``writeragent`` AliasImporter (explicit entry points only)."""
     set_alias_authorizer(import_authorized, alias_has_authorized_child)

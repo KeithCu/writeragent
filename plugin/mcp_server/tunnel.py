@@ -973,11 +973,6 @@ class TunnelManager:
                     if provider.reset is not None and provider.reset.idle_ready():
                         self._schedule_post_stop_unlocked(provider.name, self._state.port)
 
-    def stop_for_quit(self) -> None:
-        """Stop the tunnel on quit without joining post-stop reset."""
-        # The reset is not joined, and the arm marker retries on the next launch.
-        self.stop()
-
 
 def tunnel_status_line(
     pname: str,

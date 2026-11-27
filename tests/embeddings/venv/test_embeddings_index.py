@@ -32,7 +32,7 @@ def test_embed_texts_skips_blank_strings():
     mock_embedder = MagicMock()
     mock_embedder.encode.return_value = [np.array([1.0, 0.0], dtype=np.float32), np.array([0.0, 1.0], dtype=np.float32)]
 
-    with patch.object(embeddings_index, "_get_embedder", return_value=mock_embedder):
+    with patch.object(embeddings_index, "get_embedder", return_value=mock_embedder):
         result = embeddings_index.embed_texts("all-MiniLM-L6-v2", ["  hello  ", "", "world", "   "])
 
     assert result["indices"] == [0, 2]
@@ -45,7 +45,7 @@ def test_embed_texts_normalizes_vectors():
     mock_embedder = MagicMock()
     mock_embedder.encode.return_value = [np.array([3.0, 4.0], dtype=np.float32)]
 
-    with patch.object(embeddings_index, "_get_embedder", return_value=mock_embedder):
+    with patch.object(embeddings_index, "get_embedder", return_value=mock_embedder):
         result = embeddings_index.embed_texts("all-MiniLM-L6-v2", ["text"], normalize=True)
 
     vec = np.array(result["vectors"][0], dtype=np.float32)
@@ -75,7 +75,7 @@ def test_embed_texts_requires_model_name():
 def test_get_embedder_import_error_includes_install_line():
     with patch("importlib.import_module", side_effect=ImportError("No module named 'envwrap'")):
         with pytest.raises(ImportError, match=embeddings_index.EMBEDDINGS_VENV_PIP_INSTALL):
-            embeddings_index._get_embedder("all-MiniLM-L6-v2")
+            embeddings_index.get_embedder("all-MiniLM-L6-v2")
 
 
 @pytest.mark.parametrize(
@@ -151,7 +151,7 @@ def test_hybrid_search_filters_garbage():
 def test_load_sentence_transformers_model_uses_offline_first() -> None:
     offline_model = MagicMock(name="offline_model")
     loader = MagicMock(return_value=offline_model)
-    model = embeddings_index._load_sentence_transformers_model(loader, "paraphrase-multilingual-MiniLM-L12-v2")
+    model = embeddings_index.load_sentence_transformers_model(loader, "paraphrase-multilingual-MiniLM-L12-v2")
     assert model is offline_model
     loader.assert_called_once_with("paraphrase-multilingual-MiniLM-L12-v2", local_files_only=True)
 
@@ -160,7 +160,7 @@ def test_load_sentence_transformers_model_falls_back_to_online_on_cache_miss() -
     offline = OSError("not in cache")
     online_model = MagicMock(name="online_model")
     loader = MagicMock(side_effect=[offline, online_model])
-    model = embeddings_index._load_sentence_transformers_model(loader, "all-MiniLM-L6-v2")
+    model = embeddings_index.load_sentence_transformers_model(loader, "all-MiniLM-L6-v2")
     assert model is online_model
     loader.assert_any_call("all-MiniLM-L6-v2", local_files_only=True)
     loader.assert_any_call("all-MiniLM-L6-v2")
@@ -169,23 +169,23 @@ def test_load_sentence_transformers_model_falls_back_to_online_on_cache_miss() -
 def test_load_sentence_transformers_model_reraises_non_cache_errors() -> None:
     loader = MagicMock(side_effect=RuntimeError("boom"))
     with pytest.raises(RuntimeError, match="boom"):
-        embeddings_index._load_sentence_transformers_model(loader, "bad-model")
+        embeddings_index.load_sentence_transformers_model(loader, "bad-model")
 
 
 def test_get_embedder_uses_model_cache() -> None:
     sentinel = MagicMock(name="cached_embedder")
     embeddings_index._MODEL_CACHE["cached-model"] = sentinel
-    assert embeddings_index._get_embedder("cached-model") is sentinel
+    assert embeddings_index.get_embedder("cached-model") is sentinel
 
 
-@patch.object(embeddings_index, "_load_sentence_transformers_model")
+@patch.object(embeddings_index, "load_sentence_transformers_model")
 def test_get_embedder_loads_via_offline_helper(mock_load: MagicMock) -> None:
     st_mod = MagicMock()
     embedder = MagicMock(name="embedder")
     mock_load.return_value = embedder
 
     with patch.object(embeddings_index.importlib, "import_module", return_value=st_mod):
-        assert embeddings_index._get_embedder("my-model") is embedder
+        assert embeddings_index.get_embedder("my-model") is embedder
 
     mock_load.assert_called_once_with(st_mod.SentenceTransformer, "my-model")
     assert embeddings_index._MODEL_CACHE["my-model"] is embedder

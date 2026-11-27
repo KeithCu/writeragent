@@ -98,6 +98,7 @@ def catalog_entries_from_base(
     base_cls = _special_base(agent_label)
     entries: list[dict[str, str]] = []
     available_fn = None
+    # A ctx or document services mark a live listing; with neither, this is the static enum listing.
     if ctx is not None or uno_services:
         # Lazy: vision_availability loads the vision venv and scripting sandbox modules.
         from plugin.vision.vision_availability import specialized_domain_available
@@ -118,7 +119,7 @@ def catalog_entries_from_base(
             continue
         if uno_services and not tool_supports_document(cls, doc_type=None, uno_services_supported=uno_services):
             continue
-        if available_fn is not None and not available_fn(domain, ctx):
+        if available_fn is not None and not available_fn(domain):
             # A live list, where the UNO context or the document's services are known, hides domains that cannot run.
             # Only the enum in DelegateToSubagent.get_parameters, read with neither, keeps every domain,
             # so a venv or MCP server added later in Settings still passes validation without a restart.

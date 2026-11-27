@@ -15,16 +15,16 @@ from unittest.mock import MagicMock, patch
 from tests.scripting.sandbox_support import sandbox_run
 from plugin.scripting.venv.worker_harness import _handle_request
 
-_INDEX_PARAMS = {
+_SEARCH_PARAMS = {
     "db_path": "/tmp/corpus.db",
-    "meta_path": "/tmp/meta.json",
+    "query": "hi",
+    "k": 5,
     "model": "all-MiniLM-L6-v2",
-    "rows": [{"text": "hi"}],
 }
 
 
 def test_trusted_embeddings_stub_bypasses_local_executor():
-    fake_result = {"indexed": 2, "dim": 384}
+    fake_result = {"hits": []}
 
     with patch(
         "plugin.embeddings.venv.embeddings_index_dispatch.dispatch_trusted",
@@ -37,8 +37,8 @@ def test_trusted_embeddings_stub_bypasses_local_executor():
                         "action": "run_trusted_action",
                         "data": {
                             "domain": "embeddings_index",
-                            "helper": "index_paragraphs",
-                            "params": _INDEX_PARAMS,
+                            "helper": "hybrid_search",
+                            "params": _SEARCH_PARAMS,
                         },
                     }
                 )
@@ -49,81 +49,6 @@ def test_trusted_embeddings_stub_bypasses_local_executor():
     mock_run.assert_called_once()
     mock_exec.assert_not_called()
     mock_sandbox.assert_not_called()
-
-
-def test_trusted_embeddings_payload_calls_index_paragraphs():
-    with patch(
-        "plugin.embeddings.venv.embeddings_index.index_paragraphs",
-        return_value={"indexed": 1},
-    ) as mock_index:
-        out = _handle_request(
-            {
-                "action": "run_trusted_action",
-                "data": {
-                    "domain": "embeddings_index",
-                    "helper": "index_paragraphs",
-                    "params": _INDEX_PARAMS,
-                },
-            }
-        )
-
-    assert out is not None
-    assert out["status"] == "ok"
-    assert out["result"]["indexed"] == 1
-    mock_index.assert_called_once_with(
-        "/tmp/corpus.db",
-        "/tmp/meta.json",
-        "all-MiniLM-L6-v2",
-        [{"text": "hi"}],
-        build_fts=False,
-        build_vectors=True,
-        search_mode="hybrid",
-        heartbeat_fn=None,
-    )
-
-
-def test_index_and_delete_dispatch_forward_search_mode():
-    with patch(
-        "plugin.embeddings.venv.embeddings_index.index_paragraphs",
-        return_value={"indexed": 1},
-    ) as mock_index:
-        out = _handle_request(
-            {
-                "action": "run_trusted_action",
-                "data": {
-                    "domain": "embeddings_index",
-                    "helper": "index_paragraphs",
-                    "params": {**_INDEX_PARAMS, "search_mode": "zvec"},
-                },
-            }
-        )
-    assert out is not None
-    assert out["status"] == "ok"
-    assert mock_index.call_args.kwargs["search_mode"] == "zvec"
-
-    with patch(
-        "plugin.embeddings.venv.embeddings_index.delete_paragraphs",
-        return_value={"deleted": 1},
-    ) as mock_delete:
-        deleted = _handle_request(
-            {
-                "action": "run_trusted_action",
-                "data": {
-                    "domain": "embeddings_index",
-                    "helper": "delete_paragraphs",
-                    "params": {
-                        "db_path": "/tmp/corpus.db",
-                        "meta_path": "/tmp/meta.json",
-                        "keys": [],
-                        "model": "all-MiniLM-L6-v2",
-                        "search_mode": "lancedb",
-                    },
-                },
-            }
-        )
-    assert deleted is not None
-    assert deleted["status"] == "ok"
-    assert mock_delete.call_args.kwargs["search_mode"] == "lancedb"
 
 
 def test_user_code_still_uses_sandbox():

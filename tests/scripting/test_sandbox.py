@@ -15,6 +15,7 @@ from unittest.mock import patch
 import pytest
 
 from plugin.scripting.sandbox import (
+    configured_venv_python,
     detect_sandbox,
     resolve_libreoffice_python,
     resolve_venv_python,
@@ -46,6 +47,19 @@ def test_resolve_venv_python_finds_python3_only(tmp_path):
 
 def test_resolve_venv_python_none_when_missing(tmp_path):
     assert resolve_venv_python(str(tmp_path / "nope")) is None
+
+
+def test_configured_venv_python_resolves_the_settings_path(tmp_path):
+    venv = tmp_path / "venv"
+    bindir = venv / "bin"
+    bindir.mkdir(parents=True)
+    py = bindir / "python"
+    py.write_text("#!/bin/sh\necho ok\n")
+    py.chmod(py.stat().st_mode | stat.S_IEXEC)
+    with patch("plugin.framework.config.get_config", return_value=f"  {venv}  "):
+        assert configured_venv_python() == str(py)
+    with patch("plugin.framework.config.get_config", return_value=None):
+        assert configured_venv_python() is None
 
 
 def test_resolve_venv_python_accepts_bin_python_path(tmp_path):

@@ -128,6 +128,7 @@ def drop_unavailable_domains(schemas: Any, registry: Any, ctx: Any) -> Any:
     Keeps the flat tool list consistent with the discovery catalog, which hides
     the same domains. Only domains with a known prerequisite are affected.
     """
+    # No ctx means a static listing, which keeps every domain so a server added later in Settings still validates.
     if ctx is None:
         return schemas
     from plugin.vision.vision_availability import specialized_domain_available
@@ -139,7 +140,7 @@ def drop_unavailable_domains(schemas: Any, registry: Any, ctx: Any) -> Any:
         if name:
             tool = registry.get(name)
             domain = getattr(tool, "specialized_domain", None) if tool is not None else None
-        if domain and not specialized_domain_available(str(domain), ctx):
+        if domain and not specialized_domain_available(str(domain)):
             continue
         kept.append(schema)
     return kept
@@ -413,8 +414,7 @@ class MCPProtocolHandler:
         transport: str | None = None,
         check_accept: bool = False,
         extra_headers: tuple[tuple[str, str], ...] = (),
-        open_log: bool = False,
-        disconnect_log: bool = False,
+        log_lifecycle: bool = False,
     ) -> None:
         if transport:
             log_mcp_transport_entry(handler, transport)
@@ -441,12 +441,12 @@ class MCPProtocolHandler:
                 handler.send_header(name, value)
             mcp_session.send_mcp_response_headers(handler)
             handler.end_headers()
-            if open_log:
+            if log_lifecycle:
                 log.info("[SSE] GET stream opened")
             reserved = False
             self._run_sse_keepalive_loop(handler, stop_event=stop_event)
         except (BrokenPipeError, ConnectionResetError, OSError):
-            if disconnect_log:
+            if log_lifecycle:
                 log.info("[SSE] GET stream disconnected")
         finally:
             if reserved:
@@ -471,8 +471,7 @@ class MCPProtocolHandler:
         self._open_sse_stream(
             handler,
             extra_headers=(("Connection", "keep-alive"), ("X-Accel-Buffering", "no")),
-            open_log=True,
-            disconnect_log=True,
+            log_lifecycle=True,
         )
 
     def _run_sse_keepalive_loop(self, handler: Any, interval: float = 15, stop_event: threading.Event | None = None) -> None:
@@ -636,10 +635,9 @@ class MCPProtocolHandler:
 
     # ── MCP protocol handler ─────────────────────────────────────────
 
-    def _handle_mcp(self, msg: Any, handler: Any, document_url: str | None = None, session: Any = None) -> None:
+    def _handle_mcp(self, msg: Any, handler: Any, document_url: str | None = None) -> None:
         """Route MCP JSON-RPC request(s) — single or batch."""
-        if session is None:
-            session = self._extract_session(handler)
+        session = self._extract_session(handler)
         method = msg.get("method", "?") if isinstance(msg, dict) else "batch"
         req_id = msg.get("id") if isinstance(msg, dict) else None
         log.info("[MCP] <<< %s (id=%s)", method, req_id)

@@ -218,7 +218,7 @@ def test_speak_kokoro_local_uses_misaki_script_for_non_english(tmp_path):
             return _Proc()
 
         ensure = MagicMock(return_value=True)
-        with patch("plugin.audio.tts_service.resolve_kokoro_python", return_value=str(py)), \
+        with patch("plugin.audio.tts_service.configured_venv_python", return_value=str(py)), \
              patch("plugin.audio.tts_service.resolve_kokoro_model_files", return_value=(str(model), str(voices))), \
              patch("plugin.audio.tts_service.ensure_kokoro_misaki", ensure), \
              patch("plugin.framework.managed_subprocess.subprocess.Popen", side_effect=fake_popen), \
@@ -246,7 +246,7 @@ def test_speak_kokoro_local_skips_synthesis_when_phonemizer_install_cancelled(tm
     model.write_bytes(b"m")
     voices.write_bytes(b"v")
 
-    with patch("plugin.audio.tts_service.resolve_kokoro_python", return_value=str(tmp_path / "python")), \
+    with patch("plugin.audio.tts_service.configured_venv_python", return_value=str(tmp_path / "python")), \
          patch("plugin.audio.tts_service.resolve_kokoro_model_files", return_value=(str(model), str(voices))), \
          patch("plugin.audio.tts_service.ensure_kokoro_misaki", return_value=None), \
          patch("plugin.framework.managed_subprocess.subprocess.Popen") as popen, \
@@ -272,7 +272,7 @@ def test_sentence_pipeline_installs_misaki_once_per_reply(tmp_path):
 
     try:
         with patch.object(tts, "ensure_kokoro_misaki", ensure), \
-             patch.object(tts, "resolve_kokoro_python", return_value="/venv/bin/python"), \
+             patch.object(tts, "configured_venv_python", return_value="/venv/bin/python"), \
              patch.object(tts, "_synthesize_sentence_clip", side_effect=synth), \
              patch.object(tts, "_play_audio_file"), \
              patch.object(tts, "_speak_system") as system:
@@ -299,7 +299,7 @@ def test_sentence_pipeline_stop_during_misaki_install_skips_os_speech():
 
     try:
         with patch.object(tts, "ensure_kokoro_misaki", return_value=None), \
-             patch.object(tts, "resolve_kokoro_python", return_value="/venv/bin/python"), \
+             patch.object(tts, "configured_venv_python", return_value="/venv/bin/python"), \
              patch.object(tts, "_synthesize_sentence_clip") as synth, \
              patch.object(tts, "_speak_system") as system:
             tts._run_sentence_pipeline(
@@ -480,7 +480,7 @@ def test_stop_drops_ready_clips_and_ignores_late_synth(tmp_path):
 
     def run() -> None:
         try:
-            with patch.object(tts, "resolve_kokoro_python", return_value="/venv/bin/python"), patch.object(
+            with patch.object(tts, "configured_venv_python", return_value="/venv/bin/python"), patch.object(
                 tts, "_prepare_kokoro_misaki", return_value=True
             ), patch.object(tts, "_synthesize_sentence_clip", side_effect=synth), patch.object(
                 tts, "_play_audio_file", side_effect=play
@@ -574,7 +574,7 @@ def test_stop_during_synthesis_plays_nothing(tmp_path):
     def run() -> None:
         try:
             with patch.object(tts, "run_in_background", side_effect=track_bg), patch.object(
-                tts, "resolve_kokoro_python", return_value="/venv/bin/python"
+                tts, "configured_venv_python", return_value="/venv/bin/python"
             ), patch.object(tts, "_prepare_kokoro_misaki", return_value=True), patch.object(
                 tts, "_synthesize_sentence_clip", side_effect=blocking_synth
             ), patch.object(tts, "_play_audio_file", side_effect=track_play), patch.object(
@@ -619,7 +619,7 @@ def test_stop_before_start_spawns_nothing():
     utt = tts._begin_utterance()
     tts.stop_speech()
 
-    with patch.object(tts, "resolve_kokoro_python", return_value="/venv/bin/python"), patch.object(
+    with patch.object(tts, "configured_venv_python", return_value="/venv/bin/python"), patch.object(
         tts, "_prepare_kokoro_misaki", return_value=True
     ), patch.object(tts, "_popen_for_speech") as mock_popen, patch.object(
         tts, "_synthesize_sentence_clip"
@@ -1244,7 +1244,7 @@ def test_prepare_kokoro_misaki_stale_utterance_does_not_touch_current():
     utt_a = tts._begin_utterance()
     utt_b = tts._begin_utterance()
     try:
-        with patch.object(tts, "resolve_kokoro_python", return_value="/venv/bin/python"), \
+        with patch.object(tts, "configured_venv_python", return_value="/venv/bin/python"), \
              patch.object(tts, "kokoro_lang_uses_misaki", return_value=True), \
              patch.object(tts, "kokoro_g2p_lang", return_value="ja"), \
              patch.object(tts, "ensure_kokoro_misaki", return_value=False):
@@ -1536,7 +1536,7 @@ def test_kokoro_audio_file_resolves_models_when_venv_exists() -> None:
 def test_sentence_kokoro_without_venv_warns_once_and_uses_os_speech(caplog: pytest.LogCaptureFixture) -> None:
     utt = tts._begin_utterance()
     try:
-        with patch.object(tts, "resolve_kokoro_python", return_value=None), \
+        with patch.object(tts, "configured_venv_python", return_value=None), \
              patch("plugin.audio.tts_service.resolve_kokoro_model_files") as resolve, \
              patch.object(tts, "_speak_system") as system:
             with caplog.at_level("WARNING", logger="plugin.audio.tts_service"):

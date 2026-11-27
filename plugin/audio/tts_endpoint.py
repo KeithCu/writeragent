@@ -48,7 +48,7 @@ def endpoint_honors_speed(endpoint_url: str, model: str) -> bool:
     any model, Kokoro included. OpenAI documents speed 0.25-4.0 on /audio/speech.
     """
     host = provider_or_none(endpoint_url)
-    return host == "openai" or ("kokoro" in (model or "").casefold() and host != "together")
+    return host == "openai" or ("kokoro" in model.casefold() and host != "together")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -66,7 +66,7 @@ def _sniff_audio_format(audio_bytes: bytes, content_type: str = "") -> str | Non
         return "mp3"
     if len(audio_bytes) >= 2 and audio_bytes[0] == 0xFF and (audio_bytes[1] & 0xE0) == 0xE0:
         return "mp3"
-    ct = (content_type or "").lower()
+    ct = content_type.lower()
     if any(token in ct for token in ("audio/pcm", "audio/x-pcm", "audio/l16", "codec=pcm")):
         return "pcm"
     if any(token in ct for token in ("audio/wav", "audio/x-wav", "audio/wave")):
@@ -78,7 +78,7 @@ def _sniff_audio_format(audio_bytes: bytes, content_type: str = "") -> str | Non
 
 def _pcm_rate_from_content_type(content_type: str) -> int:
     """Extract sample rate from Content-Type parameter, e.g. 'rate=24000'."""
-    match = _PCM_RATE_RE.search(content_type or "")
+    match = _PCM_RATE_RE.search(content_type)
     if match:
         val = int(match.group(1))
         if 8000 <= val <= 96000:
@@ -111,7 +111,7 @@ def _alternate_tts_response_format(body: str, requested: str, status: int) -> st
     """Suggest another response_format when server returned 400, 415, or 422."""
     if status not in (400, 415, 422):
         return None
-    low = (body or "").lower()
+    low = body.lower()
     for m in _TTS_FORMAT_WORDS_RE.finditer(low):
         fmt = m.group(1)
         if fmt != requested:
@@ -124,9 +124,8 @@ def _speech_url(endpoint_url: str) -> str:
 
     Keeps query and userinfo on request URL, drops fragment, ensures path ends in /audio/speech.
     """
-    raw = (endpoint_url or "").strip()
-    parsed = urllib.parse.urlsplit(raw)
-    path = (parsed.path or "").rstrip("/")
+    parsed = urllib.parse.urlsplit(endpoint_url.strip())
+    path = parsed.path.rstrip("/")
     if path.endswith("/audio/speech"):
         new_path = path
     elif path.endswith("/v1"):
@@ -156,7 +155,7 @@ def _explicit_openrouter(endpoint_url: str) -> bool:
         u1.scheme.lower() == u2.scheme.lower()
         and (u1.hostname or "").lower() == (u2.hostname or "").lower()
         and u1.port == u2.port
-        and (u1.path or "").rstrip("/") == (u2.path or "").rstrip("/")
+        and u1.path.rstrip("/") == u2.path.rstrip("/")
     )
 
 
@@ -180,18 +179,18 @@ def _speech_headers(endpoint_url: str, api_key: str) -> dict[str, str]:
 
 def _tts_format_key(endpoint_url: str, model: str) -> str:
     """Cache key for response_format, scoped to origin and model."""
-    ep = (endpoint_url or "").strip()
+    ep = endpoint_url.strip()
     parsed = urllib.parse.urlsplit(ep)
     host = (parsed.hostname or "").lower()
     if host:
         port = f":{parsed.port}" if parsed.port is not None else ""
-        ep = f"{(parsed.scheme or '').lower()}://{host}{port}"
-    return f"{ep}\n{(model or '').strip()}"
+        ep = f"{parsed.scheme.lower()}://{host}{port}"
+    return f"{ep}\n{model.strip()}"
 
 
 def _speech_failure_message(code: int, body: str) -> str:
     """User-visible line for Test voice / sidebar status. Includes the HTTP body."""
-    snippet = " ".join((body or "").split())
+    snippet = " ".join(body.split())
     if len(snippet) > 300:
         snippet = snippet[:300] + "…"
     if code and snippet:
@@ -241,20 +240,16 @@ def _post_audio_speech(
         return None, "", code, str(exc)
 
 
-def _default_endpoint_format() -> str:
-    """First response_format to ask for. MP3 is smaller than WAV or PCM.
-
-    A server that rejects mp3 is retried once. Windows plays the mp3 with
-    WinRT Windows.Media.Playback.MediaPlayer and still uses SoundPlayer
-    when the bytes are WAV.
-    """
-    return "mp3"
+# First response_format to ask for: MP3 is smaller than WAV or PCM. Windows plays
+# the mp3 with WinRT Windows.Media.Playback.MediaPlayer and still uses SoundPlayer
+# when the bytes are WAV.
+_DEFAULT_ENDPOINT_FORMAT = "mp3"
 
 
 def _resolve_tts_voice(model: str, voice: str, endpoint_url: str | None = None) -> str:
     """Ensure voice name is compatible with the target model."""
     voice = clean_voice_name(voice)
-    m_low = (model or "").lower()
+    m_low = model.lower()
     is_kokoro = "kokoro" in m_low
 
     if not voice:
@@ -320,7 +315,7 @@ def download_endpoint_speech(
 
     eff_voice = _resolve_tts_voice(model, voice, endpoint_url=endpoint_url)
     fmt_key = _tts_format_key(endpoint_url, model)
-    response_format = cached_tts_response_format(fmt_key) or _default_endpoint_format()
+    response_format = cached_tts_response_format(fmt_key) or _DEFAULT_ENDPOINT_FORMAT
 
     headers = _speech_headers(endpoint_url, api_key)
 
@@ -330,6 +325,8 @@ def download_endpoint_speech(
     err_body = ""
 
     t0 = time.monotonic()
+    # A server that rejects the first response_format is retried once with the
+    # format its error body names (or the next default).
     for attempt in range(2):
         payload: dict[str, Any] = {
             "model": model or DEFAULT_ENDPOINT_TTS_MODEL,

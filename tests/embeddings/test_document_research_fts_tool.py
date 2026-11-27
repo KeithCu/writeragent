@@ -272,8 +272,20 @@ def test_search_nearby_files_cancels_before_second_subset_url():
         file_subset="pair",
     )
     assert result["status"] == "error"
+    assert result["code"] == "USER_STOPPED"
     assert result["message"] == "Cancelled"
     assert rpc_mock.call_count == 1
+
+
+def test_search_nearby_files_stopped_before_start_is_user_stopped():
+    scope = SendCancellation()
+    scope.cancel()
+    ctx = _ctx()
+    ctx.send_cancellation = scope
+    result = SearchNearbyFiles().execute(ctx, query="budget")
+    assert result["status"] == "error"
+    assert result["code"] == "USER_STOPPED"
+    assert result["message"] == "Cancelled"
 
 
 def test_search_nearby_files_unsupported_file_is_an_error():
