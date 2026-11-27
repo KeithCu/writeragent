@@ -133,14 +133,6 @@ def _uno_shards_for(rel_paths: list[str]) -> dict[str, int]:
     return assigned
 
 
-def _uno_shard(rel_path: str, rel_paths: list[str] | None = None) -> int:
-    """1-based shard of a repo-relative suite path that uses ``/`` separators."""
-    if rel_paths is None:
-        rel_paths = list(_load_uno_shard_durations())
-        if rel_path not in rel_paths:
-            rel_paths.append(rel_path)
-    return _uno_shards_for(rel_paths)[rel_path]
-
 
 class HarnessOffice:
     """One soffice child, stderr tail, lifecycle breadcrumb, and recycle flags."""
