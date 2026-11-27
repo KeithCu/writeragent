@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Mapping, cast
 from plugin.framework.config import atomic_write_text, user_config_dir
 from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
 from plugin.framework.deal_shim import deal
-from plugin.framework.errors import ConfigError, best_effort
+from plugin.framework.errors import best_effort
 from plugin.framework.prompts import fenced_data_block
 from plugin.framework.tool import ToolBase
 
@@ -29,8 +29,6 @@ class MemoryStore:
     def __init__(self) -> None:
         # crosshair: off
         config_dir = user_config_dir()
-        if config_dir is None:
-            raise ConfigError("UNO context is required to resolve memory store path")
         self.path = os.path.join(config_dir, "memories", "USER.md")
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
 

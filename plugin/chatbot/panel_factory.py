@@ -86,9 +86,9 @@ def register_debug_live_panel(element: Any) -> None:
 def _bind_close_hook(session: Any, panel: Any, send_listener: Any, query_control: Any) -> None:
     """Closing the document window tears down this sidebar's turn.
 
-    FrameSession.dispose alone only removes listeners: this hook also tears
-    down the in-flight stream, history save, and LLM lane hold when the
-    document window closes.
+    FrameSession.dispose only removes listeners. This hook also stops the
+    in-flight stream, so it neither paints into the dead window nor saves the
+    reply, and releases the LLM lane so other documents can send.
     """
 
     def on_frame_close() -> None:
@@ -158,13 +158,7 @@ if TYPE_CHECKING:
     from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
 
 from com.sun.star.ui import XUIElementFactory, XUIElement, XToolPanel, XSidebarPanel
-
-try:
-    from com.sun.star.ui.UIElementType import TOOLPANEL  # ty: ignore[unresolved-import]
-except ImportError:
-    TOOLPANEL = 7  # UIElementType.idl: TOOLPANEL = 7
-
-_POSSIZE = 15
+from com.sun.star.ui.UIElementType import TOOLPANEL  # type: ignore
 
 from plugin.framework.uno_listeners import BaseFocusListener, BaseItemListener
 from plugin.framework.config import get_config, get_current_endpoint, save
@@ -189,6 +183,7 @@ log = logging.getLogger("plugin.chatbot.panel_factory")
 # XDL path inside the .oxt
 XDL_PATH = "Dialogs/ChatPanelDialog.xdl"
 _PRE_NEGOTIATION_PANEL_WIDTH = 320
+_POSSIZE = 15
 
 
 _paths_initialized = False

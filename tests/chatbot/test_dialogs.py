@@ -124,9 +124,6 @@ def test_xcc():
     mock_ctrl.queryInterface.return_value = None
     assert _xcc(mock_ctrl) is None
 
-    # Should handle None
-    assert _xcc(None) is None
-
 
 def test_xcc_passes_uno_type_not_interface_class():
     """pyuno raises "Couldn't convert ... to a UNO type" for an imported IDL class."""

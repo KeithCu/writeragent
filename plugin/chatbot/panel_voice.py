@@ -481,9 +481,9 @@ class PanelVoiceController:
             self._cleanup_stt(wav_path)
 
     def _ask_text(self) -> str:
-        from plugin.chatbot.dialogs import get_control_text
+        from plugin.chatbot.dialogs import query_text
 
-        return get_control_text(self._panel.query_control).strip()
+        return query_text(self._panel.query_control)
 
     def _apply_stt_transcript(self, transcript: str, query_text: str) -> tuple[str, bool]:
         """Apply finished STT transcript to *query_text* or Ask box on Stop/empty."""

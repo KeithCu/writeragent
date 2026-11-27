@@ -42,15 +42,13 @@ log = logging.getLogger(__name__)
 
 def _get_db_path() -> str:
     config_dir = user_config_dir()
-    if config_dir:
-        try:
-            os.makedirs(config_dir, exist_ok=True)
-        except OSError:
-            log.exception("Error creating config directory")
-        path = os.path.join(config_dir, "writeragent_history.db")
-        log.info(f"Using database path: {path}")
-        return path
-    return "writeragent_history.db"
+    try:
+        os.makedirs(config_dir, exist_ok=True)
+    except OSError:
+        log.exception("Error creating config directory")
+    path = os.path.join(config_dir, "writeragent_history.db")
+    log.info(f"Using database path: {path}")
+    return path
 
 
 AUDIO_ATTACHED_PLACEHOLDER = "[Voice message]"

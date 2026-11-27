@@ -412,8 +412,6 @@ def _xcc(ctrl: Any) -> Any:
     ... to a UNO type", so the type comes from ``uno.getTypeByName``. A missing
     interface returns None and does not raise.
     """
-    if ctrl is None:
-        return None
     import uno
 
     return ctrl.queryInterface(uno.getTypeByName("com.sun.star.awt.XControlContainer"))
@@ -744,6 +742,11 @@ def get_control_text(ctrl: Any, default: str = "") -> str:
             return str(ctrl.getModel().Text)
         return default
     return best_effort(_get, "get_control_text exception", default=default)
+
+
+def query_text(ctrl: Any) -> str:
+    """Return trimmed text of a chat query control."""
+    return get_control_text(ctrl).strip()
 
 
 def set_control_text(ctrl: Any, text: str) -> None:

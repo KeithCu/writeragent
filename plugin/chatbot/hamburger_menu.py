@@ -70,13 +70,13 @@ def show_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
             menu.insertSeparator(pos)
             return pos + 1
 
-        # 1. Edit / Extend selection
+        # Edit / Extend selection
         pos = add_item(popup, _("Extend Selection"), "chatbot.extend_selection", pos)
         pos = add_item(popup, _("Edit Selection"), "chatbot.edit_selection", pos)
 
         pos = add_separator(popup, pos)
 
-        # 3. Main feature actions
+        # Main feature actions
         pos = add_item(popup, _("Run Python Script..."), "scripting.run_python_dialog", pos, menu_icon_filename("python", ctx=ctx))
 
         if is_calc_doc:
@@ -91,7 +91,7 @@ def show_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
 
         pos = add_separator(popup, pos)
 
-        # 5. Settings & Servers with Dynamic MCP Status
+        # Settings & Servers with Dynamic MCP Status
         pos = add_item(popup, _("Settings"), "main.settings", pos, STOCK_ICON_SETTINGS)
         pos = add_item(popup, _("Vision OCR Settings..."), "vision.open_settings", pos)
 
@@ -121,7 +121,7 @@ def show_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
         if tests_bundled():
             pos = add_separator(popup, pos)
 
-            # 7. Debug Submenu
+            # Debug Submenu
             debug_popup = smgr.createInstanceWithContext("com.sun.star.awt.PopupMenu", ctx)
             d_pos = 0
             if is_writer_doc:
@@ -139,7 +139,7 @@ def show_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
             popup.setPopupMenu(sub_id, debug_popup)
             pos += 1
 
-        # 8. Report bug
+        # Report bug
         pos = add_item(popup, _("Report bug..."), "main.report_bug", pos)
 
         from plugin.librepy.sidebar_menus import execute_popup_under_button, invoke_action_handler

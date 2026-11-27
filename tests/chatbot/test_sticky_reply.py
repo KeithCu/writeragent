@@ -73,12 +73,13 @@ def test_stay_is_ok_dict():
 def test_spec_validation_asserts():
     # Empty leave_flag
     with pytest.raises(AssertionError):
-        SidebarMode(key="test", leave_flag="", leave_status="finished")
+        SidebarMode(key="test", label_fn=lambda: "Test", leave_flag="", leave_status="finished")
     # leave_flag collision with reserved
     with pytest.raises(AssertionError):
-        SidebarMode(key="test", leave_flag="answer", leave_status="finished")
+        SidebarMode(key="test", label_fn=lambda: "Test", leave_flag="answer", leave_status="finished")
     valid = SidebarMode(
         key="test",
+        label_fn=lambda: "Test",
         leave_flag="done",
         leave_status="finished",
         tracks_spec_saved=True,

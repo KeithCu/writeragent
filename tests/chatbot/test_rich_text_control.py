@@ -81,6 +81,7 @@ class TestRichControlHelpers:
         rich.getModel.assert_not_called()
 
     def test_rich_control_model_gets_chat_typography(self):
+        from plugin.chatbot.rich_text import ChatTheme
         from plugin.chatbot.rich_text_control import _apply_rich_control_style_defaults_on_model
 
         class _Model:
@@ -95,7 +96,7 @@ class TestRichControlHelpers:
 
         model = _Model()
         with patch("plugin.chatbot.rich_text.get_theme_colors", return_value=(0xD8D9DA, 0x2A6099, 0x1E293B)):
-            _apply_rich_control_style_defaults_on_model(model, style_window=MagicMock())
+            _apply_rich_control_style_defaults_on_model(model, theme=ChatTheme.resolve(style_window=MagicMock()))
         assert model.props.get("CharFontName") == "Liberation Sans"
         assert model.props.get("BackgroundColor") == 0xD8D9DA
         assert model.props.get("CharBackColor") == 0xD8D9DA

@@ -64,8 +64,8 @@ def sidebar_mode_flags_for_doc_type(doc_type_label: str) -> SidebarModeFlags:
 @dataclass(frozen=True)
 class SidebarMode:
     key: str
+    label_fn: Callable[[], str]
     kind: Literal["chat", "image", "session"] = "session"
-    label_fn: Callable[[], str] | None = None
     greeting_fn: Callable[[], str] | None = None
     flag_attr: str | None = None
     capture_topic: bool = False
@@ -252,7 +252,7 @@ def _modes_for(flags: SidebarModeFlags) -> tuple[str, ...]:
 @deal.post(lambda result: isinstance(result, tuple) and len(result) >= 4)
 def get_mode_labels(flags: SidebarModeFlags = SidebarModeFlags()) -> tuple[str, ...]:
     """Translated combobox labels in the same order as ``_modes_for``."""
-    return tuple(fn() for mode in _modes_for(flags) if (fn := _MODE_BY_KEY[mode].label_fn) is not None)
+    return tuple(_MODE_BY_KEY[mode].label_fn() for mode in _modes_for(flags))
 
 
 @deal.pre(lambda label, flags=SidebarModeFlags(): str_bounded(label, DEAL_MAX_TOKEN))

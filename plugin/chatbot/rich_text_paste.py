@@ -181,8 +181,8 @@ def _text_table_cell_rows(table: Any) -> list[list[str]]:
 
 
 # RichTextControl is EditEngine: ParaTabStops Position is twips (1/20 pt), not
-# Writer's 1/100 mm (EE_PARA_TABS in editeng/source/editeng/eerdll.cxx has no
-# CONVERT_TWIPS). Column width is the longest cell in Liberation Sans ems (ASCII advances from the Regular TTF)
+# Writer's 1/100 mm (include/editeng/unotext.hxx, SVX_UNOEDIT_PARA_PROPERTIES:
+# ParaTabStops has no CONVERT_TWIPS). Column width is the longest cell in Liberation Sans ems (ASCII advances from the Regular TTF)
 # plus a 0.3em gap — font-relative, so HiDPI and 96dpi match. Header row is
 # bold (~1.07x). Fallback 0.55em for non-ASCII.
 _TWIPS_PER_PT = 20

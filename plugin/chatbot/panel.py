@@ -194,8 +194,7 @@ class QueryKeyListener(BaseKeyListener):
         self.send_listener = send_listener
 
     def on_key_pressed(self, e: Any) -> None:
-        # Popup Enter must not also Send. Consume only when handle_key is True
-        # (MagicMock hosts in unit tests return a mock, which is not True).
+        # Popup Enter must not also Send: when the popup handles the key, this listener stops here.
         popup = self.send_listener.slash_popup
         if popup is not None and popup.handle_key(e.KeyCode, e.Modifiers) is True:
             return
@@ -251,12 +250,6 @@ def skip_legacy_assistant_stream_chunk(text: str) -> bool:
     if stripped.startswith("[Using chat model"):
         return True
     return not strip_legacy_ai_label(stripped).strip() and stripped.upper().startswith("AI:")
-
-
-def _query_text(query_control: Any) -> str:
-    from plugin.chatbot.dialogs import get_control_text
-
-    return get_control_text(query_control).strip()
 
 
 def _set_control_enabled(control: Any, enabled: bool, why: str) -> None:
@@ -1077,7 +1070,9 @@ class SendButtonListener(BaseActionListener):
         """
         if self.query_control is None:
             return
-        self.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=bool(_query_text(self.query_control))))
+        from plugin.chatbot.dialogs import query_text
+
+        self.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=bool(query_text(self.query_control))))
 
     def _run_turn_drain(
         self,
@@ -1286,7 +1281,9 @@ class SendButtonListener(BaseActionListener):
         from plugin.framework.i18n import _
 
         # Get user query and clear field (before loading tools, so direct-image path can return early)
-        query_text = _query_text(self.query_control)
+        from plugin.chatbot.dialogs import query_text as _get_query_text
+
+        query_text = _get_query_text(self.query_control)
 
         # Audio implies we have input even if text is empty.
         # Stop Rec sets has_audio and always starts a send; fail explicitly
@@ -1346,7 +1343,9 @@ class SendButtonListener(BaseActionListener):
 
         log.info("=== _do_send START ===")
 
-        peek_text = _query_text(self.query_control)
+        from plugin.chatbot.dialogs import query_text as _get_query_text
+
+        peek_text = _get_query_text(self.query_control)
 
         parsed = parse_slash_text(peek_text)
         slash_cmd = None

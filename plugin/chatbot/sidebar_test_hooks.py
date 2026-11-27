@@ -175,9 +175,9 @@ def _all_live_panels() -> list[Any]:
     return panels
 
 
-def _voice_checkboxes(panels: list[Any] | None = None) -> list[Any]:
+def _voice_checkboxes(panels: list[Any]) -> list[Any]:
     chks: list[Any] = []
-    for panel in (_all_live_panels() if panels is None else panels):
+    for panel in panels:
         root = getattr(panel, "m_panelRootWindow", None)
         if root is None or not hasattr(root, "getControl"):
             continue
@@ -1222,7 +1222,7 @@ def handle_debug_sidebar_command(command: str) -> None:
         # Drive the sidebar Voice checkbox (reverse of Settings→sidebar).
         from plugin.framework.config import save
 
-        for chk in _voice_checkboxes():
+        for chk in _voice_checkboxes(_all_live_panels()):
             if not hasattr(chk, "getState") or not hasattr(chk, "setState"):
                 continue
             try:
@@ -1328,11 +1328,10 @@ def handle_debug_sidebar_command(command: str) -> None:
         elif op == "SET_TEXT_NONEMPTY":
             sl.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=True))
         elif op == "SET_CHAT_MODE":
-            apply_fn = getattr(sl, "apply_sidebar_mode", None)
-            if apply_fn is not None:
+            if sl.apply_sidebar_mode is not None:
                 from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT
 
-                apply_fn(CHAT_MODE_CHAT)
+                sl.apply_sidebar_mode(CHAT_MODE_CHAT)
         else:
             log.warning("debug_sidebar unknown op %s", op)
         _write_debug_snapshot(sl)
@@ -2180,11 +2179,10 @@ def ensure_sidebar_chat_mode(
         set_selector_mode_with_flags(sel, CHAT_MODE_CHAT, sidebar_mode_flags_for_doc_type(doc_type))
     sl = _sl(listener)
     if sl is not None:
-        apply_fn = getattr(sl, "apply_sidebar_mode", None)
-        if apply_fn is not None:
+        if sl.apply_sidebar_mode is not None:
             from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT
 
-            apply_fn(CHAT_MODE_CHAT)
+            sl.apply_sidebar_mode(CHAT_MODE_CHAT)
     else:
         execute_debug_sidebar_op("SET_CHAT_MODE")
 

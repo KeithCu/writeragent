@@ -50,6 +50,7 @@ from plugin.chatbot.tool_loop_actions import (
 )
 from plugin.chatbot.chat_sidebar_mode import (
     CHAT_MODE_WEB_RESEARCH,
+    SidebarMode,
     require_sidebar_mode,
     sidebar_mode,
 )
@@ -112,14 +113,14 @@ def dispatch_sidebar_send(
     return True
 
 
+_UNSET = object()
+
+
 def _send_worker_queues(host: Any) -> tuple[StreamQueue, TurnController]:
     # ``_do_send`` starts the turn. A direct handler call with no turn yet
     # starts one before the worker. An aborted turn is not replaced.
-    if current_turn(host) is None:
-        begin_send_turn(host)
+    turn = current_turn(host) or begin_send_turn(host)
     raw: StreamQueue = StreamQueue()
-    turn = current_turn(host)
-    assert turn is not None
     if turn.alive:
         turn.queue = raw
         turn.batcher = None
@@ -291,10 +292,11 @@ class SendHandlersMixin:
         self._panel._append_response("\n[Using image model (direct).]\n")
         self._panel._append_response("AI: Creating image...\n")
         self._panel._set_status("Creating image...")
-        self._execute_direct_image_effect(query_text, model)
+        self._execute_direct_image_effect(query_text, model, turn_session=turn_session)
 
-    def _execute_direct_image_effect(self, query_text: str, model: Any) -> None:
-        turn_session = turn_session_or_stop(self._panel)
+    def _execute_direct_image_effect(self, query_text: str, model: Any, *, turn_session: Any = _UNSET) -> None:
+        if turn_session is _UNSET:
+            turn_session = turn_session_or_stop(self._panel)
         if turn_session is None:
             return
         # The user row was stored by _do_send_direct_image before execution.
@@ -554,12 +556,25 @@ class SendHandlersMixin:
         turn_session.add_user_message(query_text)
         self._panel._append_response(query_text, role="user")
         self._panel._set_status("Starting research...")
-        self._execute_web_research_effect(query_text, model, mode=mode)
+        self._execute_web_research_effect(
+            query_text,
+            model,
+            mode=mode,
+            spec=spec or require_sidebar_mode(CHAT_MODE_WEB_RESEARCH),
+        )
 
-    def _execute_web_research_effect(self, query_text: str, model: Any, mode: str = "") -> None:
+    def _execute_web_research_effect(
+        self,
+        query_text: str,
+        model: Any,
+        mode: str = "",
+        *,
+        spec: SidebarMode | None = None,
+    ) -> None:
         from plugin.app import get_tools
 
-        spec = sidebar_mode(mode) or require_sidebar_mode(CHAT_MODE_WEB_RESEARCH)
+        if spec is None:
+            spec = sidebar_mode(mode) or require_sidebar_mode(CHAT_MODE_WEB_RESEARCH)
 
         drain_q, turn = _send_worker_queues(self._panel)
         # Read show_thinking before spawning the thread so apply_chunk can use it

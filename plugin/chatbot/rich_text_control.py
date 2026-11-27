@@ -529,9 +529,9 @@ def sync_rich_control_bounds(rich_control: Any, root_window: Any, placeholder_ct
         bounds_changed = _apply_rich_control_geometry(rich_control, bx, by, bw, bh)
         if bounds_changed:
             log_rich_scroll("sync_bounds", rect=f"{bx},{by},{bw},{bh}")
-            # Stock ORichTextPeer/RichTextControlImpl::layoutWindow() (forms/source/richtext/richtextimplcontrol.cxx)
-            # calls SetVisArea(Point()), so every setPosSize jumps to the top unless the patched build keeps
-            # the old top-left. Stock: Hidden SelectAll, no reveal_caret.
+            # RichTextControlImpl::layoutWindow (forms/source/richtext/richtextimplcontrol.cxx)
+            # calls SetVisArea(Point()), so every setPosSize resets scroll to the top.
+            # Stock: Hidden SelectAll, no reveal_caret.
             if _model_text(rich_control):
                 _invalidate_peer(rich_control)
                 _scroll_rich_to_tail(rich_control, restore_focus=restore_focus)
@@ -606,19 +606,17 @@ def force_rich_full_reformat(control: Any) -> None:
 
 def _apply_rich_control_style_defaults_on_model(
     model: Any,
-    style_window: Any = None,
     *,
-    theme: ChatTheme | None = None,
+    theme: ChatTheme,
 ) -> None:
     """Set default character properties on the form TextField model (before peer creation).
 
     Do not set model TextColor/CharColor here — control-level text color homogenizes every
     run and hides per-message user/assistant CharColor applied at insert time.
     """
-    resolved = theme if theme is not None else ChatTheme.resolve(style_window=style_window)
-    apply_chat_char_props(model, bg_color=resolved.bg_color)
+    apply_chat_char_props(model, bg_color=theme.bg_color)
     for name, val in (
-        ("BackgroundColor", resolved.bg_color),
+        ("BackgroundColor", theme.bg_color),
         ("PaintTransparent", False),
         ("RichText", True),
         ("ReadOnly", True),
@@ -647,7 +645,7 @@ def _apply_rich_control_style_defaults(control: Any, style_window: Any = None) -
     if model is None:
         return
     theme = ChatTheme.resolve(style_window=style_window)
-    _apply_rich_control_style_defaults_on_model(model, style_window=style_window, theme=theme)
+    _apply_rich_control_style_defaults_on_model(model, theme=theme)
     _apply_control_surface_colors(control, theme.bg_color)
 
     def _apply_cursor() -> None:
@@ -759,7 +757,7 @@ def _try_dialog_embedded_rich_control(root_window: Any, placeholder_ctrl: Any, p
         ):
             set_prop(embedded, prop, val)
 
-        _apply_rich_control_style_defaults_on_model(embedded, style_window=root_window)
+        _apply_rich_control_style_defaults_on_model(embedded, theme=ChatTheme.resolve(style_window=root_window))
 
         if dlg_model.hasByName(RICH_CONTROL_NAME):
             dlg_model.removeByName(RICH_CONTROL_NAME)
@@ -973,7 +971,7 @@ def create_sidebar_rich_text_control(ctx: Any, root_window: Any, placeholder_ctr
 
         impl = field_model.getImplementationName() if hasattr(field_model, "getImplementationName") else "?"
         set_prop(field_model, "Name", RICH_CONTROL_NAME)
-        _apply_rich_control_style_defaults_on_model(field_model, root_window)
+        _apply_rich_control_style_defaults_on_model(field_model, theme=ChatTheme.resolve(style_window=root_window))
 
         rich_flag = field_model.getPropertyValue("RichText") if hasattr(field_model, "getPropertyValue") else None
         log.info(
@@ -1176,7 +1174,7 @@ def _select_all_collapsed(control: Any) -> bool:
     There is no UNO selection setter (the peer is a VCLXWindow, not an
     XTextComponent), and keys only reach the focus window. EditEngine does
     collapse a view selection whose end paragraph is deleted
-    (ImpEditEngine::UpdateSelections, editeng/source/editeng/impedit4.cxx:
+    (ImpEditEngine::UpdateSelections, editeng/source/editeng/impedit2.cxx:
     caret at the start of the paragraph now at that position). So: append an
     empty paragraph with a tiny fixed line height, SelectAll (the end PaM lands
     in it; ShowCursor scrolls to the end), then remove the paragraph break.
