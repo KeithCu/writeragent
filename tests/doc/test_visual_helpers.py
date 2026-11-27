@@ -415,6 +415,7 @@ def test_list_graphic_objects_reads_all_draw_pages():
     doc.getDrawPages = lambda: Pages([FakeDrawPage([a]), FakeDrawPage([b])])  # type: ignore[method-assign]
     names = [n for n, _g in visual_helpers.list_graphic_objects(doc)]
     assert names == ["A", "B"]
+    assert visual_helpers.get_graphic_object_by_name(doc, "B") is b
 
 
 def test_list_graphic_objects_reads_calc_draw_page_graphic_shapes():
@@ -443,8 +444,8 @@ def test_calc_multi_sheet_images():
     assert len(items) == 1
     assert items[0][0] == "Logo"
     assert items[0][1] is graphic1
-    assert getattr(items[0], "sheet_index", None) == 1
-    assert getattr(items[0], "sheet_name", None) == "Sheet2"
+    assert items[0].sheet_index == 1
+    assert items[0].sheet_name == "Sheet2"
     assert doc.controller.getActiveSheet() is active_sheet_before
 
     # Graphic by name returns it when unique

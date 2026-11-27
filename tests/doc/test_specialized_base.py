@@ -341,6 +341,14 @@ def test_gateway_enum_is_sorted_and_unique(writer_gateway: DelegateToSubagent) -
     assert len(enum) == len(set(enum))
 
 
+def test_gateway_agent_label_prefers_doc_type_over_services() -> None:
+    from plugin.framework.doc_type import CALC_DOCUMENT_SERVICE
+
+    gw = DelegateToSubagent()
+    assert gw.agent_label_for(doc_type="writer", uno_services=frozenset({CALC_DOCUMENT_SERVICE})) == "Writer"
+    assert gw.agent_label_for(uno_services=frozenset({CALC_DOCUMENT_SERVICE})) == "Calc"
+
+
 def test_domain_declared_after_gateway_creation_is_accepted() -> None:
     import gc
     from typing import ClassVar

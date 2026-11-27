@@ -637,7 +637,7 @@ class ImageList(ToolWriterImageBase):
 
         try:
             for item in graphics_names:
-                name, graphic = item[0], item[1]
+                name, graphic = item
                 try:
                     size = graphic.getSize()
                     title = visual_helpers.safe_get_property(graphic, "Title", "")
@@ -708,8 +708,11 @@ class ImageList(ToolWriterImageBase):
                             except Exception as exc:
                                 reraise_if_disposed(exc)
 
-                    for attr in ("sheet_index", "sheet_name", "shape_index"):
-                        val = getattr(item, attr, None)
+                    for attr, val in (
+                        ("sheet_index", item.sheet_index),
+                        ("sheet_name", item.sheet_name),
+                        ("shape_index", item.shape_index),
+                    ):
                         if val is not None:
                             entry[attr] = val
                     images.append(entry)

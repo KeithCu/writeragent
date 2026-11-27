@@ -143,6 +143,8 @@ Module: [`plugin/framework/doc_type.py`](../../plugin/framework/doc_type.py)
 | `doc_type_label_for_enum` | Distinct lowercase label (`writer`, `calc`, `draw`, `impress`, `unknown`). |
 | `doc_type_family_label` | Research / path-family label folding Impress into `draw`. |
 | `doc_type_title_for_label` | Sidebar title (`impress` displays as Draw). |
+| `agent_label_for_doc_type` | Writer / Calc / Draw for a doc_type label, or `None` when it names no app. |
+| `agent_label` | The one sub-agent label resolver (Writer / Calc / Draw) for specialized domains: an app-naming doc_type wins, then exact UNO document service names, then a probe of the document on the main thread only, else Writer. The gateway's `agent_label_for` delegates here. |
 
 Canonical service strings and classification metadata live in `_META`. `_SERVICE_PRIORITY` is the classification priority (`get_document_type` returns the first match). Canonical service constants (`TEXT_DOCUMENT_SERVICE`, `CALC_DOCUMENT_SERVICE`, `DRAW_DOCUMENT_SERVICE`, `IMPRESS_DOCUMENT_SERVICE`, `WEB_DOCUMENT_SERVICE`, `DOCUMENT_SERVICES`) are exported for tools, peer messaging, and visual helpers.
 
@@ -152,8 +154,8 @@ Module: [`plugin/doc/udprops.py`](../../plugin/doc/udprops.py)
 
 | Symbol | Purpose |
 |--------|---------|
-| `get_document_property` | Read `UserDefinedProperties` by name (PropertyBag, not `XNameAccess`). |
-| `set_document_property` | Add or set a removable string UD prop. Returns `False` when the document has no usable `UserDefinedProperties` bag. |
+| `get_document_property` | Read `UserDefinedProperties` by name (PropertyBag, not `XNameAccess`). Returns the default, without logging, when there is no model. |
+| `set_document_property` | Add or set a removable string UD prop. Returns `False` when there is no model or the document has no usable `UserDefinedProperties` bag. |
 | `remove_document_property` | Remove a UD prop. Returns `True` when it is absent afterwards (idempotent). |
 | `_user_defined_property_exists` | `PropertySetInfo.hasPropertyByName` (and `hasByName` fallback). |
 

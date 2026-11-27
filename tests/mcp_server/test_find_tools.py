@@ -109,13 +109,6 @@ def test_execute_no_args_returns_catalog_only():
     registry.get_schemas.assert_not_called()
 
 
-def test_execute_no_registry_errors():
-    ctx = MagicMock()
-    ctx.services.get.side_effect = lambda name: None
-    result = FindTools().execute(ctx)
-    assert result.get("status") == "error"
-
-
 # --------------------------------------------------------------------------- #
 # tools/list gating: tool_find only in direct_discovery
 # --------------------------------------------------------------------------- #

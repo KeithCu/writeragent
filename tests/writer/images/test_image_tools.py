@@ -656,7 +656,7 @@ class TestWriterImageCursorConversion:
             patch.object(image_tools, "_create_embedded_graphic", return_value=image),
             patch.object(image_tools, "_apply_graphic_properties"),
             patch.object(image_tools, "anchor_shape_at_cell"),
-            patch.object(visual_helpers, "list_graphic_objects", return_value=[("Picture 1", MagicMock())]),
+            patch.object(visual_helpers, "list_graphic_objects", return_value=[visual_helpers.GraphicEntry(("Picture 1", MagicMock()))]),
         ):
             res = image_tools._insert_image_to_drawpage(
                 ctx, model, "calc", "/tmp/img.png", 1000, 1000, "", "",

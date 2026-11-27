@@ -109,9 +109,7 @@ class FindTools(ToolBase):
     }
 
     def execute(self, ctx: ToolContext, domain: str | None = None, **kwargs: Any) -> dict[str, Any]:
-        registry = ctx.services.get("tools") if ctx.services else None
-        if registry is None:
-            return self._tool_error("Tool registry unavailable.", code="SERVICE_UNAVAILABLE")
+        registry = ctx.services.get("tools")
 
         domain = domain.strip().lower() if domain and domain.strip() else None
 

@@ -41,7 +41,7 @@ from plugin.doc.specialized_catalog import (
     normalize_inner_result,
 )
 from plugin.doc.specialized_shapes_context import format_shapes_canvas_context
-from plugin.framework.doc_type import agent_label_for_context
+from plugin.framework.doc_type import agent_label
 from plugin.framework.errors import make_tool_error, user_stopped_payload
 from plugin.framework.prompts import DELEGATE_ANCHOR_RULE
 from plugin.framework.queue_executor import main
@@ -146,9 +146,7 @@ def gather_domain_tools(parent_ctx: ToolContext, domains: list[str]) -> list[Too
     lookup does not return it; it is fetched by name. Shapes mutators are
     omitted (see ``script_only_llm_tool_names``).
     """
-    registry = parent_ctx.services.get("tools") if parent_ctx.services is not None else None
-    if registry is None:
-        return []
+    registry = parent_ctx.services.get("tools")
 
     def _fetch() -> list[ToolBase]:
         body: list[ToolBase] = []
@@ -249,7 +247,7 @@ def _domain_loop_hints(parent_ctx: ToolContext, domains: list[str], agent_label:
 
 def run_inner_domain_tool_agent(parent_ctx: ToolContext, domains: list[str], task: str) -> dict[str, Any]:
     """Run a focused smol agent with the union of *domains*' production tools."""
-    label = agent_label_for_context(parent_ctx)
+    label = agent_label(parent_ctx.doc_type, parent_ctx.uno_services_supported)
     ordered = gather_domain_tools(parent_ctx, domains)
     domain_tools = [tool for tool in ordered if tool.name != FINISH_TOOL_NAME]
     if not domain_tools:
@@ -375,7 +373,7 @@ class DelegateToolDomains(ToolBase):
         if not task:
             return self._tool_error("task is required.", code="TASK_REQUIRED")
 
-        label = agent_label_for_context(ctx)
+        label = agent_label(ctx.doc_type, ctx.uno_services_supported)
         message, code = validate_requested_domains(names, label, ctx.ctx, caller=ctx.caller)
         if message:
             return self._tool_error(message, code=code or "UNKNOWN_SPECIALIZED_DOMAIN")

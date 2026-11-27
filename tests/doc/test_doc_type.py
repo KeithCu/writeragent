@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Unit tests for plugin.framework.doc_type."""
 
-import types
 from unittest.mock import patch
 
 import pytest
@@ -12,7 +11,7 @@ from plugin.framework.doc_type import (
     DocumentType,
     IMPRESS_DOCUMENT_SERVICE,
     TEXT_DOCUMENT_SERVICE,
-    agent_label_for_context,
+    agent_label,
     agent_label_for_doc_type,
     doc_type_family_label,
     doc_type_label_for_enum,
@@ -61,18 +60,35 @@ def test_agent_label_for_doc_type():
 
 
 
-def test_agent_label_from_doc_type():
-    def _ctx(doc_type: str, svc: str):
-        return types.SimpleNamespace(
-            doc_type=doc_type,
-            uno_services_supported=(svc,) if svc else (),
-        )
+@pytest.mark.parametrize(
+    ("doc_type", "services", "expected"),
+    [
+        ("writer", {TEXT_DOCUMENT_SERVICE}, "Writer"),
+        ("impress", {IMPRESS_DOCUMENT_SERVICE}, "Draw"),
+        ("", {CALC_DOCUMENT_SERVICE}, "Calc"),
+        ("", {DRAW_DOCUMENT_SERVICE}, "Draw"),
+        ("", set(), "Writer"),
+        (None, None, "Writer"),
+        # A doc_type that names an app beats services that name another one.
+        ("writer", {CALC_DOCUMENT_SERVICE}, "Writer"),
+        ("calc", {IMPRESS_DOCUMENT_SERVICE}, "Calc"),
+        # Services match exact names, not substrings of other service names.
+        ("", {"com.sun.star.sheet.SpreadsheetDocumentSettings"}, "Writer"),
+        ("unknown", {"com.sun.star.drawing.DrawingDocumentFactory"}, "Writer"),
+    ],
+)
+def test_agent_label(doc_type: str | None, services: set[str] | None, expected: str) -> None:
+    assert agent_label(doc_type, services) == expected
 
-    assert agent_label_for_context(_ctx("writer", "com.sun.star.text.TextDocument")) == "Writer"
-    assert agent_label_for_context(_ctx("calc", "com.sun.star.sheet.SpreadsheetDocument")) == "Calc"
-    assert agent_label_for_context(_ctx("impress", "com.sun.star.presentation.PresentationDocument")) == "Draw"
-    assert agent_label_for_context(_ctx("", "com.sun.star.sheet.SpreadsheetDocument")) == "Calc"
-    assert agent_label_for_context(_ctx("", "")) == "Writer"
+
+def test_agent_label_probes_doc_only_on_main_thread() -> None:
+    calc = _ServiceModel({CALC_DOCUMENT_SERVICE})
+    with patch("plugin.framework.queue_executor.main.is_current", return_value=True):
+        assert agent_label(None, None, calc) == "Calc"
+        # Services that already name an app skip the probe.
+        assert agent_label(None, {TEXT_DOCUMENT_SERVICE}, calc) == "Writer"
+    with patch("plugin.framework.queue_executor.main.is_current", return_value=False):
+        assert agent_label(None, None, calc) == "Writer"
 
 
 class _ServiceModel:

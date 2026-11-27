@@ -22,7 +22,6 @@ from plugin.doc.document_research import (
     ListingState,
     close_document_research_document,
     file_entry_for_path,
-    guess_doc_type_from_path,
     open_document_for_read,
     resolve_file_target,
     scan_nearby_files,
@@ -94,16 +93,16 @@ def resolve_grep_candidates(
         state=state,
         cancel=cancel,
     )
-    if listing.get("status") != "ok":
-        return [], False, listing.get("message", "Could not list nearby files")
+    if listing["status"] != "ok":
+        return [], False, listing["message"]
 
-    files: list[FileEntry] = list(listing.get("files") or [])
+    files: list[FileEntry] = listing["files"]
     if raw and not files:
         return [], False, f"No file matching {raw!r}"
-    listing_truncated = bool(listing.get("truncated"))
+    listing_truncated: bool = listing["truncated"]
 
-    open_files = [f for f in files if f.get("is_open")]
-    closed_files = [f for f in files if not f.get("is_open")]
+    open_files = [f for f in files if f["is_open"]]
+    closed_files = [f for f in files if not f["is_open"]]
     ordered = open_files + closed_files
 
     truncated_files = listing_truncated or len(ordered) > DEFAULT_GREP_MAX_FILES
@@ -396,15 +395,14 @@ def grep_nearby_files(
 
         path = entry["path"]
         name = entry["name"]
-        url = entry.get("url") or ""
-        doc_type_guess = entry.get("doc_type_guess") or guess_doc_type_from_path(path)
+        doc_type_guess = entry["doc_type_guess"]
         if doc_type_guess == "unknown" or doc_type_guess == "image":
             continue
 
         if status_callback:
             status_callback(f"Grep: {name} ({idx + 1}/{len(candidates)})...")
 
-        target = url if url.startswith("file://") else path
+        target = entry["url"]
         per_file_limit = min(DEFAULT_GREP_MAX_RESULTS_PER_FILE, DEFAULT_GREP_MAX_TOTAL_RESULTS - total_snippets)
 
         files_scanned += 1

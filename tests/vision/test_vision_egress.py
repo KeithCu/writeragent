@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, call, patch
 
 import pytest
 
+from plugin.doc.visual_helpers import GraphicEntry
 from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
 from plugin.vision.vision_egress import (
     insert_vision_result,
@@ -203,7 +204,7 @@ def test_prepare_vision_writer_insert_inserts_paragraph_break_and_collapses_view
     ctx.ServiceManager = smgr
 
     with patch("plugin.doc.visual_helpers.selected_graphic_object", side_effect=[graphic, None]), patch(
-        "plugin.doc.visual_helpers.list_graphic_objects", return_value=[("Image1", graphic)]
+        "plugin.doc.visual_helpers.list_graphic_objects", return_value=[GraphicEntry(("Image1", graphic))]
     ), patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic):
         out = prepare_vision_writer_insert(doc, ctx)
 
@@ -249,7 +250,7 @@ def test_prepare_vision_writer_insert_prefers_image_name_over_selection():
     ctx.ServiceManager = smgr
 
     with patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=None), patch(
-        "plugin.doc.visual_helpers.list_graphic_objects", return_value=[("NamedImg", named), ("SelectedImg", selected)]
+        "plugin.doc.visual_helpers.list_graphic_objects", return_value=[GraphicEntry(("NamedImg", named)), GraphicEntry(("SelectedImg", selected))]
     ), patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=named) as mock_get:
         out = prepare_vision_writer_insert(doc, ctx, image_name="NamedImg")
 
@@ -308,7 +309,7 @@ def test_prepare_vision_writer_insert_disposed_anchor_raises_document_disposed()
     doc = MagicMock()
     doc.getCurrentController.return_value = controller
     with patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=graphic), patch(
-        "plugin.doc.visual_helpers.list_graphic_objects", return_value=[("Image1", graphic)]
+        "plugin.doc.visual_helpers.list_graphic_objects", return_value=[GraphicEntry(("Image1", graphic))]
     ):
         with pytest.raises(DocumentDisposedError):
             prepare_vision_writer_insert(doc, MagicMock())
@@ -331,7 +332,7 @@ def test_prepare_vision_writer_insert_non_disposal_error_stays_vision_error(exc_
     doc = MagicMock()
     doc.getCurrentController.return_value = controller
     with patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=graphic), patch(
-        "plugin.doc.visual_helpers.list_graphic_objects", return_value=[("Image1", graphic)]
+        "plugin.doc.visual_helpers.list_graphic_objects", return_value=[GraphicEntry(("Image1", graphic))]
     ):
         with pytest.raises(ToolExecutionError) as exc:
             prepare_vision_writer_insert(doc, MagicMock())

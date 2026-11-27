@@ -2,10 +2,10 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""User-defined document property helpers (no Calc / document_helpers import graph).
+"""User-defined document property helpers.
 
-Grammar persistence and other light callers need get/set udprops without pulling
-``plugin.calc.bridge`` / ``analyzer`` via ``document_helpers``.
+Kept apart from ``document_helpers`` so light callers (grammar persistence, LibrePy)
+do not load the chat-context module.
 """
 
 from __future__ import annotations
@@ -50,9 +50,9 @@ def _user_defined_properties(model: Any) -> Any:
 def read_document_property(model: Any, name: str, default: Any = None) -> Any:
     """Read a custom document property from the model, raising on UNO failures.
 
-    Returns *default* only when the document has no ``UserDefinedProperties`` bag
-    (for example a non-ODF model where ``set_document_property`` also cannot write)
-    or when the property is confirmed absent.
+    Returns *default* only when there is no model, when the document has no
+    ``UserDefinedProperties`` bag (for example a non-ODF model where
+    ``set_document_property`` also cannot write), or when the property is confirmed absent.
     """
     props = _user_defined_properties(model)
     if props is None:
@@ -71,10 +71,7 @@ def get_document_property(model: Any, name: str, default: Any = None) -> Any:
     try:
         return read_document_property(model, name, default)
     except UnoObjectError:
-        if name in ("WriterAgentSessionID", "WriterAgentPythonSessionId"):
-            log.debug("get_document_property (optional property %s not set yet)", name)
-        else:
-            log.exception("get_document_property failed")
+        log.exception("get_document_property failed")
     except DocumentDisposedError:
         raise
     except Exception:
@@ -115,10 +112,14 @@ def set_document_property(model: Any, name: str, value: Any) -> bool:
         raise
 
 def _document_properties_bag(model: Any) -> Any | None:
-    """Return the unwrapped ``getDocumentProperties()`` object, or None."""
+    """Return the unwrapped ``getDocumentProperties()`` object, or None when there is no model or bag.
+
+    The sidebar reads its session properties before it checks for a model, so a
+    missing model must read as "no properties" rather than as a UNO failure.
+    """
     raw_model = thread_guard.unwrap_uno(model)
     if raw_model is None:
-        raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
+        return None
     return uno_call(raw_model.getDocumentProperties, "Get document properties")
 
 

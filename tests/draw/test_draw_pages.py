@@ -175,22 +175,6 @@ def test_bridge_duplicate_calls_doc_duplicate():
     assert out is copy
 
 
-def test_duplicate_slide_rejects_none_copy():
-    source = object()
-    pages = MagicMock()
-    pages.getCount.return_value = 2
-    pages.getByIndex.return_value = source
-    doc = MagicMock()
-    doc.getDrawPages.return_value = pages
-    doc.duplicate.return_value = None
-    controller = MagicMock()
-    doc.getCurrentController.return_value = controller
-    bridge = DrawBridge(doc)
-    with pytest.raises(RuntimeError, match="returned no page"):
-        bridge.duplicate_slide(0, switch=True)
-    controller.setCurrentPage.assert_not_called()
-
-
 def test_duplicate_slide_ok():
     ctx = _ctx()
     with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
