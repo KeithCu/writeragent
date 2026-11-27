@@ -10,7 +10,7 @@ the WriterAgent OXT, and that loop's restricted unpickler and signal handling do
 not apply here. Child stdout is claimed for frames with ``claim_ipc_channel``, and
 a failed frame read exits so the pool can respawn.
 
-Jobs are ``{text, voice, speed, lang, model_path, voices_path, out_path}``.
+Jobs are ``{text, voice, speed, model_path, voices_path, out_path}``.
 The response carries the wav **path**, not the samples: a sentence of audio
 can exceed the 16MiB pickle cap, and the parent already chose the temp file.
 
@@ -45,6 +45,8 @@ from plugin.audio.kokoro_g2p import (  # noqa: E402
     kokoro_g2p_lang,
     misaki_frontend,
 )
+
+_DEFAULT_VOICE = "af_sky"
 
 # (model_path, voices_path), Kokoro instance, soundfile module.
 # Replaced when the paths change.
@@ -120,11 +122,11 @@ def _fallback_voice(kokoro: Any, requested: str) -> str:
         for name in names:
             if name[:1].lower() == family:
                 return name
-    if "af_sky" in voices:
-        return "af_sky"
+    if _DEFAULT_VOICE in voices:
+        return _DEFAULT_VOICE
     if names:
         return names[0]
-    return "af_sky"
+    return _DEFAULT_VOICE
 
 
 def _get_kokoro(model_path: str, voices_path: str) -> tuple[Any, Any]:
@@ -154,7 +156,7 @@ def handle_kokoro_job(req: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(voices_path, str) or not voices_path:
         return {"status": "error", "error": "voices_path is required"}
 
-    voice = str(req.get("voice") or "af_sky")
+    voice = str(req.get("voice") or _DEFAULT_VOICE)
     # speed uses get default 1.0 so explicit 0.0 is preserved (not falsy-or).
     try:
         speed = float(req.get("speed", 1.0))
@@ -164,18 +166,14 @@ def handle_kokoro_job(req: dict[str, Any]) -> dict[str, Any]:
     try:
         kokoro, sf = _get_kokoro(model_path, voices_path)
     except ImportError as exc:
-        return {
-            "status": "error",
-            "error": f"Kokoro dependency missing ({exc}). Install with: {KOKORO_PIP_INSTALL}",
-        }
+        return {"status": "error", "error": str(exc)}
     except Exception as exc:
         return {"status": "error", "error": f"Kokoro load failed: {exc}"}
 
     warning = ""
     if voice not in kokoro.voices:
-        # Same substitution as the one-shot script in tts_service: a voices
-        # file that lacks the requested id (English-only pack, custom path)
-        # keeps speaking instead of failing the sentence.
+        # A voices file that lacks the requested id (English-only pack, custom path)
+        # keeps speaking with a substitute instead of failing the sentence.
         fallback = _fallback_voice(kokoro, voice)
         warning = f"Kokoro voice {voice!r} is not in {voices_path}; using {fallback}"
         voice = fallback
@@ -218,12 +216,12 @@ def _emit(payload: dict[str, Any]) -> None:
 
 
 def run_kokoro_once(argv: list[str]) -> int:
-    if len(argv) != 9:
-        _emit({"status": "error", "error": f"Invalid arguments count: expected 9, got {len(argv)}"})
+    if len(argv) != 8:
+        _emit({"status": "error", "error": f"Invalid arguments count: expected 8, got {len(argv)}"})
         return 1
     try:
         speed = float(argv[4])
-    except (ValueError, TypeError) as exc:
+    except ValueError as exc:
         _emit({"status": "error", "error": f"Invalid speed: {exc}"})
         return 1
     text_or_dash = argv[2]

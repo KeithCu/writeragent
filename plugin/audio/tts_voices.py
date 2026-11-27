@@ -10,7 +10,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass
-from typing import Any, Iterable, Sequence
+from typing import Any, Callable, Iterable, Sequence
 
 from plugin.audio.kokoro_g2p import KOKORO_VOICE_PREFIX_TO_LANG
 from plugin.audio.voice_catalog import (
@@ -101,9 +101,9 @@ def _kokoro_voice_is_female(voice_id: str, label: str) -> bool:
 
 
 def _first_matching(
-    rows: Any,
-    is_match: Any,
-    is_preferred: Any,
+    rows: Iterable[dict[str, str]],
+    is_match: Callable[[dict[str, str]], bool],
+    is_preferred: Callable[[dict[str, str]], bool],
     fallback: str,
 ) -> str:
     """First preferred match, else the first match, else fallback."""
@@ -183,9 +183,9 @@ def clean_voice_name(voice_or_label: str) -> str:
 
 
 def _buckets(
-    rows: Any,
-    is_locale: Any,
-    is_english: Any,
+    rows: Iterable[dict[str, str]],
+    is_locale: Callable[[dict[str, str]], bool],
+    is_english: Callable[[dict[str, str]], bool],
     preferred_id: str | None = None,
 ) -> list[dict[str, str]]:
     """locale + english + other. preferred_id is inserted at the front of locale."""
@@ -231,7 +231,7 @@ def _kokoro_default_for_stem(stem: str) -> str:
         return _LOCALE_TO_KOKORO_DEFAULT[stem]
     return _first_matching(
         _KOKORO_CATALOG_ITEMS,
-        lambda opt: opt.get("lang") == stem,
+        lambda opt: opt["lang"] == stem,
         lambda opt: _kokoro_voice_is_female(opt["value"], opt["label"]),
         DEFAULT_VOICE_FOR_FAMILY["kokoro"],
     )
@@ -263,8 +263,8 @@ def get_voice_catalog(family: str, locale: str | None = None) -> list[dict[str, 
     if fam == "kokoro":
         return _buckets(
             _KOKORO_CATALOG_ITEMS,
-            is_locale=lambda opt: stem != "en" and opt.get("lang") == stem,
-            is_english=lambda opt: opt.get("lang") == "en",
+            is_locale=lambda opt: stem != "en" and opt["lang"] == stem,
+            is_english=lambda opt: opt["lang"] == "en",
         )
 
     preferred_default = _piper_default_for_stem(stem)
@@ -360,13 +360,24 @@ def _voice_belongs_to_other_family(voice: str) -> bool:
     return False
 
 
+def provider_or_none(endpoint_url: str) -> str | None:
+    """Return the provider key for *endpoint_url*, or None when invalid."""
+    from plugin.framework.client.provider_detection import get_provider_from_endpoint
+    from plugin.framework.errors import ConfigError
+
+    try:
+        return get_provider_from_endpoint(endpoint_url)
+    except (ConfigError, ValueError):
+        return None
+
+
 def resolve_voice_context(
     provider: str | None,
     model: str | None = None,
     endpoint: str | None = None,
     locale: str | None = None,
 ) -> VoiceContext:
-    """Resolve TTS voice family, source, catalog rows, and editability."""
+    """Resolve TTS voice family, source, and catalog rows."""
     prov = clean_provider_name(provider or "")
     if prov in ("kokoro", "piper", "system"):
         return VoiceContext(family=prov, source="catalog", rows=tuple(get_voice_catalog(prov, locale)))
@@ -379,16 +390,7 @@ def resolve_voice_context(
     # Resolve endpoint and host
     ep_val = endpoint if (endpoint is not None and str(endpoint).strip()) else config.get_current_endpoint()
     ep_str = str(ep_val or "").strip()
-    host: str | None = None
-    if ep_str:
-        from plugin.framework.errors import ConfigError
-
-        try:
-            from plugin.framework.client.provider_detection import get_provider_from_endpoint
-
-            host = get_provider_from_endpoint(ep_str)
-        except (ConfigError, ValueError):
-            host = None
+    host = provider_or_none(ep_str) if ep_str else None
 
     if m_str:
         from plugin.framework.client.model_fetcher import cached_tts_supported_voices
@@ -529,11 +531,11 @@ def get_scoped_tts_voice(
 
 
 def parse_tts_speed(val: Any) -> float:
-    """Parse speech speed safely, enforcing a minimum of 0.25x."""
+    """Parse speech speed safely, clamping to 0.25–5.0x."""
     if not isinstance(val, (int, float)):
         cleaned = str(val).split("(")[0].strip().rstrip("xX").strip().replace(",", ".")
         try:
             val = float(cleaned)
-        except (ValueError, TypeError):
+        except ValueError:
             return 1.0
     return max(0.25, min(5.0, float(val)))

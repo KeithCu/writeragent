@@ -8,6 +8,7 @@ fixture in ``tests/conftest.py``. ``bootstrap()`` and ``get_tools()`` raise
 
 from __future__ import annotations
 
+import importlib.util
 import logging
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -52,11 +53,9 @@ def is_bound() -> bool:
 
 
 def bootstrap(ctx: Any | None = None) -> None:
-    """Bootstraps the service container and modules.
+    """Build the service container and modules.
 
-    This is currently triggered eagerly by Jobs.xcu on OnStartApp to ensure the
-    MCP server starts automatically in headless mode. We could make this lazy
-    again in the future if startup performance becomes a concern.
+    Jobs.xcu triggers this on OnStartApp so the MCP server starts in headless mode.
     """
     if _finish is None:
         raise WriterAgentException(
@@ -79,7 +78,6 @@ def bootstrap_complete() -> bool:
 
 
 def get_services() -> Any:
-    global _services
     if _services is None:
         bootstrap()
     if _services is None:
@@ -101,7 +99,6 @@ def services_or_none() -> ServiceRegistry | None:
 
 
 def get_tools() -> ToolRegistry:
-    global _tools
     if _tools is None:
         bootstrap()
     if _tools is None:
@@ -145,23 +142,21 @@ def tests_bundled() -> bool:
     global _TESTS_AVAILABLE
     if _TESTS_AVAILABLE is None:
         try:
-            import importlib.util
-
             _TESTS_AVAILABLE = importlib.util.find_spec("plugin.tests.conftest") is not None
-        except Exception:
+        except ModuleNotFoundError:
             _TESTS_AVAILABLE = False
     return bool(_TESTS_AVAILABLE)
 
 
-def _module_for_command(command: str) -> tuple[ModuleBase | None, str]:
+def _module_for_command(command: str) -> tuple[ModuleBase | None, str, str]:
     dot = command.find(".")
     if dot <= 0:
-        return None, ""
+        return None, "", ""
     mod_name, action = command[:dot], command[dot + 1 :]
     for mod in _modules:
         if mod.name == mod_name:
-            return mod, action
-    return None, action
+            return mod, mod_name, action
+    return None, mod_name, action
 
 
 def dispatch_command(command: str) -> None:
@@ -188,7 +183,7 @@ def dispatch_command(command: str) -> None:
             report_action_failure(command, e)
         return
 
-    mod, action = _module_for_command(command)
+    mod, _mod_name, action = _module_for_command(command)
     if mod is not None:
         mod.on_action(action)
         return
@@ -200,18 +195,14 @@ def dispatch_command(command: str) -> None:
             code="BOOTSTRAP_FAILED",
         ) from bootstrap_error
 
-    if command.find(".") <= 0:
-        log.warning("Unhandled command: %s", command)
-        return
-
-    log.warning("No handler or module found for command: %s", command)
+    log.warning("Unhandled command: %s", command)
 
 
 def get_menu_text(command: str) -> str | None:
     """Get dynamic menu text for a command, or None for default."""
     bootstrap()
-    mod, action = _module_for_command(command)
-    if mod is None and command.find(".") <= 0:
+    mod, mod_name, action = _module_for_command(command)
+    if not mod_name:
         return None
 
     from plugin.framework.i18n import _
@@ -222,14 +213,12 @@ def get_menu_text(command: str) -> str | None:
         # the en-US Addons.xcu string; a raw English literal overwrites the catalog.
         from plugin._manifest import MENU_TITLES, MODULES
 
-        if "." in command:
-            mod_name, action_name = command.split(".", 1)
-            for m in MODULES:
-                if isinstance(m, dict) and m.get("name") == mod_name:
-                    action_titles = m.get("action_titles")
-                    if isinstance(action_titles, dict):
-                        text = action_titles.get(action_name)
-                    break
+        for m in MODULES:
+            if isinstance(m, dict) and m.get("name") == mod_name:
+                action_titles = m.get("action_titles")
+                if isinstance(action_titles, dict):
+                    text = action_titles.get(action)
+                break
         if text is None:
             text = MENU_TITLES.get(command)
     if text is not None:
@@ -240,7 +229,7 @@ def get_menu_text(command: str) -> str | None:
 def get_menu_icon(command: str) -> str | None:
     """Get dynamic icon prefix for a command, or None."""
     bootstrap()
-    mod, action = _module_for_command(command)
+    mod, _mod_name, action = _module_for_command(command)
     if mod is None:
         return None
     return mod.get_menu_icon(action)

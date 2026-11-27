@@ -82,8 +82,6 @@ def hybrid_corpus_search(
                 model=rerank_id,
                 top_n=final_k,
             )
-        elif use_mmr and fused and final_k > 1:
-            fused = fused[:final_k]
         else:
             fused = fused[:final_k]
     finally:

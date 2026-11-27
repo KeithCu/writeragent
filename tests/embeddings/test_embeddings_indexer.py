@@ -131,18 +131,9 @@ def test_index_worker_calls_maintain_rpc():
     ctx = MagicMock()
     with patch("plugin.embeddings.embeddings_indexer.maybe_upgrade_legacy_index"), \
          patch("plugin.embeddings.embeddings_indexer.maintain_folder_index_rpc") as mock_maintain, \
-         patch("plugin.embeddings.embeddings_indexer.get_embedding_model", return_value="m"), \
-         patch("plugin.embeddings.embeddings_indexer._resolve_search_mode", return_value="llama_index"):
+         patch("plugin.embeddings.embeddings_indexer.get_embedding_model", return_value="m"):
         embeddings_indexer._index_worker(ctx, "folderkey", "/tmp/listing")
-    mock_maintain.assert_called_once()
-    assert mock_maintain.call_args.kwargs["search_mode"] == "llama_index"
-
-
-def test_resolve_search_mode_reads_config():
-    with patch("plugin.embeddings.embeddings_indexer.configured_folder_search_mode", return_value="llama_index"):
-        assert embeddings_indexer._resolve_search_mode() == "llama_index"
-    with patch("plugin.embeddings.embeddings_indexer.configured_folder_search_mode", return_value="none"):
-        assert embeddings_indexer._resolve_search_mode() == "hybrid"
+    mock_maintain.assert_called_once_with(ctx, "/tmp/listing", model="m")
 
 
 def test_index_worker_clears_inflight_on_failure():

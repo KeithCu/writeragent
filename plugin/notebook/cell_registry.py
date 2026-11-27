@@ -71,8 +71,8 @@ class NotebookDocState:
     version: int = _REGISTRY_VERSION
     source_path: str = ""
     code_cells: list[NotebookCodeCell] = field(default_factory=list)
-    # Fresh import uses this default. Do not seed from max(ipynb execution_count):
-    # that made the first live ▶ show In [4] on a fixture saved as 1, 2, 3.
+    # Fresh import uses this default. Seeding from max(ipynb execution_count)
+    # would start the first live ▶ at a higher number instead of In [1]:.
     next_execution_count: int = 1
 
     @classmethod
@@ -87,8 +87,8 @@ class NotebookDocState:
                 log.warning("notebook registry: skipped invalid cell %r", c)
         next_ec = _coerce_optional_int(data.get("next_execution_count"))
         if next_ec is None:
-            max_ec = max((int(c.execution_count) for c in cells if c.execution_count is not None), default=0)
-            next_ec = max_ec + 1 if max_ec else 1
+            max_ec = max((c.execution_count for c in cells if c.execution_count is not None), default=0)
+            next_ec = max_ec + 1
         return cls(
             version=int(data.get("version") or _REGISTRY_VERSION),
             source_path=str(data.get("source_path") or ""),
@@ -124,7 +124,7 @@ def find_cell_by_hex(state: NotebookDocState, hex_id: str) -> NotebookCodeCell |
     return None
 
 
-def new_code_cell_entry(index: int, execution_count: Any | None, code_field_name: str) -> NotebookCodeCell:
+def new_code_cell_entry(index: int, execution_count: int | None, code_field_name: str) -> NotebookCodeCell:
     """Create a registry entry with a new stable ``cell_id`` and output bookmark name."""
     cell_id = str(uuid.uuid4())
     return NotebookCodeCell(
@@ -143,7 +143,7 @@ def new_code_cell_entry(index: int, execution_count: Any | None, code_field_name
 
 def state_from_json(raw: str) -> NotebookDocState | None:
     """Parse registry JSON; return ``None`` on empty or corrupt payload."""
-    if not (raw or "").strip():
+    if not raw.strip():
         return None
     parsed = safe_json_loads(raw.strip(), strict=True)
     if not isinstance(parsed, dict):
@@ -153,11 +153,7 @@ def state_from_json(raw: str) -> NotebookDocState | None:
     if version != _REGISTRY_VERSION:
         log.warning("notebook registry: unsupported version %r", version)
         return None
-    try:
-        return NotebookDocState.from_dict(parsed)
-    except (KeyError, TypeError, ValueError) as e:
-        log.warning("notebook registry: invalid cell entry: %s", e)
-        return None
+    return NotebookDocState.from_dict(parsed)
 
 
 def load_registry(doc: Any) -> NotebookDocState | None:
@@ -186,14 +182,12 @@ def save_notebook_source_path(doc: Any, path: str) -> None:
 def insert_output_start_bookmark(doc: Any, bookmark_name: str) -> bool:
     """Insert a point bookmark at the document end (after the ▶+code field were appended).
 
-    Must run on the LO main thread. Returns False when bookmarks are unsupported or insert fails; a disposed document raises DocumentDisposedError.
+    Must run on the LO main thread. Returns False when insert fails; a disposed document raises DocumentDisposedError.
     The bookmark is invisible (no ``Output`` heading) so a field mark cannot leak as ``/``.
     """
     if not bookmark_name:
         return False
     try:
-        if not hasattr(doc, "getBookmarks"):
-            return False
         bookmarks = doc.getBookmarks()
         if bookmarks.hasByName(bookmark_name):
             log.debug("notebook registry: bookmark %r already exists", bookmark_name)

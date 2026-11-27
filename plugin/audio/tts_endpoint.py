@@ -18,7 +18,7 @@ from typing import Any, Callable
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 
 from plugin.audio.tts_models import notify_tts_status
-from plugin.audio.tts_voices import canonical_voice_id, clean_voice_name, get_voice_family
+from plugin.audio.tts_voices import canonical_voice_id, clean_voice_name, get_voice_family, provider_or_none
 from plugin.audio.voice_catalog import KOKORO_FALLBACK_VOICE
 from plugin.framework.client.http_security import log_target, origin_and_path
 from plugin.framework.errors import ConfigError, NetworkError
@@ -36,6 +36,7 @@ _LOCAL_RATE_MIN = 0.5
 _LOCAL_RATE_MAX = 2.0
 # OpenAI documents speed 0.25-4.0 on /audio/speech, and Featherless returns 422 above 4.0 for Kokoro.
 _SPEECH_API_MAX_SPEED = 4.0
+DEFAULT_ENDPOINT_TTS_MODEL = "hexgrad/Kokoro-82M"
 
 
 def endpoint_honors_speed(endpoint_url: str, model: str) -> bool:
@@ -46,12 +47,7 @@ def endpoint_honors_speed(endpoint_url: str, model: str) -> bool:
     Together's SDK schema (together-ai 0.40.0 speech.ts) has no speed field for
     any model, Kokoro included. OpenAI documents speed 0.25-4.0 on /audio/speech.
     """
-    from plugin.framework.client.provider_detection import get_provider_from_endpoint
-
-    try:
-        host = get_provider_from_endpoint(endpoint_url)
-    except (ConfigError, ValueError):
-        host = None
+    host = provider_or_none(endpoint_url)
     return host == "openai" or ("kokoro" in (model or "").casefold() and host != "together")
 
 
@@ -308,7 +304,7 @@ def download_endpoint_speech(
     try:
         origin_and_path(endpoint_url)
     except NetworkError as exc:
-        # raw endpoint: see log_target
+        # log_target() strips credentials and query from the URL before it is logged.
         log.warning("TTS endpoint %s: %s", log_target(endpoint_url), exc)
         notify_tts_status(_speech_failure_message(0, str(exc)), on_status)
         return None
@@ -336,7 +332,7 @@ def download_endpoint_speech(
     t0 = time.monotonic()
     for attempt in range(2):
         payload: dict[str, Any] = {
-            "model": model or "hexgrad/Kokoro-82M",
+            "model": model or DEFAULT_ENDPOINT_TTS_MODEL,
             "input": text,
             "response_format": response_format,
         }

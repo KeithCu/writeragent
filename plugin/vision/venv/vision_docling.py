@@ -264,17 +264,15 @@ def _apply_pipeline_params(pipeline_options: Any, norm: DoclingPipelineParams) -
         acc_kwargs["device"] = norm.device
     if norm.num_threads > 0:
         acc_kwargs["num_threads"] = norm.num_threads
-    if acc_kwargs:
-        # Constructing (not assigning fields) runs Docling's AcceleratorOptions.validate_device,
-        # so a bad device raises ValueError (INVALID_PARAM).
-        pipeline_options.accelerator_options = importlib.import_module(
-            "docling.datamodel.pipeline_options"
-        ).AcceleratorOptions(**acc_kwargs)
-
     table_opts = pipeline_options.table_structure_options
-    if norm.table_mode == "fast":
-        table_former = importlib.import_module("docling.datamodel.pipeline_options").TableFormerMode
-        table_opts.mode = table_former.FAST
+    if acc_kwargs or norm.table_mode == "fast":
+        pipeline_options_mod = importlib.import_module("docling.datamodel.pipeline_options")
+        if acc_kwargs:
+            # Constructing (not assigning fields) runs Docling's AcceleratorOptions.validate_device,
+            # so a bad device raises ValueError (INVALID_PARAM).
+            pipeline_options.accelerator_options = pipeline_options_mod.AcceleratorOptions(**acc_kwargs)
+        if norm.table_mode == "fast":
+            table_opts.mode = pipeline_options_mod.TableFormerMode.FAST
     table_opts.do_cell_matching = norm.do_cell_matching
 
     layout_opts = pipeline_options.layout_options
@@ -426,7 +424,7 @@ def _map_docling_document(
         table = None
         box = [0, 0, 0, 0]
         if hasattr(item, "data"):
-            data = getattr(item, "data", None)
+            data = item.data
             cells = getattr(data, "table_cells", None) if data is not None else None
             num_rows = getattr(data, "num_rows", None) if data is not None else None
             num_cols = getattr(data, "num_cols", None) if data is not None else None
@@ -441,8 +439,7 @@ def _map_docling_document(
                 if isinstance(cells, list) and cells and num_rows and num_cols:
                     table = table_from_span_cells(cells, int(num_rows), int(num_cols), name=f"table_{table_index}")
 
-        # TableItem has no export_to_dict; that call failed and boxes became
-        # [0, 0, 0, 0]. Read coordinates from item.prov.
+        # TableItem has no export_to_dict, so read coordinates from item.prov.
         prov = getattr(item, "prov", None) if not isinstance(item, dict) else item.get("prov")
         if prov:
             box = prov_bbox_to_xywh(prov, page_height=_page_height(document, prov))

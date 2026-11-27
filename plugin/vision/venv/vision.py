@@ -15,7 +15,7 @@ from typing import Any
 
 from plugin.vision.vision_common import (
     DEFAULT_VISION_INSERT_MODE,
-    IMPLEMENTED_HELPERS,
+    HELPER_NAMES,
     LOAD_MODELS_HELPER,
     VISION_IMAGE_MAX_BYTES,
     detect_vision_input_format,
@@ -77,7 +77,7 @@ def _apply_paddle_fallback(
 
 
 def _dispatch_helper(helper: str, image: Any, params: dict[str, Any]) -> dict[str, Any]:
-    if helper not in IMPLEMENTED_HELPERS:
+    if helper not in HELPER_NAMES:
         return error_result(
             "UNKNOWN_HELPER",
             f"Helper {helper!r} is not implemented yet.",
@@ -144,7 +144,7 @@ def run_vision(
     raw_params = spec_dict.get("params")
     if raw_params is not None and not isinstance(raw_params, dict):
         return error_result("INVALID_PARAM", "spec.params must be a dict", helper=helper)
-    params: dict[str, Any] = raw_params if isinstance(raw_params, dict) else {}
+    params: dict[str, Any] = raw_params or {}
 
     if isinstance(image, (bytes, bytearray)) and len(image) > VISION_IMAGE_MAX_BYTES:
         return error_result(

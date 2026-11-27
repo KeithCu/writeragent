@@ -61,7 +61,7 @@ def test_wire_all_with_registry_off_main_thread_does_not_raise(monkeypatch):
     try:
         with (
             patch("plugin.notebook.notebook_controls.load_registry", return_value=state),
-            patch("plugin.notebook.notebook_controls._form_and_container", return_value=(None, None)),
+            patch("plugin.notebook.notebook_controls._form_and_container", return_value=None),
         ):
             result = wire_all_notebook_run_buttons(MagicMock(), doc)
         assert result == 0
@@ -82,7 +82,7 @@ def test_wire_all_returns_0_no_container():
 
     with (
         patch("plugin.notebook.notebook_controls.load_registry", return_value=state),
-        patch("plugin.notebook.notebook_controls._form_and_container", return_value=(None, None))
+        patch("plugin.notebook.notebook_controls._form_and_container", return_value=None)
     ):
         result = wire_all_notebook_run_buttons(ctx, doc)
 
@@ -295,7 +295,7 @@ def test_doc_event_does_not_attach_a_second_form_listener():
     with (
         patch("plugin.framework.uno_context.resolve_document_by_url", return_value=(doc, "writer")),
         patch("plugin.notebook.notebook_controls.load_registry", return_value=state) as mock_load,
-        patch("plugin.notebook.notebook_controls._form_and_container", return_value=(MagicMock(), container)) as mock_fc,
+        patch("plugin.notebook.notebook_controls._form_and_container", side_effect=lambda _d: container) as mock_fc,
         patch("plugin.notebook.notebook_controls.ensure_form_design_mode_off") as mock_off,
     ):
         assert wire_all_notebook_run_buttons(ctx, doc) == 1
@@ -327,10 +327,7 @@ def test_doc_event_retries_wire_when_file_open_had_no_container():
     holder: dict[str, object] = {"container": None}
 
     def _forms(_doc):
-        found = holder["container"]
-        if found is None:
-            return None, None
-        return MagicMock(), found
+        return holder["container"]
 
     with (
         patch("plugin.notebook.notebook_controls.load_registry", return_value=state),
@@ -410,7 +407,7 @@ def test_doc_listener_retry_off_main_thread_does_not_raise(monkeypatch):
     try:
         with (
             patch("plugin.notebook.notebook_controls.load_registry", return_value=state),
-            patch("plugin.notebook.notebook_controls._form_and_container", return_value=(None, container)),
+            patch("plugin.notebook.notebook_controls._form_and_container", return_value=container),
         ):
             lis.on_document_event(event)
         container.addContainerListener.assert_called_once()
@@ -476,8 +473,7 @@ def test_form_and_container_multiple_forms():
     access.getFormController.side_effect = get_form_controller
     controller.queryInterface.return_value = access
 
-    fc, container = notebook_controls._form_and_container(doc)
-    assert fc is fc1
+    container = notebook_controls._form_and_container(doc)
     assert container is container1
 
 
@@ -505,19 +501,19 @@ def test_recreated_view_rewires_when_container_changes():
         notebook_controls._listener_refs.clear()
 
         # 1. Wire with old container
-        with patch("plugin.notebook.notebook_controls._form_and_container", return_value=(MagicMock(), old_container)):
+        with patch("plugin.notebook.notebook_controls._form_and_container", return_value=old_container):
             res1 = notebook_controls.wire_all_notebook_run_buttons(ctx, doc)
             assert res1 == 1
             assert len(notebook_controls._listener_refs) == 2  # RunListener + ContainerListener
 
         # 2. Wire again with same container (should dedup)
-        with patch("plugin.notebook.notebook_controls._form_and_container", return_value=(MagicMock(), old_container)):
+        with patch("plugin.notebook.notebook_controls._form_and_container", return_value=old_container):
             res2 = notebook_controls.wire_all_notebook_run_buttons(ctx, doc)
             assert res2 == 1
             assert len(notebook_controls._listener_refs) == 2  # Still 2
 
         # 3. Wire with NEW container (should rewire!)
-        with patch("plugin.notebook.notebook_controls._form_and_container", return_value=(MagicMock(), new_container)):
+        with patch("plugin.notebook.notebook_controls._form_and_container", return_value=new_container):
             res3 = notebook_controls.wire_all_notebook_run_buttons(ctx, doc)
             assert res3 == 1
             # We added 2 new listeners
@@ -538,7 +534,7 @@ def test_attach_form_listener_fails_when_add_container_listener_raises():
 
     with (
         patch("plugin.notebook.notebook_controls.load_registry", return_value=MagicMock(code_cells=[1])),
-        patch("plugin.notebook.notebook_controls._form_and_container", return_value=(MagicMock(), container)),
+        patch("plugin.notebook.notebook_controls._form_and_container", return_value=container),
     ):
         notebook_controls._listener_refs.clear()
 
@@ -572,7 +568,7 @@ def test_wire_all_lost_race_detaches_its_duplicate_listener():
 
     with (
         patch("plugin.notebook.notebook_controls.load_registry", return_value=MagicMock(code_cells=[1])),
-        patch("plugin.notebook.notebook_controls._form_and_container", return_value=(MagicMock(), container)),
+        patch("plugin.notebook.notebook_controls._form_and_container", return_value=container),
         patch("plugin.framework.uno_context.uno_same", side_effect=mock_uno_same),
     ):
         notebook_controls._listener_refs.clear()
@@ -609,7 +605,7 @@ def test_uno_same_compares_containers_outside_lock():
     with (
         patch("plugin.framework.uno_context.resolve_document_by_url", return_value=(doc, "writer")),
         patch("plugin.notebook.notebook_controls.load_registry", return_value=state),
-        patch("plugin.notebook.notebook_controls._form_and_container", return_value=(MagicMock(), container)),
+        patch("plugin.notebook.notebook_controls._form_and_container", return_value=container),
         patch("plugin.framework.uno_context.uno_same", side_effect=mock_uno_same),
     ):
         notebook_controls._listener_refs.clear()
@@ -656,7 +652,7 @@ def test_claim_container_retries_when_racer_appends_during_compare():
     with (
         patch("plugin.framework.uno_context.resolve_document_by_url", return_value=(doc, "writer")),
         patch("plugin.notebook.notebook_controls.load_registry", return_value=MagicMock(code_cells=[1])),
-        patch("plugin.notebook.notebook_controls._form_and_container", return_value=(MagicMock(), container)),
+        patch("plugin.notebook.notebook_controls._form_and_container", return_value=container),
         patch("plugin.notebook.notebook_controls._container_matches", side_effect=mock_matches),
         patch("plugin.framework.uno_context.uno_same", side_effect=lambda a, b: a is b),
     ):
@@ -696,7 +692,7 @@ def test_claim_container_rewires_when_matching_listener_disposed_during_compare(
     with (
         patch("plugin.framework.uno_context.resolve_document_by_url", return_value=(doc, "writer")),
         patch("plugin.notebook.notebook_controls.load_registry", return_value=MagicMock(code_cells=[1])),
-        patch("plugin.notebook.notebook_controls._form_and_container", return_value=(MagicMock(), container)),
+        patch("plugin.notebook.notebook_controls._form_and_container", return_value=container),
         patch("plugin.framework.uno_context.uno_same", side_effect=mock_uno_same),
     ):
         notebook_controls._listener_refs = [old_run_lis, old_cont_lis]
@@ -725,8 +721,8 @@ def test_doc_event_on_unload_removes_listeners_and_preserves_other_docs():
 
     def _forms(d):
         if d is doc1:
-            return MagicMock(), container1
-        return MagicMock(), container2
+            return container1
+        return container2
 
     with (
         patch("plugin.framework.uno_context.resolve_document_by_url", side_effect=lambda ctx, uid: (doc1 if uid == "uid-doc-1" else doc2, "writer")),
@@ -762,7 +758,7 @@ def test_wire_again_after_unload_creates_one_new_pair():
 
     with (
         patch("plugin.notebook.notebook_controls.load_registry", return_value=state),
-        patch("plugin.notebook.notebook_controls._form_and_container", return_value=(MagicMock(), container)),
+        patch("plugin.notebook.notebook_controls._form_and_container", return_value=container),
     ):
         assert wire_all_notebook_run_buttons(ctx, doc) == 1
         assert len(notebook_controls._listener_refs) == 2
@@ -783,7 +779,7 @@ def test_wire_again_after_unload_creates_one_new_pair():
         new_run_ctrl.queryInterface.return_value = new_run_ctrl
         new_container.getControls.return_value = (new_run_ctrl,)
 
-        with patch("plugin.notebook.notebook_controls._form_and_container", return_value=(MagicMock(), new_container)):
+        with patch("plugin.notebook.notebook_controls._form_and_container", return_value=new_container):
             assert wire_all_notebook_run_buttons(ctx, doc) == 1
             assert len(notebook_controls._listener_refs) == 2
 
@@ -837,7 +833,7 @@ def test_wire_all_continues_when_one_control_get_model_raises():
 
     with (
         patch("plugin.notebook.notebook_controls.load_registry", return_value=state),
-        patch("plugin.notebook.notebook_controls._form_and_container", return_value=(MagicMock(), container)),
+        patch("plugin.notebook.notebook_controls._form_and_container", return_value=container),
     ):
         result = wire_all_notebook_run_buttons(ctx, doc)
 

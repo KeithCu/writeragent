@@ -5,7 +5,7 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-"""Host-side embedding client — routes batch encode to the warm venv worker (Phase A)."""
+"""Host-side embedding client — routes batch encode to the warm venv worker."""
 
 from __future__ import annotations
 
@@ -18,8 +18,6 @@ from plugin.framework.errors import ConfigError, ToolExecutionError
 from plugin.scripting.config_limits import embeddings_worker_timeout_sec
 from plugin.scripting.session_key import SessionKey, SessionKind
 from plugin.scripting.trusted_rpc import run_trusted_worker_action
-
-# --- Client ---
 
 
 @dataclasses.dataclass(frozen=True)
@@ -66,9 +64,6 @@ def embed_texts(ctx: Any, texts: list[str], *, model: str | None = None, timeout
     model_name = (model or get_embedding_model()).strip()
     if not model_name:
         raise ConfigError("No embedding model configured.", code="EMBEDDING_MODEL_MISSING")
-
-    if texts is None:
-        texts = []
 
     resolved_timeout_sec = embeddings_worker_timeout_sec() if timeout_sec is None else int(timeout_sec)
     result = run_trusted_worker_action(

@@ -5,20 +5,18 @@
 """Shared text splitting for embeddings index (sentence chunks for prose; 512/64 for tabular/slides)."""
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, ascii_bounded, deal
+from plugin.framework.deal_shim import DEAL_MAX_TOKEN, ascii_bounded, deal
 from plugin.framework import grammar_rule_ids
+
+if TYPE_CHECKING:
+    from plugin.embeddings.embeddings_fs import LocaleTextRun
 
 CHUNK_SIZE = 512
 CHUNK_OVERLAP = 64
 MIN_CHUNK = 120
 DEFAULT_SENTENCE_LOCALE = "en@ss=standard"
-
-_DEAL_SENT_LIST_LEN = DEAL_MAX_SHAPE_DIM
-_DEAL_SENT_SPAN = DEAL_MAX_SOURCE
-_DEAL_SENT_TEXT_LEN = DEAL_MAX_SOURCE
-_DEAL_PASSAGE_LEN = DEAL_MAX_SOURCE
 
 
 # ascii_bounded(locale) admits control chars (e.g. \x01) that ICU SentenceBreaker rejects.
@@ -27,11 +25,10 @@ def _deal_sentence_locale_ok(locale: object) -> bool:
 
 
 def _deal_chunk_base_meta_ok(base_meta: object) -> bool:
-    """Any plain dict. Paths and titles are not DEAL_MAX_SOURCE-capped.
+    """Any plain dict with string keys.
 
-    A long ``doc_url`` or an extra metadata key raised PreContractError
-    before chunking. The body copies the mapping. CrossHair keeps the
-    tiny ascii dict.
+    Paths and titles can be longer than DEAL_MAX_SOURCE, so there is no
+    length cap; the body copies the mapping.
     """
     return type(base_meta) is dict and all(type(k) is str for k in base_meta)
 
@@ -44,22 +41,8 @@ def _deal_locale_run_ok(run: object) -> bool:
     return _deal_run_locale_ok(getattr(run, "locale_bcp47", None))
 
 
-# NUL/controls are isascii() but ICU SentenceBreaker TypeErrors on them
-# (split_passage_to_sentences('\x00', locale=DEFAULT)).
-def _deal_passage_text_ok(text: object) -> bool:
-    # Documents are longer than DEAL_MAX_SOURCE. The cap raised
-    # PreContractError before the sentence splitter ran.
+def _deal_str_ok(text: object) -> bool:
     return isinstance(text, str)
-
-
-def _deal_passage_str_ok(passage: object) -> bool:
-    return isinstance(passage, str)
-
-
-def _deal_ws_passage_ok(passage: object) -> bool:
-    # Unicode prose is valid. ascii_bounded raised PreContractError on the
-    # whitespace splitter.
-    return isinstance(passage, str)
 
 
 def _deal_span_list_ok(spans: object) -> bool:
@@ -90,7 +73,7 @@ def _import_splitter() -> Any:
 
 
 @deal.pre(
-    lambda text, locale=DEFAULT_SENTENCE_LOCALE, *_unused, **__: _deal_passage_text_ok(text)
+    lambda text, locale=DEFAULT_SENTENCE_LOCALE, *_unused, **__: _deal_str_ok(text)
     and _deal_sentence_locale_ok(locale)
 )
 def split_passage_to_sentences(text: str, locale: str = DEFAULT_SENTENCE_LOCALE) -> list[tuple[int, int, str]]:
@@ -123,7 +106,7 @@ def split_passage_to_sentences(text: str, locale: str = DEFAULT_SENTENCE_LOCALE)
 
 
 @deal.pre(
-    lambda passage, spans, base_meta, *_unused, **__: _deal_passage_str_ok(passage)
+    lambda passage, spans, base_meta, *_unused, **__: _deal_str_ok(passage)
     and _deal_span_list_ok(spans)
 )
 @deal.post(lambda result: isinstance(result, list))
@@ -143,26 +126,13 @@ def _meta_chunks_from_spans(
     return chunks
 
 
-def _deal_sentences_spans_pre(sentences: object) -> bool:
-    # Nested from the merge pre. A long or non-ASCII sentence list must
-    # make ``_sentences_spans_ok`` return False, not raise PreContractError.
-    return True
-
-
-def _sentences_spans_shape_ok(sentences: object) -> bool:
-    # A real passage has more than DEAL_MAX_SHAPE_DIM sentences. The cap
-    # raised PreContractError inside the merge. Order checks stay.
-    return isinstance(sentences, list)
-
-
-@deal.pre(lambda sentences: _deal_sentences_spans_pre(sentences))
 def _sentences_spans_ok(sentences: object) -> bool:
     """True when *sentences* is ordered ``(start, end, text)`` with ``0 <= start <= end``.
 
     Successive starts must be ``>=`` the previous end (production splitters are sequential).
     """
     # crosshair: off
-    if not isinstance(sentences, list) or not _sentences_spans_shape_ok(sentences):
+    if not isinstance(sentences, list):
         return False
     prev_end: int | None = None
     for item in sentences:
@@ -194,7 +164,7 @@ def _filter_ordered_sentence_spans(
 
 
 @deal.pre(
-    lambda passage, sentences, *_unused, **__: _deal_passage_str_ok(passage)
+    lambda passage, sentences, *_unused, **__: _deal_str_ok(passage)
     and _sentences_spans_ok(sentences)
 )
 @deal.post(lambda result: isinstance(result, list) and all(isinstance(s, tuple) and len(s) == 2 and 0 <= s[0] <= s[1] for s in result))
@@ -255,7 +225,7 @@ def _merge_small_sentences_to_spans(
     return spans
 
 
-@deal.pre(lambda passage: _deal_ws_passage_ok(passage))
+@deal.pre(lambda passage: _deal_str_ok(passage))
 def _split_passage_whitespace_to_sentences(passage: str) -> list[tuple[int, int, str]]:
     # crosshair: off
     from plugin.writer.locale.grammar_proofread_locale import GRAMMAR_WHITESPACE_RUN_RE, split_sentence_chunks_by_separator_regex
@@ -270,14 +240,10 @@ def _split_passage_whitespace_to_sentences(passage: str) -> list[tuple[int, int,
 def bcp47_to_icu_sentence_breaker_locale(bcp47: str) -> str:
     """Map a canonical BCP-47 tag to an ``icu4py`` ``SentenceBreaker`` locale (``@ss=standard``)."""
     tag = grammar_rule_ids.normalize_detected_bcp47(bcp47) or str(bcp47 or "").strip()
-    if not tag:
-        return "en@ss=standard"
-    parts = tag.split("-")
-    lang = parts[0].lower()
-    if not lang:
-        return "en@ss=standard"
-    if lang == "en":
-        return "en@ss=standard"
+    parts = tag.split("-") if tag else []
+    lang = parts[0].lower() if parts else ""
+    if not lang or lang == "en":
+        return DEFAULT_SENTENCE_LOCALE
     country = parts[1].upper() if len(parts) > 1 else ""
     if country:
         return f"{lang}_{country}@ss=standard"
@@ -285,7 +251,7 @@ def bcp47_to_icu_sentence_breaker_locale(bcp47: str) -> str:
 
 
 @deal.pre(
-    lambda passage, locale_bcp47=None, *_unused, **__: _deal_passage_str_ok(passage)
+    lambda passage, locale_bcp47=None, *_unused, **__: _deal_str_ok(passage)
     and (locale_bcp47 is None or ascii_bounded(locale_bcp47, DEAL_MAX_TOKEN))
 )
 def _split_prose_passage_to_spans(passage: str, locale_bcp47: str | None = None) -> list[tuple[int, int]]:
@@ -309,7 +275,7 @@ def _split_prose_passage_to_spans(passage: str, locale_bcp47: str | None = None)
     return _merge_small_sentences_to_spans(passage, sentences)
 
 
-@deal.pre(lambda passage, *_unused, **__: _deal_passage_str_ok(passage))
+@deal.pre(lambda passage, *_unused, **__: _deal_str_ok(passage))
 def _split_non_prose_passage_to_spans(passage: str) -> list[tuple[int, int]]:
     if len(passage) <= CHUNK_SIZE:
         return [(0, len(passage))]
@@ -333,7 +299,7 @@ def _split_non_prose_passage_to_spans(passage: str) -> list[tuple[int, int]]:
 
 
 @deal.pre(
-    lambda text, runs, base_meta, *args, **kwargs: _deal_passage_text_ok(text)
+    lambda text, runs, base_meta, *args, **kwargs: _deal_str_ok(text)
     and _deal_span_list_ok(runs)
     and _deal_chunk_base_meta_ok(base_meta)
     and all(_deal_locale_run_ok(r) for r in runs)
@@ -341,26 +307,18 @@ def _split_non_prose_passage_to_spans(passage: str) -> list[tuple[int, int]]:
 )
 def split_passage_locale_runs_to_chunk_meta(
     text: str,
-    runs: list[Any],
+    runs: list[LocaleTextRun],
     base_meta: dict[str, Any],
     *,
-    prose: bool = True,
     doc_default_locale: str | None = None,
 ) -> list[dict[str, Any]]:
     """Split one passage using per-run locales; MIN_CHUNK glue never crosses locale boundaries."""
-    from plugin.embeddings.embeddings_fs import LocaleTextRun
-
     passage = str(text or "")
     if not passage.strip() or not runs:
         return []
 
-    if not prose:
-        return split_passage_to_chunk_meta(passage, base_meta, prose=False)
-
     all_spans: list[tuple[int, int]] = []
     for run in runs:
-        if not isinstance(run, LocaleTextRun):
-            continue
         run_text = passage[run.char_start : run.char_end]
         if not run_text.strip():
             continue
@@ -372,12 +330,12 @@ def split_passage_locale_runs_to_chunk_meta(
     if not all_spans:
         return []
 
-    all_spans.sort(key=lambda item: (item[0], item[1]))
+    all_spans.sort()
     return _meta_chunks_from_spans(passage, all_spans, base_meta)
 
 
 @deal.pre(
-    lambda text, base_meta, *args, **kwargs: _deal_passage_text_ok(text)
+    lambda text, base_meta, *args, **kwargs: _deal_str_ok(text)
     and _deal_chunk_base_meta_ok(base_meta)
     and _deal_run_locale_ok(kwargs.get("locale_bcp47"))
 )
@@ -402,7 +360,6 @@ def split_passage_to_chunk_meta(
             stripped,
             runs,
             base_meta,
-            prose=True,
             doc_default_locale=locale_bcp47,
         )
 

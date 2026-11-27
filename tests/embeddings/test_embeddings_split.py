@@ -158,7 +158,6 @@ def test_locale_runs_use_different_icu_locales(monkeypatch: pytest.MonkeyPatch):
         passage,
         runs,
         {"doc_url": "file:///x"},
-        prose=True,
     )
     assert seen == ["en@ss=standard", "de_DE@ss=standard"]
 
@@ -182,7 +181,6 @@ def test_locale_runs_do_not_glue_across_boundaries(monkeypatch: pytest.MonkeyPat
         passage,
         runs,
         {"doc_url": "file:///x"},
-        prose=True,
     )
     assert len(rows) == 2
     assert rows[0]["text"] == "Yes."

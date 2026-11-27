@@ -57,20 +57,19 @@ def build_control_index(doc: Any) -> ControlIndex:
         return ControlIndex(doc=None, models_by_name={}, shapes_by_name={})
     models: dict[str, Any] = {}
     shapes: dict[str, Any] = {}
-    if hasattr(doc, "getDrawPage"):
-        dp = doc.getDrawPage()
-        count = dp.getCount()
-        for i in range(count):
-            shape = dp.getByIndex(i)
-            if shape.getShapeType() != _CONTROL_SHAPE_TYPE:
-                continue
-            model = shape.Control
-            if model is None:
-                continue
-            name = model.Name
-            if name:
-                models.setdefault(name, model)
-                shapes.setdefault(name, shape)
+    dp = doc.getDrawPage()
+    count = dp.getCount()
+    for i in range(count):
+        shape = dp.getByIndex(i)
+        if shape.getShapeType() != _CONTROL_SHAPE_TYPE:
+            continue
+        model = shape.Control
+        if model is None:
+            continue
+        name = model.Name
+        if name:
+            models.setdefault(name, model)
+            shapes.setdefault(name, shape)
     if not models:
         _collect_models_from_text(doc, models)
     return ControlIndex(doc=doc, models_by_name=models, shapes_by_name=shapes)
@@ -148,7 +147,7 @@ def read_code_from_field(doc: Any, field_name: str) -> str | None:
     """Read multiline source from an in-flow form ``TextField`` by control name.
 
     ``None`` means the control is gone. ``""`` means the field is there and
-    empty. Return distinct sentinels: ``None`` deleted vs ``""`` blank—Run All must not treat them the same.
+    empty. Run All treats them differently.
     """
     model = find_form_control_model_by_name(doc, field_name)
     if model is None or not hasattr(model, "Text"):

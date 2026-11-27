@@ -48,10 +48,6 @@ class ParsedJsonRpcRequest:
     req_id: int | str
 
 
-def _deal_jsonrpc_msg_ok(*args: Any, **kwargs: Any) -> bool:
-    return True
-
-
 def _jsonrpc_parts(msg: object) -> tuple[str, dict[str, Any], Any] | None:
     # Validate common JSON-RPC 2.0 structure for requests and notifications.
     if not isinstance(msg, dict):
@@ -70,17 +66,14 @@ def _jsonrpc_parts(msg: object) -> tuple[str, dict[str, Any], Any] | None:
     return (method, dict(params), raw.get("id"))
 
 
-@deal.pre(lambda msg: _deal_jsonrpc_msg_ok(msg))
 @deal.post(lambda result: result is None or isinstance(result, ParsedJsonRpcRequest))
 def parse_jsonrpc_request(msg: object) -> ParsedJsonRpcRequest | None:
-    """Parse and validate a single JSON-RPC request object.
+    """Return the request, or None when *msg* is not a valid JSON-RPC 2.0 request.
 
-    Notifications (missing ``id`` or ``id`` is null) are not requests — callers should
-    treat ``req_id is None`` before calling this; a notification is a valid message with
-    a missing or null id, and is_jsonrpc_notification uses the same validation.
+    A notification (missing or null ``id``) is not a request; see
+    ``is_jsonrpc_notification``.
     """
     # crosshair: off
-    # Do not sniff sys.modules["crosshair"] (deal_shim): that returned a parse error for every valid request.
     parts = _jsonrpc_parts(msg)
     if parts is None:
         return None
@@ -93,7 +86,6 @@ def parse_jsonrpc_request(msg: object) -> ParsedJsonRpcRequest | None:
 @deal.post(lambda result: isinstance(result, bool))
 def is_jsonrpc_notification(msg: object) -> bool:
     """True when *msg* is a JSON-RPC notification (no response expected)."""
-    # CrossHair TypeError on typing.Literal['a','b','rc'] (FV §8.1 D).
     # crosshair: off
     parts = _jsonrpc_parts(msg)
     return parts is not None and parts[2] is None
@@ -109,8 +101,6 @@ def deal_jsonrpc_failure_ok(message: object, code: object) -> bool:
     # Tool errors are longer than DEAL_MAX_SOURCE. The body copies the
     # string into the error object.
     return isinstance(message, str) and isinstance(code, int)
-
-
 
 
 @deal.pre(lambda req_id, code, message, data=None: deal_jsonrpc_failure_ok(message, code))
@@ -171,8 +161,6 @@ def deal_image_b64_ok(data_b64: object, mime_type: object = "image/png") -> bool
     # A real image is far longer than DEAL_MAX_SOURCE. The body wraps the
     # string.
     return isinstance(data_b64, str) and isinstance(mime_type, str) and len(mime_type) >= 1
-
-
 
 
 @deal.pre(lambda data_b64, mime_type="image/png", is_error=False: deal_image_b64_ok(data_b64, mime_type))

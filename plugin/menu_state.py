@@ -130,10 +130,9 @@ class MenuStatusPublisher:
         """
         # Snapshot the listeners under the lock, then fire OUTSIDE it. _fire_status_event ->
         # listener.statusChanged is a UNO call to a UI control that marshals to the main thread, so
-        # holding _lock across it deadlocks: the main thread, while rebinding a toolbar
-        # controller (addStatusListener), waits for the same lock this background thread holds. (This is
-        # what froze LibreOffice on the toolbar's Accept all.) addStatusListener already fires outside
-        # the lock; this makes publish consistent.
+        # holding _lock across it deadlocks when the main thread rebinds a toolbar controller
+        # (addStatusListener) and waits for the same lock; addStatusListener already fires outside
+        # the lock.
         with self._lock:
             snapshot = list(self.listeners)
         failed = []

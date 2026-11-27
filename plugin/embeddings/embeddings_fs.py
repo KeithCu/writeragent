@@ -18,8 +18,6 @@ from plugin.framework import url_utils
 
 log = logging.getLogger(__name__)
 
-TEXT_NS = "{urn:oasis:names:tc:opendocument:xmlns:text:1.0}"
-
 WRITER_EXTENSIONS = frozenset({".odt", ".ott", ".fodt"})
 CALC_EXTENSIONS = frozenset({".ods", ".ots", ".fods"})
 DRAW_EXTENSIONS = frozenset({".odp", ".otp", ".fodp", ".odg"})
@@ -32,7 +30,7 @@ FOREIGN_EXTENSIONS = FOREIGN_WRITER_EXTENSIONS | FOREIGN_CALC_EXTENSIONS | FOREI
 
 ALL_INDEXABLE_EXTENSIONS = INDEXABLE_EXTENSIONS | FOREIGN_EXTENSIONS
 
-PROSE_CHUNK_EXTENSIONS = WRITER_EXTENSIONS | frozenset({".docx", ".doc", ".rtf", ".txt", ".md"})
+PROSE_CHUNK_EXTENSIONS = WRITER_EXTENSIONS | FOREIGN_WRITER_EXTENSIONS
 
 
 @dataclasses.dataclass(frozen=True)
@@ -211,6 +209,28 @@ def path_uses_prose_chunking(path: str) -> bool:
     return ext in PROSE_CHUNK_EXTENSIONS
 
 
+def _chunk_from_piece(
+    piece: dict[str, Any],
+    url: str,
+    para_index: int,
+    mtime: float,
+    norm: str,
+) -> ParagraphChunk | None:
+    piece_text = str(piece.get("text") or "").strip()
+    if not piece_text:
+        return None
+    return ParagraphChunk(
+        doc_url=url,
+        para_index=para_index,
+        char_start=int(piece.get("char_start") or 0),
+        char_end=int(piece.get("char_end") or len(piece_text)),
+        text=piece_text,
+        content_hash=content_hash(piece_text),
+        file_mtime=mtime,
+        doc_path=norm,
+    )
+
+
 def indexable_chunks_from_path(
     path: str,
     *,
@@ -229,18 +249,15 @@ def indexable_chunks_from_path(
         mtime = 0.0
 
     prose = path_uses_prose_chunking(norm)
-    doc_default: str | None = None
-    if prose:
-        sample_passages = extract_indexable_passages(norm)
-        if sample_passages is None:
-            return 0, None
-        doc_default = resolve_document_locale_bcp47(norm, body_sample="\n".join(sample_passages[:20]))
-
     chunks: list[ParagraphChunk] = []
     if prose:
         passage_runs = extract_indexable_passage_runs(norm)
         if passage_runs is None:
             return 0, None
+        doc_default = resolve_document_locale_bcp47(
+            norm,
+            body_sample="\n".join(passage for passage, _runs in passage_runs[:20]),
+        )
         for para_index, (passage, runs) in enumerate(passage_runs):
             if not passage.strip():
                 continue
@@ -253,25 +270,12 @@ def indexable_chunks_from_path(
                 passage,
                 runs,
                 base_meta,
-                prose=True,
                 doc_default_locale=doc_default,
             )
             for piece in split_rows:
-                piece_text = str(piece.get("text") or "").strip()
-                if not piece_text:
-                    continue
-                chunks.append(
-                    ParagraphChunk(
-                        doc_url=url,
-                        para_index=para_index,
-                        char_start=int(piece.get("char_start") or 0),
-                        char_end=int(piece.get("char_end") or len(piece_text)),
-                        text=piece_text,
-                        content_hash=content_hash(piece_text),
-                        file_mtime=mtime,
-                        doc_path=norm,
-                    )
-                )
+                chunk = _chunk_from_piece(piece, url, para_index, mtime, norm)
+                if chunk is not None:
+                    chunks.append(chunk)
         return len(passage_runs), chunks
 
     extracted = extract_indexable_passages(norm)
@@ -285,21 +289,9 @@ def indexable_chunks_from_path(
             "file_mtime": mtime,
         }
         for piece in split_passage_to_chunk_meta(passage, base_meta, prose=False):
-            piece_text = str(piece.get("text") or "").strip()
-            if not piece_text:
-                continue
-            chunks.append(
-                ParagraphChunk(
-                    doc_url=url,
-                    para_index=para_index,
-                    char_start=int(piece.get("char_start") or 0),
-                    char_end=int(piece.get("char_end") or len(piece_text)),
-                    text=piece_text,
-                    content_hash=content_hash(piece_text),
-                    file_mtime=mtime,
-                    doc_path=norm,
-                )
-            )
+            chunk = _chunk_from_piece(piece, url, para_index, mtime, norm)
+            if chunk is not None:
+                chunks.append(chunk)
     return len(passages), chunks
 
 
@@ -309,9 +301,7 @@ def paragraph_chunks_from_path(path: str, *, doc_url: str | None = None, file_mt
     Returns None when extraction fails. An empty list is a successful extract
     with nothing to index.
     """
-    _passage_count, chunks = indexable_chunks_from_path(path, doc_url=doc_url, file_mtime=file_mtime)
-    del _passage_count
-    return chunks
+    return indexable_chunks_from_path(path, doc_url=doc_url, file_mtime=file_mtime)[1]
 
 
 def chunk_to_index_row(chunk: ParagraphChunk, *, chunk_id: int | None = None) -> dict[str, Any]:

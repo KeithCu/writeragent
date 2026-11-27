@@ -192,10 +192,6 @@ def next_state(state: TunnelState, event: TunnelEvent) -> FsmTransition[TunnelSt
         provider = str(event.data.get("provider", state.provider)).strip().lower()
         provider_token = str(event.data.get("provider_token", ""))
         max_retries = _event_int(event.data, "max_retries", state.max_retries)
-        # Cancel any previous timer / process if re-starting.
-        # START_REQUESTED overwrites state.port before effects run. The effect
-        # must carry the pre-transition port, or post_stop reads the new port
-        # and runs `funnel <newport> off`.
         new_state = dataclasses.replace(state, status=TunnelStatus.STARTING, port=port, provider=provider, provider_token=provider_token, public_url=None, retry_count=0, max_retries=max_retries, last_error=None, desired_running=True, connected_at=None)
         return FsmTransition(new_state, [CancelRetryTimerEffect(), terminate, StartProcessEffect(port=port, provider=provider, provider_token=provider_token)])
 

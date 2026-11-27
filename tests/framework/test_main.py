@@ -998,12 +998,13 @@ def test_command_from_dispatch_url_and_dispatch(monkeypatch):
 
 def test_module_for_command_splits_on_first_dot():
     app._modules = []
-    assert app._module_for_command("noperiod") == (None, "")
-    assert app._module_for_command(".leading") == (None, "")
-    assert app._module_for_command("") == (None, "")
-    assert app._module_for_command("main.settings") == (None, "settings")
+    assert app._module_for_command("noperiod") == (None, "", "")
+    assert app._module_for_command(".leading") == (None, "", "")
+    assert app._module_for_command("") == (None, "", "")
+    assert app._module_for_command("main.settings") == (None, "main", "settings")
     assert app._module_for_command("chatbot.debug_sidebar.RECORD_CLICKED") == (
         None,
+        "chatbot",
         "debug_sidebar.RECORD_CLICKED",
     )
 

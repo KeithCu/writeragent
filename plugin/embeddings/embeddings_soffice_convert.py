@@ -27,8 +27,7 @@ log = logging.getLogger(__name__)
 __all__ = [
     "LEGACY_BINARY_EXTENSIONS",
     "convert_legacy_to_odf",
-    "legacy_odf_filter",
-    "resolve_soffice_executable",
+    "temporary_converted_odf",
 ]
 
 LEGACY_BINARY_EXTENSIONS = frozenset({".doc", ".xls", ".ppt"})
@@ -120,7 +119,6 @@ def convert_legacy_to_odf(source_path: str, *, timeout_sec: int = 120) -> Path |
             )
             return None
 
-        # Successful conversion, process output file
         expected_suffix = f".{filter_name}"
         produced = sorted(Path(out_dir).glob(f"*{expected_suffix}"))
         if not produced:

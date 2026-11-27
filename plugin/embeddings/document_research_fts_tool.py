@@ -118,7 +118,8 @@ class SearchNearbyFiles(ToolBase):
 
             # Hybrid search always queries vec0. A model change must not read
             # the previous table (empty, partial, or the wrong dimension).
-            if not looks_empty and store.mode != "fts" and store.meta.query_blocked_for_model(get_embedding_model()):
+            embedding_model = get_embedding_model()
+            if not looks_empty and store.mode != "fts" and store.meta.query_blocked_for_model(embedding_model):
                 looks_empty = True
 
             if looks_empty:
@@ -127,10 +128,11 @@ class SearchNearbyFiles(ToolBase):
 
             allowed_urls: set[str] | None = None
             if file_subset:
+                subset = str(file_subset)
                 candidates, _truncated, err = resolve_grep_candidates(
                     ctx.ctx,
                     ctx.doc,
-                    file_subset=str(file_subset),
+                    file_subset=subset,
                     state=state,
                 )
                 if err:
@@ -138,11 +140,11 @@ class SearchNearbyFiles(ToolBase):
                 indexable = [c for c in candidates if os.path.splitext(c["path"])[1].lower() in ALL_INDEXABLE_EXTENSIONS]
                 if candidates and not indexable:
                     # An empty hit list would read as "the text is not in that file".
-                    return {"error": f"{str(file_subset)!r} is not a document that can be searched."}
+                    return {"error": f"{subset!r} is not a document that can be searched."}
                 # The index holds only files directly inside listing_root (guess_indexable_paths).
                 indexed = [c for c in indexable if os.path.dirname(c["path"]) == listing_root]
                 if indexable and not indexed:
-                    return {"error": f"{str(file_subset)!r} is outside the indexed folder {listing_root}, so it is not searched here. Read it with research_delegate_read."}
+                    return {"error": f"{subset!r} is outside the indexed folder {listing_root}, so it is not searched here. Read it with research_delegate_read."}
                 allowed_urls = set()
                 for c in indexed:
                     url = str(c.get("url") or "")
@@ -157,12 +159,11 @@ class SearchNearbyFiles(ToolBase):
             if looks_empty:
                 return {"empty": True, "folder_key": folder_key}
 
-            search_path = store.search_path
-
             return {
-                "search_path": search_path,
+                "search_path": store.search_path,
                 "folder_key": folder_key,
                 "allowed_urls": allowed_urls,
+                "model": embedding_model,
             }
 
         context_result = _resolve_context(resolve_listing_state(ctx.ctx, ctx.doc))
@@ -181,7 +182,7 @@ class SearchNearbyFiles(ToolBase):
 
         search_path = context_result["search_path"]
         filter_urls = context_result["allowed_urls"]
-        model = get_embedding_model()
+        model = context_result["model"]
 
         scope = ctx.send_cancellation
 

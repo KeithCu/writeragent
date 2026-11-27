@@ -80,12 +80,9 @@ _STYLE_NOTEBOOK_OUT = STYLE_NOTEBOOK_OUT
 
 
 def test_format_stream_output():
-    class Out:
-        output_type = "stream"
-        name = "stdout"
-        text = "hello\n"
+    out = {"output_type": "stream", "name": "stdout", "text": "hello\n"}
 
-    assert format_output_text(Out()) == "hello\n"
+    assert format_output_text(out) == "hello\n"
 
 
 def test_format_execute_result_gets_out_prompt():
