@@ -109,9 +109,9 @@ def enqueue_misses(
     a_doc_id: str,
     loc_key: str,
     uncached_spans: list[tuple[int, int, str]],
-    provider: str = "",
-    checker_identity: str = "",
-    paragraph_text: str = "",
+    provider: str,
+    checker_identity: str,
+    paragraph_text: str,
 ) -> None:
     """Enqueue uncached sentences for background processing."""
     count = len(uncached_spans)

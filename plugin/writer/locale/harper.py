@@ -72,6 +72,9 @@ def _deadline_remaining(deadline: float) -> float:
     return max(0.0, deadline - time.monotonic())
 
 
+# Locale for warmup paths that run before any paragraph's CharLocale is known.
+_DEFAULT_BCP47 = "en-US"
+
 # XCU Locales order: en-US en-GB en-AU en-CA en-IN
 HARPER_DIALECTS: dict[str, str] = {
     "en-US": "American",
@@ -205,7 +208,7 @@ class HarperRuntime:
         self,
         binary_path: str,
         user_config_dir: str,
-        bcp47: str = "en-US",
+        bcp47: str,
         heartbeat_fn: Callable[[dict[str, str]], None] | None = None,
     ) -> HarperLSClient:
         """Construct a client outside self.lock and compare-and-swap under the lock.
@@ -226,14 +229,14 @@ class HarperRuntime:
             if current is not None and current.is_alive():
                 built.close()
                 if heartbeat_fn is not None:
-                    current._heartbeat_fn = heartbeat_fn
+                    current.heartbeat_fn = heartbeat_fn
                 return current
             if current is not None:
                 current.close()
             self.clients[binary_path] = built
             return built
 
-    def ensure_body(self, user_config_dir: str, bcp47: str = "en-US") -> None:
+    def ensure_body(self, user_config_dir: str, bcp47: str) -> None:
         try:
             def _on_progress(payload: dict[str, str]) -> None:
                 message = str(payload.get("message") or "").strip()
@@ -272,7 +275,7 @@ class HarperRuntime:
                 self.state = HarperRuntimeState.FAILED
                 self.failed_at = time.monotonic()
 
-    def ensure_async(self, user_config_dir: str, bcp47: str = "en-US") -> bool:
+    def ensure_async(self, user_config_dir: str, bcp47: str) -> bool:
         from plugin.framework.worker_pool import run_in_background
 
         if not self._acquire_state_lock():
@@ -345,7 +348,7 @@ class HarperRuntime:
     def lint_now(
         self,
         text: str,
-        bcp47: str = "en-US",
+        bcp47: str,
         *,
         deadline: float | None = None,
         cancel_event: threading.Event | None = None,
@@ -410,7 +413,7 @@ class HarperLSClient:
     binary_path: str
     user_config_dir: str
     _bcp47: str
-    _heartbeat_fn: Callable[[dict[str, str]], None] | None
+    heartbeat_fn: Callable[[dict[str, str]], None] | None
     _lsp_settings: dict[str, Any]
     request_id: int
     uri: str
@@ -418,11 +421,11 @@ class HarperLSClient:
     _doc_opened: bool
     _lint_cancel: threading.Event | None
 
-    def __init__(self, binary_path: str, user_config_dir: str = "", bcp47: str = "en-US", *, heartbeat_fn: Callable[[dict[str, str]], None] | None = None) -> None:
+    def __init__(self, binary_path: str, user_config_dir: str = "", *, bcp47: str, heartbeat_fn: Callable[[dict[str, str]], None] | None = None) -> None:
         self.binary_path = binary_path
         self.user_config_dir = user_config_dir
         self._bcp47 = bcp47
-        self._heartbeat_fn = heartbeat_fn
+        self.heartbeat_fn = heartbeat_fn
         self._lsp_settings = _harper_lsp_settings(bcp47, user_config_dir)
         self.proc: subprocess.Popen[bytes] | None = None
         self.request_id = 0
@@ -460,7 +463,7 @@ class HarperLSClient:
             self._doc_opened = False
             out_queue: queue.Queue[dict[str, Any] | None] = queue.Queue()
             self.stdout_queue = out_queue
-            emit_progress(self._heartbeat_fn, "Starting harper-ls…")
+            emit_progress(self.heartbeat_fn, "Starting harper-ls…")
             # Explanations for non-default flags:
             # - inherit_env: Popen env=None and the sandbox wrapper sees env=None, so Flatpak does not
             #   pass --clear-env (host session, as wrap_command_for_sandbox documents for harper).
@@ -485,7 +488,7 @@ class HarperLSClient:
             self.stdout_thread.start()
 
             deadline = time.monotonic() + _INIT_BUDGET_SEC
-            emit_progress(self._heartbeat_fn, "Initializing Harper LSP…")
+            emit_progress(self.heartbeat_fn, "Initializing Harper LSP…")
             self._send_request(
                 "initialize",
                 {
@@ -643,7 +646,7 @@ class HarperLSClient:
     def lint(
         self,
         text: str,
-        bcp47: str = "en-US",
+        bcp47: str,
         *,
         deadline: float | None = None,
         cancel_event: threading.Event | None = None,
@@ -754,7 +757,7 @@ def _schedule_proofread_again() -> None:
         log.debug("[harper] Could not schedule PROOFREAD_AGAIN: %s", e)
 
 
-def harper_ensure_ready_async(user_config_dir: str, bcp47: str = "en-US") -> bool:
+def harper_ensure_ready_async(user_config_dir: str, bcp47: str) -> bool:
     """Start at most one download/start job. Returns True if a job was submitted."""
     return runtime.ensure_async(user_config_dir, bcp47)
 
@@ -767,10 +770,10 @@ def maybe_start_harper_async(user_config_dir: str) -> bool:
     """
     if grammar_settings.provider() != "harper" or not user_config_dir:
         return False
-    return harper_ensure_ready_async(user_config_dir)
+    return harper_ensure_ready_async(user_config_dir, _DEFAULT_BCP47)
 
 
-def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, ctx: Any) -> dict[str, Any] | None:
+def harper_try_lint(text: str, user_config_dir: str, bcp47: str, *, ctx: Any) -> dict[str, Any] | None:
     """Lint now if harper-ls is already in-process; else kick one ensure and return None.
 
     Never downloads or ``Popen``s on the caller thread (UNO ``doProofreading``).

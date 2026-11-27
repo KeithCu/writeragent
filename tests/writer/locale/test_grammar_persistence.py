@@ -427,7 +427,7 @@ class TestGrammarPersistence:
         doc_cursor.getString.return_value = "Hola."
 
         # Test start_pos=5
-        apply_language_change("test-doc", "Hola.", "es-ES", start_pos=5)
+        apply_language_change("test-doc", "Hola.", "es-ES", start_pos=5, paragraph_text="")
 
         text_obj.createTextCursorByRange.assert_called_once_with(view_start)
         doc_cursor.gotoStartOfParagraph.assert_called_once_with(False)
@@ -465,7 +465,7 @@ class TestGrammarPersistence:
             doc_cursor.goRight = MagicMock(return_value=True)
             doc_cursor.getString.return_value = "Hola."
 
-            apply_language_change("test-doc-zero", "Hola.", "es-ES", start_pos=0)
+            apply_language_change("test-doc-zero", "Hola.", "es-ES", start_pos=0, paragraph_text="")
 
             text_obj.createTextCursorByRange.assert_called_once_with(view_start)
             doc_cursor.gotoStartOfParagraph.assert_called_once_with(False)
@@ -500,7 +500,7 @@ class TestGrammarPersistence:
             doc_cursor.getString.return_value = "Other."
             model.findAll.return_value = None
 
-            res = apply_language_change("test-doc-miss", "Hola.", "es-ES", start_pos=0)
+            res = apply_language_change("test-doc-miss", "Hola.", "es-ES", start_pos=0, paragraph_text="")
 
             assert res is False
             model.findNext.assert_not_called()
@@ -672,8 +672,7 @@ class TestGrammarPersistence:
                 dp = gp.get_persistence("doc-race", model=m)
                 results.append(dp)
 
-            with patch("plugin.writer.locale.grammar_persistence._HAVE_UNO_DOC_EVENTS", True), \
-                 patch.object(gp.DocumentPersistence, "_load_from_udprops", _slow_load):
+            with patch.object(gp.DocumentPersistence, "_load_from_udprops", _slow_load):
                 t1 = threading.Thread(target=_thread_worker, args=(True,))
                 t2 = threading.Thread(target=_thread_worker, args=(True,))
                 t1.start()
@@ -695,17 +694,16 @@ class TestGrammarPersistence:
         model = MagicMock()
         gp.grammar_registry.clear_all()
         try:
-            with patch("plugin.writer.locale.grammar_persistence._HAVE_UNO_DOC_EVENTS", True):
-                winner = gp.get_persistence("doc-orphan", model=model)
-                assert winner is not None
-                assert gp.grammar_registry.doc_persistence_instances.get("doc-orphan") is winner
+            winner = gp.get_persistence("doc-orphan", model=model)
+            assert winner is not None
+            assert gp.grammar_registry.doc_persistence_instances.get("doc-orphan") is winner
 
-                orphan = gp.DocumentPersistence("doc-orphan")
-                orphan._teardown()
+            orphan = gp.DocumentPersistence("doc-orphan")
+            orphan._teardown()
 
-                assert gp.grammar_registry.doc_persistence_instances.get("doc-orphan") is winner
-                assert not winner._teardown_done
-                assert winner._doc_listener is not None
+            assert gp.grammar_registry.doc_persistence_instances.get("doc-orphan") is winner
+            assert not winner._teardown_done
+            assert winner._doc_listener is not None
         finally:
             gp.grammar_registry.clear_all()
 
@@ -944,10 +942,7 @@ class TestGrammarPersistence:
         from plugin.writer.locale import grammar_persistence as gp
 
         model = MagicMock()
-        with (
-            patch("plugin.writer.locale.grammar_persistence._HAVE_UNO_DOC_EVENTS", True),
-            patch("plugin.doc.udprops.get_document_property", return_value=None),
-        ):
+        with patch("plugin.doc.udprops.get_document_property", return_value=None):
             dp = gp.DocumentPersistence("doc-teardown-twice", model=model)
             dp._teardown()
             dp._teardown()
@@ -962,8 +957,7 @@ class TestGrammarPersistence:
         with patch("plugin.doc.udprops.get_document_property", return_value=None):
             dp = gp.DocumentPersistence("doc-order")
         model.addDocumentEventListener.side_effect = lambda listener: seen.append(dp._load_done.is_set())
-        with patch("plugin.writer.locale.grammar_persistence._HAVE_UNO_DOC_EVENTS", True):
-            dp._bind_model(model)
+        dp._bind_model(model)
         assert seen == [False]
         assert dp._load_done.is_set()
         assert dp._doc_listener is not None
