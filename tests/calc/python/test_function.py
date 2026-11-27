@@ -98,6 +98,7 @@ def test_insert_image_result_uses_merged_safe_geometry(
     shape = MagicMock()
     doc._created["com.sun.star.drawing.GraphicObjectShape"] = shape
     sheet = doc.getSheets().getByName("Sheet1")
+    sheet.TableLayout = 0
     cell = sheet.getCellByPosition(2, 3)
     cell.IsMerged = True
 
@@ -121,6 +122,7 @@ def test_insert_image_result_thin_merged_cell_preserves_default_size(
     shape = MagicMock()
     doc._created["com.sun.star.drawing.GraphicObjectShape"] = shape
     sheet = doc.getSheets().getByName("Sheet1")
+    sheet.TableLayout = 0
     cell = sheet.getCellByPosition(0, 0)
     cell.IsMerged = True
 
@@ -145,6 +147,7 @@ def test_insert_image_result_targets_formula_cell_sheet_when_another_sheet_activ
 
     sheet_overview = CalcSheetStub("Overview")
     sheet_viz = CalcSheetStub("Viz_Gallery")
+    sheet_viz.TableLayout = 0
 
     doc = CalcDocStub(
         sheets=[sheet_overview, sheet_viz],
@@ -181,6 +184,7 @@ def test_insert_image_result_unmerged_single_cell_default_size(
     shape = MagicMock()
     doc._created["com.sun.star.drawing.GraphicObjectShape"] = shape
     sheet = doc.getSheets().getByName("Sheet1")
+    sheet.TableLayout = 0
     cell = sheet.getCellByPosition(2, 3)
     cell.IsMerged = False
 

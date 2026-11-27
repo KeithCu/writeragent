@@ -318,12 +318,13 @@ sys.modules["unohelper"] = unohelper
 
 for name in (
     "com", "com.sun", "com.sun.star",
-    "com.sun.star.awt", "com.sun.star.awt.grid", "com.sun.star.awt.tree",
+    "com.sun.star.awt", "com.sun.star.awt.FontSlant", "com.sun.star.awt.grid", "com.sun.star.awt.tree",
     "com.sun.star.beans", "com.sun.star.container", "com.sun.star.datatransfer",
     "com.sun.star.datatransfer.clipboard",
     "com.sun.star.document", "com.sun.star.drawing", "com.sun.star.frame",
-    "com.sun.star.lang", "com.sun.star.sheet", "com.sun.star.style",
-    "com.sun.star.table", "com.sun.star.task", "com.sun.star.text",
+    "com.sun.star.lang", "com.sun.star.sheet", "com.sun.star.sheet.FormulaResult", "com.sun.star.style",
+    "com.sun.star.table", "com.sun.star.table.CellContentType", "com.sun.star.table.CellHoriJustify",
+    "com.sun.star.task", "com.sun.star.text",
     "com.sun.star.text.TextContentAnchorType",
     "com.sun.star.ui", "com.sun.star.uno", "com.sun.star.util", "com.sun.star.view"
 ):
@@ -354,7 +355,12 @@ for mod_name in list(sys.modules):
             "XTextListener", "XTextComponent", "XListBox", "XComboBox", "XCheckBox", "XRadioButton",
             "XDialog", "XDialogProvider2", "XTopWindow", "XTopWindowListener",
             "XSidebarPanel", "XToolPanel", "XUIElement", "XUIElementFactory",
-            "Size", "Point"
+            "Size", "Point", "FontWeight",
+            "NONE", "OBLIQUE", "ITALIC",
+            "EMPTY", "VALUE", "TEXT", "FORMULA", "ERROR",
+            "CENTER", "LEFT", "RIGHT", "BLOCK", "STANDARD",
+            "EmptyUndoStackException", "MalformedNumberFormatException", "NotNumericException",
+            "BorderLineStyle", "CellRangeAddress", "TableSortField",
         ):
             _iface(mod_name, attr)
 

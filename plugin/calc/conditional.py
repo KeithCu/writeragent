@@ -27,7 +27,7 @@ from plugin.framework.uno_context import create_property_value
 from plugin.calc.address_utils import format_range_address
 from plugin.calc.base import CALC_SHEET_PREFIX_NOTE, ToolCalcConditionalBase
 from plugin.calc.bridge import CalcBridge
-from plugin.calc.calc_utils import query_interface, range_args
+from plugin.calc.calc_utils import range_args
 from plugin.calc.cells import opt_color
 from plugin.calc.formula_dialect import make_cell_address, to_api
 from plugin.doc.visual_helpers import color_param
@@ -58,14 +58,9 @@ _OPS: list[str] = [
 def _entry_to_dict(entry: Any, idx: int) -> dict[str, Any]:
     """Convert a conditional entry to a readable dict."""
     result: dict[str, Any] = {"index": idx}
-    xc2 = query_interface(entry, "com.sun.star.sheet.XSheetCondition2")
-    if xc2 is not None:
-        op_code = int(xc2.getConditionOperator())
-        op_name = _OPS[op_code] if 0 <= op_code < len(_OPS) else str(op_code)
-        result["operator_code"] = op_code
-    else:
-        op = entry.getOperator()
-        op_name = str(op.value) if hasattr(op, "value") else str(op)
+    op_code = int(entry.getConditionOperator())
+    op_name = _OPS[op_code] if 0 <= op_code < len(_OPS) else str(op_code)
+    result["operator_code"] = op_code
     result["operator"] = op_name
     f1 = entry.getFormula1()
     if f1:

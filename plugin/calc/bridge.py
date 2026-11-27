@@ -283,7 +283,7 @@ def calc_selection_to_a1(doc: Any) -> str | None:
         if controller is None:
             return None
         selection = controller.getSelection()
-        if selection is None or not hasattr(selection, "getRangeAddress"):
+        if not hasattr(selection, "getRangeAddress"):
             return None
         addr = selection.getRangeAddress()
         bridge = CalcBridge(doc)

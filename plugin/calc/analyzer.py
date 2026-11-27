@@ -213,18 +213,17 @@ def get_calc_context_for_chat(
                 selection = controller.getSelection() if controller is not None else None
                 if selection and hasattr(selection, "getRangeAddress"):
                     addr = selection.getRangeAddress()
-                    if addr is not None:
-                        sel_range = format_range_address(addr)
-                        ctx_str += f"Current Selection: {sel_range}\n"
+                    sel_range = format_range_address(addr)
+                    ctx_str += f"Current Selection: {sel_range}\n"
 
-                        # Check for selected values if small
-                        if (addr.EndRow - addr.StartRow + 1) * (addr.EndColumn - addr.StartColumn + 1) < 100:
-                            inspector = CellInspector(vs.bridge)
-                            # LLM-facing context: enrich dates the same way read_range does.
-                            cells = inspector.read_range(sel_range, include_format_info=True)
-                            ctx_str += "Selection Content (CSV-like):\n"
-                            for row in cells:
-                                ctx_str += ", ".join([str(c["value"]) if c["value"] is not None else "" for c in row]) + "\n"
+                    # Check for selected values if small
+                    if (addr.EndRow - addr.StartRow + 1) * (addr.EndColumn - addr.StartColumn + 1) < 100:
+                        inspector = CellInspector(vs.bridge)
+                        # LLM-facing context: enrich dates the same way read_range does.
+                        cells = inspector.read_range(sel_range, include_format_info=True)
+                        ctx_str += "Selection Content (CSV-like):\n"
+                        for row in cells:
+                            ctx_str += ", ".join([str(c["value"]) if c["value"] is not None else "" for c in row]) + "\n"
             except DocumentDisposedError:
                 raise
             except Exception as exc:

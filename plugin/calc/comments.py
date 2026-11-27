@@ -18,23 +18,6 @@ if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
 
-def _annotation_date(dt: Any) -> str:
-    """Return a cell-comment date as text.
-
-    A string is the date LibreOffice already formatted:
-    ``XSheetAnnotation.getDate()`` returns ``string``
-    (``offapi/com/sun/star/sheet/XSheetAnnotation.idl``;
-    ``ScAnnotationObj::getDate`` in ``sc/source/ui/unoobj/notesuno.cxx``), and
-    reading ``.Year`` on it would raise. A struct with Year/Month/Day (a test
-    double) is still formatted.
-    """
-    if isinstance(dt, str):
-        return dt
-    if not dt:
-        return ""
-    return "%04d-%02d-%02d %02d:%02d" % (dt.Year, dt.Month, dt.Day, dt.Hours, dt.Minutes)
-
-
 def _annotation_text(sheet: Any, col: int, row: int) -> tuple[Any, str]:
     """Read a cell note's text, working around lazy captions on .xlsx.
 
@@ -79,7 +62,7 @@ class ListCellComments(ToolCalcCommentBase):
             # write path does), not the XSheetAnnotations collection item,
             # whose getString()/getDate() come back empty (see _annotation_text).
             cell_ann, text = _annotation_text(sheet, pos.Column, pos.Row)
-            date_str = _annotation_date(cell_ann.getDate())
+            date_str = cell_ann.getDate()
             comments.append(
                 {
                     "cell": format_address(pos.Column, pos.Row),

@@ -9,7 +9,7 @@ import json
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from plugin.calc.comments import ListCellComments, _annotation_date, _annotation_text
+from plugin.calc.comments import ListCellComments, _annotation_text
 
 
 def test_annotation_text_uses_get_string_when_present():
@@ -104,32 +104,6 @@ def test_cell_comment_list_keeps_formatted_date_string():
     assert res["status"] == "ok"
     assert res["comments"][0]["date"] == "10/24/2023 12:30 PM"
     assert res["comments"][0]["text"] == "Test comment"
-
-
-def test_cell_comment_list_formats_datetime_struct_fallback():
-    class DummyDateTime:
-        Year = 2023
-        Month = 10
-        Day = 24
-        Hours = 12
-        Minutes = 30
-
-    res = _list_one_comment(DummyDateTime())
-    assert res["comments"][0]["date"] == "2023-10-24 12:30"
-
-
-def test_annotation_date_string_struct_and_empty():
-    class DummyDateTime:
-        Year = 2023
-        Month = 1
-        Day = 2
-        Hours = 14
-        Minutes = 5
-
-    assert _annotation_date("2023-10-24 12:30") == "2023-10-24 12:30"
-    assert _annotation_date("") == ""
-    assert _annotation_date(DummyDateTime()) == "2023-01-02 14:05"
-    assert _annotation_date(None) == ""
 
 
 def _doc_with_active_sheet(sheet: MagicMock) -> MagicMock:

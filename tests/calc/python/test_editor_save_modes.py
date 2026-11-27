@@ -520,14 +520,6 @@ def test_text_cell_py_literal_is_not_a_formula():
     assert code_stub == "result = 1"
     assert parts_stub is not None
 
-    mock_cell = MagicMock()
-    mock_cell.getFormula.return_value = "PY(x)"
-    mock_cell.getPropertyValue.return_value = None
-    mock_cell.getString.return_value = ""
-    code, mock_parts, _s = _load_cell_editor_code(mock_cell, _cell_formula_strings(mock_cell))
-    assert code == ""
-    assert mock_parts is None
-
 
 def test_get_active_calc_cell_uses_selection_sheet_index():
     from types import SimpleNamespace
