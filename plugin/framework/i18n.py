@@ -119,8 +119,8 @@ def load_translation(languages: list[str], localedir: str | None = None, *, fall
 
     ``gettext.find`` expands tags via ``locale.normalize``. On Windows that
     search can miss ``locales/<lang>/LC_MESSAGES/writeragent.mo`` even when
-    the file exists (CI 33453184665: ``Built-in`` stayed English). Open the
-    explicit catalog path when the stdlib lookup returns a dummy catalog.
+    the file exists. Open the explicit catalog path when the stdlib lookup
+    returns a dummy catalog.
     """
     locales_dir = localedir if localedir is not None else get_locales_dir()
     trans = gettext.translation(_DOMAIN, locales_dir, languages=languages, fallback=True)

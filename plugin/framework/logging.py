@@ -73,6 +73,7 @@ def _create_logging_shared() -> _LoggingShared:
             "tool_name": None,
             "last_activity": 0.0,
             "waiting_for_user": False,
+            "status_control": None,
         },
         "activity_lock": threading.Lock(),
         "hung_shown": False,
@@ -289,7 +290,7 @@ def _debug_slot() -> _DebugHandlerSlot:
     return process_global("debug_file_handler", lambda: _DebugHandlerSlot(handler=None))
 
 
-def _debug_file_handler_from_sys() -> OptionalFlushFileHandler | None:
+def _current_debug_file_handler() -> OptionalFlushFileHandler | None:
     return _debug_slot()["handler"]
 
 
@@ -300,9 +301,9 @@ def _shared_debug_file_handler() -> OptionalFlushFileHandler:
     package reuses it; two FileHandlers on one path rotate on separate fds.
     """
     path = _shared()["debug_log_path"]
-    if not isinstance(path, str) or not path:
+    if not path:
         raise RuntimeError("debug log path is not set")
-    current = _debug_file_handler_from_sys()
+    current = _current_debug_file_handler()
     if current is not None and current.baseFilename == path:
         return current
     # A path change must close the previous FileHandler before the replace,
@@ -353,7 +354,7 @@ def _strip_stray_handlers(logger: logging.Logger) -> bool:
 
 def _ensure_debug_file_handler(logger: logging.Logger) -> None:
     path = _shared()["debug_log_path"]
-    if not isinstance(path, str) or not path:
+    if not path:
         return
     _strip_stray_handlers(logger)
     handler = _shared_debug_file_handler()
@@ -394,71 +395,53 @@ def init_logging(ctx: Any | None = None) -> None:
             prefetched_path = os.path.join(udir, DEBUG_LOG_FILENAME)
             prefetched_enable_agent_log = config.get_config("enable_agent_log")
             has_real_dir = True
-    except (OSError, ImportError, ValueError, ConfigError) as exc:
+    except ConfigError as exc:
         config_exc = exc
 
-    level_str = "WARN"
-    level_os_error: OSError | None = None
-    try:
-        level_str = config.get_config("core.log_level") or "WARN"
-    except OSError as exc:
-        level_os_error = exc
+    level_str = config.get_config("core.log_level")
 
     shared = _shared()
     with shared["init_lock"]:
         current_path = shared["debug_log_path"]
-        had_path = bool(isinstance(current_path, str) and current_path)
         first_init = current_path is None
 
         if config_exc is not None:
             if first_init:
                 print(f"WriterAgent: init_logging config unavailable: {config_exc}", file=sys.stderr)
-            if not had_path:
-                shared["debug_log_path"] = None
-                shared["enable_agent_log"] = False
         elif has_real_dir:
             shared["debug_log_path"] = prefetched_path
             shared["enable_agent_log"] = prefetched_enable_agent_log
-        else:
-            if not had_path:
-                shared["debug_log_path"] = None
 
         try:
-            if level_os_error is not None:
-                raise level_os_error
             numeric_level = resolve_log_level(level_str)
 
-            logger = log
             plugin_logger = logging.getLogger("plugin")
             # Logger.setLevel always calls manager._clear_cache(), which takes
             # logging._lock and empties every logger's level cache. init_logging
             # can run per request on a worker, so an unconditional setLevel makes
             # every thread's next log call take _lock; under SolarMutex that
-            # deadlocks (mr1_t6). Only touch the level when it changes.
-            if logger.level != numeric_level:
-                logger.setLevel(numeric_level)
+            # deadlocks. Only touch the level when it changes.
+            if log.level != numeric_level:
+                log.setLevel(numeric_level)
 
             active_path = shared["debug_log_path"]
-            if isinstance(active_path, str) and active_path:
+            if active_path:
                 # plugin.* uses logging.getLogger(__name__) and propagates to the
-                # plugin logger. writeragent.* uses the named logger below.
+                # plugin logger. writeragent.* uses the module logger (log).
                 # Both share one file handler so rotation has a single fd.
-                # The handler is not on the root logger: at DEBUG that pulled
-                # third-party records (full URLs) into writeragent_debug.log.
+                # The handler is not on the root logger, so third-party DEBUG
+                # records (full URLs) stay out of writeragent_debug.log;
+                # plugin.* keeps propagating so root handlers (tests, lastResort)
+                # still see those records without writing plugin lines twice.
                 if plugin_logger.level != numeric_level:
                     plugin_logger.setLevel(numeric_level)
-                _ensure_debug_file_handler(logger)
+                _ensure_debug_file_handler(log)
                 _ensure_debug_file_handler(plugin_logger)
-                # writeragent has its own handler. plugin.* keeps propagating so
-                # a root handler (tests, lastResort) still sees those records.
-                # The file handler is not on root, so third-party logs are not
-                # copied into writeragent_debug.log and plugin lines are not
-                # written twice.
-                logger.propagate = False
+                log.propagate = False
 
                 if first_init:
-                    logger.warning("Debug log active: %s (level=%s)", active_path, level_str)
-                    for handler in list(logger.handlers):
+                    log.warning("Debug log active: %s (level=%s)", active_path, level_str)
+                    for handler in list(log.handlers):
                         if isinstance(handler, logging.FileHandler):
                             logging.FileHandler.flush(handler)
         except OSError as exc:
@@ -478,8 +461,7 @@ def init_logging(ctx: Any | None = None) -> None:
 def _install_global_exception_hooks() -> None:
     """Install sys.excepthook and threading.excepthook to log unhandled exceptions."""
     def _install() -> bool:
-        current_hook = sys.excepthook
-        _original_excepthook = current_hook
+        _original_excepthook = sys.excepthook
 
         def _writeragent_excepthook(exc_type: Any, exc_value: Any, exc_tb: Any) -> None:
             try:
@@ -505,11 +487,9 @@ def _install_global_exception_hooks() -> None:
         def _writeragent_threading_excepthook(args: Any) -> None:
             try:
                 msg = "Unhandled exception in thread %s: %s\n%s" % (
-                    getattr(args, "thread", None),
-                    getattr(args, "exc_type", args),
-                    "".join(traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback))
-                    if getattr(args, "exc_type", None)
-                    else "",
+                    args.thread,
+                    args.exc_type,
+                    "".join(traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback)),
                 )
                 try:
                     payload = format_error_payload(args.exc_value)
@@ -533,8 +513,7 @@ def _install_global_exception_hooks() -> None:
 def log_exception(ex: BaseException, context: str = "WriterAgent") -> None:
     """Log an exception with traceback to the unified debug log."""
     try:
-        logger = log
-        logger.error(f"[{context}] Exception", exc_info=ex)
+        log.error(f"[{context}] Exception", exc_info=ex)
     except Exception:  # noqa: S110  log_exception's own logger.error failed; logging again can recurse
         pass
 
@@ -560,8 +539,7 @@ def format_tool_call_for_display(tool: Any, args: Any, method: Any = None) -> st
     try:
         if tool:
             return f"{tool}({_format_display_args(args or {})})"
-        else:
-            return method or "GET"
+        return method or "GET"
     except Exception as e:
         return f"{tool or method} (format error: {e})"
 
@@ -592,7 +570,7 @@ def format_tool_result_for_display(tool: Any, result: Any, args: Any = None) -> 
             else:
                 val_repr = val_repr[:150] + "..."
 
-        args_str = _format_display_args(args) if args and isinstance(args, dict) else ""
+        args_str = _format_display_args(args)
         if args_str:
             return f"{tool}({args_str}) -> {val_repr}"
         return f"{tool}() -> {val_repr}"
@@ -600,7 +578,7 @@ def format_tool_result_for_display(tool: Any, result: Any, args: Any = None) -> 
         return f"{tool}() -> (format error: {e})"
 
 
-def agent_log(location: str, message: str, data: Any = None, hypothesis_id: Any = None, run_id: Any = None) -> None:
+def agent_log(location: str, message: str, data: Any = None) -> None:
     """Write one structured agent trace line to writeragent_debug.log when enable_agent_log is True."""
     if not _shared()["enable_agent_log"]:
         return
@@ -615,10 +593,6 @@ def agent_log(location: str, message: str, data: Any = None, hypothesis_id: Any 
             if isinstance(data, (dict, list)):
                 data = redact_sensitive_payload_for_log(data)
             payload["data"] = data
-        if hypothesis_id is not None:
-            payload["hypothesisId"] = hypothesis_id
-        if run_id is not None:
-            payload["runId"] = run_id
         # Call Logger.log directly so release build stripping preserves this statement.
         _agent_logger.log(logging.DEBUG, "[Agent] %s", json.dumps(payload, ensure_ascii=False))
     except Exception as exc:
@@ -699,7 +673,7 @@ def _clear_hung_status(status_control: Any) -> None:
 
 
 def _flush_debug_log() -> None:
-    handler = _debug_file_handler_from_sys()
+    handler = _current_debug_file_handler()
     if handler is not None:
         handler.flush(force=True)
 
@@ -707,9 +681,9 @@ def _flush_debug_log() -> None:
 def _dump_thread_stacks() -> None:
     """Log every thread's current Python stack as one DEBUG record.
 
-    Why: a hang log only said "no activity". We suspect the main thread holds
-    the SolarMutex in the stream drain while a worker blocks freeing a PyUNO
-    proxy; the stacks show where each thread is actually waiting.
+    The stacks show where each thread is waiting when the watchdog reports a
+    stall (for example the main thread holding SolarMutex while a worker blocks
+    freeing a PyUNO proxy).
     """
     try:
         names = {t.ident: t for t in threading.enumerate()}
@@ -730,7 +704,7 @@ def _show_hung_status(status_control: Any, text: str) -> None:
     shared = _shared()
     with shared["activity_lock"]:
         # A card opened between the watchdog tick and this post must keep its "Waiting for approval…" line.
-        if shared["activity"].get("waiting_for_user", False):
+        if shared["activity"]["waiting_for_user"]:
             return
     status_control.setText(text)
 
@@ -747,15 +721,12 @@ def _watchdog_check(status_control: Any) -> None:
         round_num = act["round_num"]
         tool_name = act["tool_name"]
         last = act["last_activity"]
-        waiting = bool(act.get("waiting_for_user", False))
-        active_status_control: Any = act.get("status_control", status_control)
-    if active_status_control is None:
-        active_status_control = status_control
+        waiting = bool(act["waiting_for_user"])
+        active_status_control: Any = act["status_control"] or status_control
     if not phase:
         return
-    last_val = last if isinstance(last, (int, float)) else 0.0
     # Time spent waiting on the user to answer an approval prompt is not a stall.
-    elapsed = 0.0 if waiting else time.monotonic() - last_val
+    elapsed = 0.0 if waiting else time.monotonic() - last
     if elapsed < _watchdog_threshold_sec:
         shared["stacks_dumped"] = False
         if shared["hung_shown"] and active_status_control is not None:
@@ -770,7 +741,7 @@ def _watchdog_check(status_control: Any) -> None:
         _dump_thread_stacks()
         # Write it now; a hang that ends in a crash may not reach the next tick.
         _flush_debug_log()
-    if active_status_control:
+    if active_status_control is not None:
         hung_text = "%s %s round %s" % (_HUNG_STATUS_PREFIX, phase, round_num)
         if tool_name:
             hung_text += " %s" % tool_name
@@ -794,9 +765,8 @@ def _watchdog_loop(status_control: Any) -> None:
                 pass
 
 
-def start_watchdog_thread(ctx: Any, status_control: Any = None) -> None:
+def start_watchdog_thread(status_control: Any = None) -> None:
     """Start the hang-detection watchdog (idempotent). Pass status_control to set Hung: ... in UI."""
-    del ctx
 
     def _start() -> bool:
         from plugin.framework.thread_guard import background
@@ -961,8 +931,7 @@ def _install_safe_log_record_factory() -> None:
     """
 
     def _install() -> bool:
-        current = logging.getLogRecordFactory()
-        _original_factory = current
+        _original_factory = logging.getLogRecordFactory()
 
         def safe_logRecordFactory(*args: Any, **kwargs: Any) -> Any:
             # makeRecord passes (name, level, fn, lno, msg, args, exc_info, func, sinfo).

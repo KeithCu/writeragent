@@ -24,8 +24,8 @@ stripping, dev/release system prefix, date prefix on first system message,
 Anthropic/Gemini shims, OpenRouter merge (``merge_openrouter_chat_extra``), and
 logging redaction. Takes a config dict from ``get_api_config`` and UNO ``ctx``.
 Hosted providers with an empty API key raise ``AuthError`` from ``_resolve_auth``
-(do not catch it into ``{}`` — that made the client look like ``custom`` and
-surfaced a generic HTTP 401). Local/Ollama and ``header_style=none`` keep empty keys.
+(do not catch it into ``{}``: the client would then look like ``custom`` and
+the user would see a generic HTTP 401). Local/Ollama and ``header_style=none`` keep empty keys.
 
 Concurrency: construct a **new** ``LlmClient`` for each job (sidebar send,
 grammar worker, Calc ``=PROMPT()``, smol/web-research). The persistent HTTP
@@ -307,7 +307,7 @@ class LlmClient:
         a later ``read()`` would block until ``request_timeout`` and hold
         ``llm_request_lane``.
         """
-        if self.stopped() or not hasattr(response, "getheader"):
+        if self.stopped():
             return
         conn_hdr = (response.getheader("Connection") or "").strip().lower()
         if conn_hdr == "close":
@@ -321,20 +321,15 @@ class LlmClient:
         # Never echo the key if a provider or proxy reflected it in the error
         # text; a leftover ?key= or opaque path secret must not land in the log.
         safe_path = redact_secrets(public_target(path), [api_key])
-        st_raw = getattr(response, "status", 500)
-        try:
-            st = int(st_raw)
-        except (TypeError, ValueError):
-            st = 500
-        log.error("Provider API Error %s: %s (provider=%s path=%s request_model=%r)", str(st_raw), redact_secrets(str(err_body), secrets), self._get_provider(), safe_path, request_model)
+        st = response.status
+        log.error("Provider API Error %s: %s (provider=%s path=%s request_model=%r)", st, redact_secrets(str(err_body), secrets), self._get_provider(), safe_path, request_model)
         n_ctx = None
         if st == 500:
             from .model_fetcher import peek_live_ollama_num_ctx
 
             n_ctx = peek_live_ollama_num_ctx(self)
-        if st == 500:
             log_http_500_request_diag(self, response, path, body, err_body, n_ctx=n_ctx)
-        err_msg = format_http_error_response(st, str(getattr(response, "reason", "") or ""), str(err_body), context_window=n_ctx)
+        err_msg = format_http_error_response(st, str(response.reason or ""), str(err_body), context_window=n_ctx)
         return append_zai_unknown_model_hint(err_msg, err_body, path, self._get_provider(), request_model)
 
     def _wire_secrets(self) -> list[str]:
@@ -367,11 +362,7 @@ class LlmClient:
         Build HTTP headers for API requests, including provider-aware auth.
         """
         h = {"Content-Type": "application/json", "User-Agent": USER_AGENT}
-        auth_info = self._resolve_auth()
-        if auth_info:
-            auth_headers = build_auth_headers(auth_info)
-            h.update(auth_headers)
-
+        h.update(build_auth_headers(self._resolve_auth()))
         return h
 
     def _resolve_auth(self) -> dict[str, Any]:
@@ -380,8 +371,7 @@ class LlmClient:
 
     def _get_provider(self) -> str:
         """Get the provider ID from resolved auth."""
-        auth_info = self._resolve_auth()
-        return auth_info.get("provider", "custom")
+        return self._resolve_auth()["provider"]
 
     def anthropic_previous_message_id(self, cache_session_id: str | None) -> str | None:
         """Return the most recent Anthropic message ID recorded for this session ID, or None."""
@@ -423,7 +413,7 @@ class LlmClient:
             cache_read_count(usage_dict),
         )
 
-    def _timeout(self) -> Any:
+    def _timeout(self) -> int | float:
         """Settings read/stall budget. Connect uses ``LLM_CONNECT_TIMEOUT_SEC``."""
         return self.config.get("request_timeout", 120)
 
@@ -476,12 +466,12 @@ class LlmClient:
             messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra, tool_choice=tool_choice, cache_session_id=cache_session_id,
         )
 
-        log.debug("=== Chat Request (provider=%s, tools=%s, stream=%s) ===" % (self._get_provider(), bool(tools), stream))
+        log.debug("=== Chat Request (provider=%s, tools=%s, stream=%s) ===", self._get_provider(), bool(tools), stream)
         # bare path: see log_target
         log.debug("URL: %s", log_target(path))
         if log.isEnabledFor(logging.DEBUG):
-            log.debug("Messages: %s" % json.dumps(redact_sensitive_payload_for_log(messages), indent=2))
-        log_chat_request_body_diag(self, path, body, headers, tools)
+            log.debug("Messages: %s", json.dumps(redact_sensitive_payload_for_log(messages), indent=2))
+        log_chat_request_body_diag(self, path, body, tools)
 
         return method, path, body, headers
 
@@ -489,7 +479,7 @@ class LlmClient:
         self,
         method: str,
         path: str,
-        body: Any,
+        body: bytes,
         headers: dict[str, str],
         *,
         cancel: SendCancellation | None = None,
@@ -498,7 +488,7 @@ class LlmClient:
         on_retry: Any = None,
         wrap_unexpected: bool = False,
         failure_log: str = "JSON request failed",
-    ) -> Any:
+    ) -> dict[str, Any]:
         """One non-streaming JSON exchange with the shared retry budget."""
         active = self._request_scope(cancel)
         try:
@@ -506,7 +496,7 @@ class LlmClient:
                 self._close_connection()
                 raise stopped_error()
             api_key = str(self.config.get("api_key") or "").strip()
-            first_body = body if isinstance(body, (bytes, bytearray)) else body
+            first_body = body
             slot: dict[str, Any] = {"pending": None, "body": body, "used": False, "unsupported": False}
             on_bad_request = self._effort_on_bad_request(active, slot)
 
@@ -537,21 +527,19 @@ class LlmClient:
                 err_msg = format_error_message(exc)
                 log.exception(failure_log)
                 raise NetworkError(err_msg, details={"url": public_target(path)}) from exc
-            if slot["used"] and isinstance(first_body, (bytes, bytearray)):
-                fb = bytes(first_body) if isinstance(first_body, bytearray) else first_body
-                lb = bytes(slot["body"]) if isinstance(slot["body"], bytearray) else slot["body"]
-                remember_accepted_effort(self._endpoint(), fb, lb, parameter_unsupported=slot["unsupported"])
+            if slot["used"]:
+                remember_accepted_effort(self._endpoint(), first_body, slot["body"], parameter_unsupported=slot["unsupported"])
             return parse_provider_envelope(result.body, path, api_key=api_key)
         finally:
             self._release_request_scope(cancel)
 
-    def _request_json(self, method: str, path: str, body: Any, headers: dict[str, str], *, cancel: SendCancellation | None = None, status_callback: Any = None) -> Any:
+    def _request_json(self, method: str, path: str, body: bytes, headers: dict[str, str], *, cancel: SendCancellation | None = None, status_callback: Any = None) -> dict[str, Any]:
         """Blocking JSON call on the persistent transport.
 
-        Image and speech used ``sync_request``, which ignored Stop and 429/503
-        backoff. This shares the chat transport so ``stop()`` closes the socket.
-        ``cancel`` / ``status_callback`` match the sync chat path: a 429
-        wait ends when the caller stops, and the sidebar sees the retry line.
+        Image and speech share the chat transport so ``stop()`` closes the
+        socket and 429/503 get the shared backoff. ``cancel`` / ``status_callback``
+        match the sync chat path: a 429 wait ends when the caller stops, and
+        the sidebar sees the retry line.
         """
         return self._exchange_json(
             method,
@@ -565,9 +553,9 @@ class LlmClient:
 
     def image_completion(self, prompt: str, model: str | None = None, width: int = 1024, height: int = 1024, steps: int | None = None, source_image: str | None = None, image_url: str | None = None, *, cancel: SendCancellation | None = None, status_callback: Any = None) -> Any:
         """Generate images using the configured provider. Returns list of base64 strings."""
-        method, path, body, headers = self._get_shim().build_image_request(prompt, model, width, height, steps=steps, source_image=source_image, image_url=image_url)
+        shim = self._get_shim()
+        method, path, body, headers = shim.build_image_request(prompt, model, width, height, steps=steps, source_image=source_image, image_url=image_url)
 
-        # log.debug...
         log.debug("=== Image Request ===")
         # bare path: see log_target
         log.debug("URL: %s", log_target(path))
@@ -593,7 +581,6 @@ class LlmClient:
         if not res:
             return []
 
-        shim = self._get_shim()
         return shim.parse_image_responses(res)
 
     def transcribe_audio(self, wav_path: str, model: str | None = None, *, cancel: SendCancellation | None = None, status_callback: Any = None) -> str:
@@ -609,10 +596,10 @@ class LlmClient:
         model_name = model or self.config.get("audio.stt_model") or self.config.get("stt_model") or "whisper-1"
 
         # 1. Check if the STT model itself supports native audio.
-        # None means unknown. has_native_audio documents that as "try native";
-        # a bare `if` treated None as false and skipped chat for uncatalogued models.
+        # None means unknown, which ``has_native_audio`` documents as "try
+        # native", so only an explicit False skips the chat attempt.
         if has_native_audio(model_name, self._endpoint()) is not False:
-            log.warning("Using multimodal chat for transcription fallback (model: %s)", model_name)
+            log.info("Trying multimodal chat for transcription (model: %s)", model_name)
             try:
                 with open(wav_path, "rb") as f:
                     audio_b64 = base64.b64encode(f.read()).decode("utf-8")
@@ -631,15 +618,16 @@ class LlmClient:
             except AuthError:
                 raise
             except NetworkError as e:
-                if self.stopped() or getattr(e, "code", None) == "STOPPED":
+                if self.stopped() or e.code == "STOPPED":
                     raise
                 # Only a transport failure is a reason to try
                 # /audio/transcriptions. chat_completion_sync raises ValueError,
                 # JSONDecodeError, or other non-network errors before an HTTP
                 # failure; treating those as "this model cannot take
                 # input_audio" would POST the transcription endpoint for a
-                # bug. AuthError is re-raised above. Stop and USER_STOPPED
-                # are not NetworkError, so they propagate. Any other exception
+                # bug. AuthError is re-raised above. A Stop is re-raised here
+                # by its ``STOPPED`` code; ``USER_STOPPED`` is a
+                # ``ToolExecutionError`` and propagates. Any other exception
                 # propagates too.
                 log.exception("Multimodal transcription failed; falling back to stt endpoint")
 
@@ -653,7 +641,6 @@ class LlmClient:
             with open(wav_path, "rb") as f:
                 audio_b64 = base64.b64encode(f.read()).decode("utf-8")
             body_bytes = json.dumps({"model": model_name, "input_audio": {"data": audio_b64, "format": "wav"}}).encode("utf-8")
-            headers["Content-Type"] = "application/json"
         else:
             # Standard multipart fallback (OpenAI Whisper, local servers, etc.)
             boundary = "Boundary-%s" % uuid.uuid4().hex
@@ -681,9 +668,9 @@ class LlmClient:
         log.debug("=== STT Request ===")
         # bare path: see log_target
         log.debug("URL: %s", log_target(req_path))
-        log.debug("STT Model: %s" % model_name)
+        log.debug("STT Model: %s", model_name)
         res = self._request_json("POST", req_path, body_bytes, headers, cancel=cancel, status_callback=status_callback)
-        return res.get("text", "") if isinstance(res, dict) else str(res)
+        return res.get("text", "")
 
     def stream_completion(self, prompt: str, system_prompt: str, max_tokens: int, append_callback: Any, append_thinking_callback: Any = None, cancel: SendCancellation | None = None, status_callback: Any = None) -> str | None:
         """Stream a chat completions response via callbacks; returns finish_reason."""
@@ -704,7 +691,7 @@ class LlmClient:
         self,
         method: str,
         path: str,
-        body: Any,
+        body: bytes,
         headers: dict[str, str],
         on_content: Any,
         on_thinking: Any = None,
@@ -731,9 +718,10 @@ class LlmClient:
         prepared = accepted_effort_body(
             self._get_shim()._reasoning_provider(),
             self._endpoint(),
-            bytes(body) if isinstance(body, bytearray) else body,
+            body,
         )
-        body = prepared if isinstance(prepared, bytes) else prepared.encode("utf-8")
+        assert isinstance(prepared, bytes)
+        body = prepared
 
         def consume(response: Any, budget: RetryBudget) -> str | None:
             # on_delta writes role, usage, and a buffered "<think" prefix into
@@ -776,7 +764,7 @@ class LlmClient:
                         # a finished chunk.
                         chunk = parse_strict_json(payload)
                     except NetworkError as decode_err:
-                        if getattr(decode_err, "code", None) != "BAD_RESPONSE":
+                        if decode_err.code != "BAD_RESPONSE":
                             raise
                         if payload and payload != "{}":
                             log.exception("streaming_loop: JSON decode error in payload: %s", payload)
@@ -801,8 +789,8 @@ class LlmClient:
                     usage_obj = chunk.get("usage")
                     if not isinstance(usage_obj, dict) or not usage_obj:
                         usage_obj = None
-                    elif "usage" in chunk:
-                        log.debug("streaming_loop: received usage: %s" % chunk["usage"])
+                    else:
+                        log.debug("streaming_loop: received usage: %s", usage_obj)
 
                     if content_finished:
                         continue
@@ -813,7 +801,6 @@ class LlmClient:
                     if self._stop_latched(active):
                         log.debug("streaming_loop: Stop requested.")
                         last_finish_reason = "stop"
-                        content_finished = True
                         # Close connection immediately on stop so response.read() does not block.
                         self._close_connection()
                         break
@@ -829,10 +816,10 @@ class LlmClient:
                         raise NetworkError(stream_err, code="STREAM_ERROR", details={"url": public_target(path)})
 
                     # Grok/xAI sends a final chunk with empty choices + usage.
-                    # Anthropic SSE events have no choices array; dropping them
-                    # discarded text_delta and tool_use before the shim could parse.
-                    # Usage-only chunks still reach on_delta so request_with_tools
-                    # can fill its usage field. They are not emitted text.
+                    # Anthropic SSE events have no choices array; ``_chunk_should_parse``
+                    # lets them through to the shim by event type. Usage-only
+                    # chunks still reach on_delta so request_with_tools can fill
+                    # its usage field. They are not emitted text.
                     if not _chunk_should_parse(chunk):
                         if usage_obj and on_delta:
                             on_delta({"usage": usage_obj})
@@ -845,7 +832,7 @@ class LlmClient:
                     # cannot tell whether that index came from the wire or our accumulator.
                     # Replace function.arguments with its length because split argument
                     # fragments cannot be redacted per record; joined arguments are logged below.
-                    raw_tool_calls = delta.get("tool_calls") if isinstance(delta, dict) else None
+                    raw_tool_calls = delta.get("tool_calls")
                     if raw_tool_calls is not None and log.isEnabledFor(logging.DEBUG):
                         summarized = []
                         for tc in raw_tool_calls:
@@ -922,13 +909,13 @@ class LlmClient:
                         # CONNECTION_LOST. Do not clear or replay the
                         # snapshot; callbacks have already run.
                         budget.emitted_any = True
-                    outgoing: dict[str, Any] | None = delta if isinstance(delta, dict) else None
+                    outgoing: dict[str, Any] = delta
                     # Preserve normalized usage already present on the delta before checking chunk usage.
-                    shim_usage = outgoing.get("usage") if isinstance(outgoing, dict) else None
+                    shim_usage = outgoing.get("usage")
                     if usage_obj and not (isinstance(shim_usage, dict) and shim_usage):
-                        outgoing = dict(outgoing or {})
+                        outgoing = dict(outgoing)
                         outgoing["usage"] = usage_obj
-                    cur_usage = outgoing.get("usage") if isinstance(outgoing, dict) else None
+                    cur_usage = outgoing.get("usage")
                     if not isinstance(cur_usage, dict):
                         cur_usage = usage_obj
                     if isinstance(cur_usage, dict):
@@ -946,24 +933,20 @@ class LlmClient:
                     if self._stop_latched(active):
                         log.debug("streaming_loop: Stop requested after delta.")
                         last_finish_reason = "stop"
-                        content_finished = True
                         self._close_connection()
                         break
 
                     if finish_reason:
-                        log.debug("streaming_loop: logical finish_reason=%s" % finish_reason)
+                        log.debug("streaming_loop: logical finish_reason=%s", finish_reason)
                         last_finish_reason = finish_reason
 
-                # iterate_sse finishes quietly on EOF, so a socket that
-                # closed early looked like a successful answer with
-                # finish_reason None. A missing [DONE] / finish_reason
-                # is a drop. Raise a real connection error so the outer
-                # loop can retry (if nothing was emitted) or surface
-                # CONNECTION_LOST.
+                # iterate_sse finishes quietly on EOF, so a missing [DONE] and
+                # finish_reason is the only sign of a dropped socket. Raise a
+                # real connection error so the outer loop can retry (if nothing
+                # was emitted) or surface CONNECTION_LOST.
                 if not content_finished and not last_finish_reason:
                     if self._stop_latched(active):
                         last_finish_reason = "stop"
-                        content_finished = True
                     else:
                         raise ConnectionResetError("Stream truncated without [DONE] or finish_reason")
 
@@ -1007,16 +990,13 @@ class LlmClient:
                     try:
                         remaining = response.read()
                         if remaining:
-                            log.debug("Consumed extra %d bytes after loop" % len(remaining))
+                            log.debug("Consumed extra %d bytes after loop", len(remaining))
                     except Exception:
                         log.debug("stream trailing read failed", exc_info=True)
                     # Honor Connection: close so we don't try to reuse when the server closed.
                     self._close_if_connection_close(response)
                 else:
-                    try:
-                        self._close_connection()
-                    except Exception:
-                        log.debug("stream close after non-clean finish failed", exc_info=True)
+                    self._close_connection()
             if slot["pending"] is not None:
                 remember_accepted_effort(self._endpoint(), first_body, slot["body"], parameter_unsupported=slot["unsupported"])
             if last_finish_reason is None and self._stop_latched(active):
@@ -1036,7 +1016,7 @@ class LlmClient:
                 on_bad_request=on_bad_request,
             )
         except NetworkError as exc:
-            if getattr(exc, "code", None) == "STOPPED":
+            if exc.code == "STOPPED":
                 log.debug("streaming_loop: Stop requested")
                 return "stop"
             raise
@@ -1136,9 +1116,9 @@ class LlmClient:
                 d_for_snapshot = {k: v for k, v in d.items() if k not in THINKING_DELTA_KEYS}
                 # Anthropic message_delta.usage is a cumulative total (platform
                 # streaming docs: message_start.output_tokens is 1, the final
-                # event is 15). accumulate_delta adds numbers, so those became
-                # 16. Replace each usage key instead of summing it. One OpenAI
-                # usage chunk still lands unchanged.
+                # event is 15). accumulate_delta adds numbers, which would
+                # report 16. Replace each usage key instead of summing it. One
+                # OpenAI usage chunk still lands unchanged.
                 usage_update = d_for_snapshot.pop("usage", None)
                 accumulate_delta(message_snapshot, d_for_snapshot)
                 if isinstance(usage_update, dict) and usage_update:
@@ -1158,7 +1138,7 @@ class LlmClient:
                 thinking_meta.clear()
                 thinking_meta.update(new_streaming_thinking_meta())
 
-            log.debug("stream_request_with_tools: building request (%d messages)..." % len(messages))
+            log.debug("stream_request_with_tools: starting stream (%d messages)", len(messages))
             try:
                 last_finish_reason = self._run_streaming_loop(
                     method,
@@ -1192,8 +1172,8 @@ class LlmClient:
             tool_calls = message_snapshot.get("tool_calls")
             if tool_calls is not None:
                 tool_calls = coalesce_split_tool_calls(tool_calls) or None
-            if tool_calls is not None:
-                log.debug("streaming_loop: accumulated tool_calls model=%r tool_calls=%s", requested_model, json.dumps(redact_sensitive_payload_for_log(tool_calls), ensure_ascii=False))
+                if tool_calls is not None:
+                    log.debug("streaming_loop: accumulated tool_calls model=%r tool_calls=%s", requested_model, json.dumps(redact_sensitive_payload_for_log(tool_calls), ensure_ascii=False))
             usage = cast("dict[str, Any]", message_snapshot.get("usage", {}))
             used_model = str(message_snapshot.get("model") or requested_model)
             reasoning_replay = extract_reasoning_replay_from_response(streaming_text="".join(thinking_parts), streaming_meta=thinking_meta)
@@ -1211,7 +1191,9 @@ class LlmClient:
                 except Exception as log_exc:
                     log.warning("Could not log redacted outgoing messages: %s", log_exc)
 
-            body = accepted_effort_body(self._get_shim()._reasoning_provider(), self._endpoint(), body)
+            prepared_sync = accepted_effort_body(self._get_shim()._reasoning_provider(), self._endpoint(), body)
+            assert isinstance(prepared_sync, bytes)
+            body = prepared_sync
             try:
                 result = self._exchange_json(
                     method,
@@ -1226,17 +1208,17 @@ class LlmClient:
                     failure_log="request_with_tools failed",
                 )
             except NetworkError as exc:
-                if getattr(exc, "code", None) == "STOPPED":
+                if exc.code == "STOPPED":
                     return stopped_result
                 raise
 
             if log.isEnabledFor(logging.DEBUG):
-                log.debug("=== Sync response: %s" % json.dumps(redact_sensitive_payload_for_log(result), indent=2))
+                log.debug("=== Sync response: %s", json.dumps(redact_sensitive_payload_for_log(result), indent=2))
 
-            used_model = str(result.get("model") or requested_model) if isinstance(result, dict) else requested_model
+            used_model = str(result.get("model") or requested_model)
 
             native_anthropic = self._get_provider() == "anthropic"
-            sync_diag = self._note_anthropic_cache_facts(result, cache_session_id) if native_anthropic and isinstance(result, dict) else None
+            sync_diag = self._note_anthropic_cache_facts(result, cache_session_id) if native_anthropic else None
 
             # Use unified extraction for shims/native providers
             try:
@@ -1293,8 +1275,7 @@ class LlmClient:
                 if p_tool_calls:
                     tool_calls = p_tool_calls
                     content = p_content or ""
-                    if last_finish_reason != "tool_calls":
-                        last_finish_reason = "tool_calls"
+                    last_finish_reason = "tool_calls"
 
         if tool_calls:
             tool_calls = coalesce_split_tool_calls(tool_calls) or None
@@ -1329,7 +1310,6 @@ class LlmClient:
         ``ToolExecutionError(code="USER_STOPPED")`` instead of ``""``.
         Callers that omit the scope keep the string return.
         """
-        scope = cancel
         result = self.request_with_tools(
             messages,
             max_tokens=max_tokens,
@@ -1343,10 +1323,10 @@ class LlmClient:
         )
         # request_with_tools reports Stop as an empty assistant message whose
         # finish_reason is also "stop" — the same finish_reason a normal
-        # completion uses. Deep-research planning treated that "" as a finished
-        # plan and later cached a partial report. Only the cancel scope or the
-        # client latch means the user stopped. No cancel scope: grammar and forms
-        # still receive the historical string, including "".
-        if scope is not None and self._stop_latched(scope):
+        # completion uses. A caller such as deep-research planning must not
+        # take that "" for a finished answer. Only the cancel scope or the
+        # client latch means the user stopped. With no cancel scope (grammar,
+        # forms) the content string is returned, including "".
+        if cancel is not None and self._stop_latched(cancel):
             raise ToolExecutionError("LLM request stopped by user.", code="USER_STOPPED")
         return result.get("content") or ""

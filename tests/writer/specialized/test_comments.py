@@ -34,10 +34,10 @@ def test_read_annotation_falls_back_to_paragraph_context():
 
 
 def test_form_tools_declare_form_doc_services_union():
-    from plugin.framework.constants import ALL_DOCUMENT_SERVICES
+    from plugin.framework.doc_type import DOCUMENT_SERVICES
     from plugin.writer.specialized import forms
 
-    form_union = list(ALL_DOCUMENT_SERVICES)
+    form_union = list(DOCUMENT_SERVICES)
     for tool_cls in (
         forms.FormListControls,
         forms.FormCreateControl,

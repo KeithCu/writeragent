@@ -9,7 +9,7 @@ and registry membership and start-error wrapping are optional. `raw_spawn=True` 
 Popen for short-lived children, and ManagedSubprocess.run is subprocess.run plus Windows
 CREATE_NO_WINDOW from get_subprocess_creationflags(). ``run(..., kill_tree=True)`` uses
 its own session and kill_process_tree on timeout.
-Worker start, stderr drain, tree kill, and shutdown_all stay the default.
+The default constructor is the worker path: pipes, stderr drain, tree kill and the shutdown_all registry.
 When `stderr_name_with_pid` is true and `stderr_name` is set, the drain thread name is `{stderr_name}-{pid}`.
 """
 
@@ -57,10 +57,8 @@ class ManagedSubprocess:
     Callers own the stdout and stdin pipes (e.g. for JSON-RPC or custom framing).
     This layer handles environment merging, process-tree killing, and cleanup.
     These knobs default to the worker spawn (binary pipes, explicit merged env,
-    POSIX start_new_session, stderr pipe + drain, registry, wrapped start errors,
-    stderr name unchanged); `text=True` is line-buffered text pipes.
-    `drain_stderr`, `register`, and `log_start_failure` default to the worker spawn
-    (stderr drain, `shutdown_all` registry, start failures logged and wrapped in `RuntimeError`).
+    POSIX start_new_session, stderr pipe + drain, registry, wrapped start errors);
+    `text=True` is line-buffered text pipes.
     When `die_with_parent=True` (Linux only, rejected with `raw_spawn=True`), the parent
     resolves prctl before fork so the child avoids dlopen or imports, and `start()` enforces
     that child creation runs on the supervisor spawner thread because Linux `PR_SET_PDEATHSIG`
@@ -91,7 +89,6 @@ class ManagedSubprocess:
     _raw_stdin: Any
     _raw_stdout: Any
     _raw_stderr: Any
-    _raw_text: bool
     _raw_encoding: str | None
     _raw_errors: str | None
     _proc: Any | None
@@ -152,9 +149,6 @@ class ManagedSubprocess:
                 self._worker_stdin = stdin
             else:
                 raise ValueError("stdin must be subprocess.PIPE or subprocess.DEVNULL")
-        else:
-            self._stderr = subprocess.PIPE
-            self._worker_stdin = subprocess.PIPE
         self._cmd_line = cmd_line
         self._cwd = cwd
         self._env = env
@@ -165,7 +159,7 @@ class ManagedSubprocess:
         self._optimize_pipes = optimize_pipes
         self._stderr_tail_chars = stderr_tail_chars
         self._stderr_name = stderr_name
-        self._label = label if label else "Managed subprocess"
+        self._label = label or "Managed subprocess"
         self._drain_stderr = drain_stderr
         self._inherit_env = inherit_env
         self._new_session = new_session
@@ -177,7 +171,6 @@ class ManagedSubprocess:
         self._raw_stdin = stdin
         self._raw_stdout = stdout
         self._raw_stderr = stderr
-        self._raw_text = text
         self._raw_encoding = encoding
         self._raw_errors = errors
         self._die_with_parent = die_with_parent
@@ -198,7 +191,7 @@ class ManagedSubprocess:
 
     @property
     def pid(self) -> Any:
-        """``getattr(self._proc, "pid", None)`` so logs can print a double's pid. Not a kill guard."""
+        """The child's pid, or None before start. For log lines only; not a kill guard."""
         return getattr(self._proc, "pid", None)
 
     @classmethod
@@ -341,13 +334,13 @@ class ManagedSubprocess:
 
     @property
     def stdin(self) -> IO[bytes] | None:
-        if self._proc:
+        if self._proc is not None:
             return self._proc.stdin
         return None
 
     @property
     def stdout(self) -> IO[bytes] | None:
-        if self._proc:
+        if self._proc is not None:
             return self._proc.stdout
         return None
 
@@ -362,7 +355,7 @@ class ManagedSubprocess:
     def start(self) -> None:
         """Spawn the child process.
 
-        Worker path is unchanged (pipes, drain, registry). In raw_spawn mode,
+        The worker path uses pipes, drain, and registry. In raw_spawn mode,
         Popen runs with requested stdio and environment; OSError propagates.
         A second start() raises RuntimeError after a child was published
         (_proc is not None); a start() that fails before _proc
@@ -456,8 +449,6 @@ class ManagedSubprocess:
                         proc.stderr,
                         **drain_kwargs,
                     )
-                else:
-                    drain = None
                 if self._optimize_pipes:
                     optimize_popen_pipes(proc)
                 self._proc = proc
@@ -475,8 +466,6 @@ class ManagedSubprocess:
                                 s.close()
                             except OSError:
                                 pass
-                self._proc = None
-                self._stderr_drain = None
                 if self._log_start_failure:
                     log.exception("Failed to start managed subprocess")
                     raise RuntimeError(f"Failed to start managed subprocess: {e}") from e
@@ -513,7 +502,7 @@ class ManagedSubprocess:
             stdin=self._raw_stdin,
             stdout=self._raw_stdout,
             stderr=self._raw_stderr,
-            text=self._raw_text,
+            text=self._text,
             encoding=self._raw_encoding,
             errors=self._raw_errors,
             env=self._env,
@@ -550,9 +539,8 @@ class ManagedSubprocess:
         LibreOffice stdin), and a timeout calls ``kill_process_tree`` instead of
         killing only the direct child (e.g. soffice → oosplash → soffice.bin).
         """
-        if capture_output:
-            if stdout is not None or stderr is not None:
-                raise ValueError("stdout and stderr arguments may not be used with capture_output.")
+        if capture_output and (stdout is not None or stderr is not None):
+            raise ValueError("stdout and stderr arguments may not be used with capture_output.")
         if not kill_tree:
             return subprocess.run(
                 args,

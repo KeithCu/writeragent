@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from plugin.calc.base import ToolCalcPythonBase
 from plugin.calc.calc_addin_data import resolve_python_data
 from plugin.calc.python.image_egress import insert_image_result_on_sheet
-from plugin.framework.constants import ALL_DOCUMENT_SERVICES
+from plugin.framework.doc_type import DOCUMENT_SERVICES
 from plugin.framework.errors import make_tool_ok
 from plugin.framework.queue_executor import main
 from plugin.scripting.import_policy import format_matplotlib_plot_hint, python_venv_auto_imports_note
@@ -167,7 +167,7 @@ class RunVenvPythonScript(ToolCalcPythonBase):
     name: str | None = "python_run_script"
     specialized_cross_cutting: ClassVar[bool] = True
     description: str = f"Run Python code in the configured venv. {_RESULT_NOTE}"
-    uno_services: list[str] | None = list(ALL_DOCUMENT_SERVICES)
+    uno_services: list[str] | None = list(DOCUMENT_SERVICES)
     long_running: bool = True
 
     def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:

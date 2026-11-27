@@ -71,9 +71,9 @@ def effort_payload(provider: str | None, level: str | None) -> dict[str, Any]:
     req = level.strip().lower()
     if req != LOWEST_SENTINEL and req not in OUR_EFFORTS:
         return {}
-    vocab = _provider_efforts(provider)
-    value = vocab[0] if req == LOWEST_SENTINEL else _effort_order(vocab, req)[0]
     prov = str(provider or "").strip().lower()
+    vocab = _PROVIDER_EFFORTS.get(prov, OUR_EFFORTS)
+    value = vocab[0] if req == LOWEST_SENTINEL else _effort_order(vocab, req)[0]
     if prov == "openrouter":
         return {"reasoning": {"effort": value}}
     if prov == "anthropic":
@@ -154,6 +154,11 @@ _EFFORT_UNSUPPORTED: dict[tuple[str, str], None] = {}
 _ACCEPTED_EFFORT_MAX = 64
 
 
+def _sent_effort(body: bytes | str) -> str | None:
+    found = _effort_holder(body)
+    return found[1][found[2]] if found else None
+
+
 def _effort_key(endpoint: str, body: bytes | str) -> tuple[str, str, str] | None:
     found = _effort_holder(body)
     if found is None:
@@ -173,14 +178,11 @@ def accepted_effort_body(provider: str | None, endpoint: str, body: bytes | str)
     if (endpoint_val, model_val) in _EFFORT_UNSUPPORTED:
         omitted = effort_omit_body(body)
         return omitted if omitted is not None else body
-    if not _ACCEPTED_EFFORT:
-        return body
     if key not in _ACCEPTED_EFFORT:
         return body
     want = _ACCEPTED_EFFORT[key]
     for retry in effort_retry_bodies(provider, body):
-        found = _effort_holder(retry)
-        if (found[1][found[2]] if found else None) == want:
+        if _sent_effort(retry) == want:
             return retry
     return body
 
@@ -204,8 +206,7 @@ def remember_accepted_effort(
         return
     if key not in _ACCEPTED_EFFORT and len(_ACCEPTED_EFFORT) >= _ACCEPTED_EFFORT_MAX:
         _ACCEPTED_EFFORT.pop(next(iter(_ACCEPTED_EFFORT)), None)
-    found = _effort_holder(body)
-    _ACCEPTED_EFFORT[key] = found[1][found[2]] if found else None
+    _ACCEPTED_EFFORT[key] = _sent_effort(body)
 
 
 def merge_openrouter_chat_extra(base: dict[str, Any], extra: dict[str, Any] | None) -> None:
@@ -271,6 +272,12 @@ _PIXEL_ASPECT_RATIOS: tuple[tuple[str, float], ...] = (("1:1", 1.0), ("16:9", 16
 _ASPECT_RATIO_LABELS: frozenset[str] = frozenset(label for label, _ratio in _PIXEL_ASPECT_RATIOS)
 
 
+def _positive_size(width: int | None, height: int | None) -> tuple[int, int] | None:
+    if not width or not height or width < 1 or height < 1:
+        return None
+    return width, height
+
+
 def closest_aspect_label(width: int | None = None, height: int | None = None) -> str | None:
     """Closest standard ratio for WxH, including ratios outside the 7% wire window.
 
@@ -278,9 +285,10 @@ def closest_aspect_label(width: int | None = None, height: int | None = None) ->
     the raw pixel size. An edit must not: a 1:2 photo or a ~510px frame is not
     a size any image API accepts.
     """
-    if not width or not height or width < 1 or height < 1:
+    size = _positive_size(width, height)
+    if size is None:
         return None
-    ratio = width / height
+    ratio = size[0] / size[1]
     label, _expected = min(_PIXEL_ASPECT_RATIOS, key=lambda item: abs(ratio - item[1]))
     return label
 
@@ -319,9 +327,8 @@ def canonical_aspect_ratio(width: int | None = None, height: int | None = None, 
 
     Named UI/tool values win. Pixel WxH maps to the closest standard ratio
     within about 7% so 64-pixel rounding (``896x512``) still yields ``16:9``.
-    An absolute 0.12 gap mapped ``512x1024`` (1:2) onto ``9:16`` while
-    ``1024x512`` stayed unmapped, and OpenRouter then sent that aspect
-    instead of the pixel size.
+    The window is relative (7% of the ratio) so that ``512x1024`` (1:2) and
+    ``1024x512`` (2:1) are both left unmapped and the caller sends the pixel size.
     """
     if named:
         key = str(named).strip().lower().replace(" ", "_").replace("(", "").replace(")", "")
@@ -330,11 +337,12 @@ def canonical_aspect_ratio(width: int | None = None, height: int | None = None, 
         mapped = _NAMED_ASPECT_RATIOS.get(key.replace(":", "_"))
         if mapped:
             return mapped
-    if not width or not height or width < 1 or height < 1:
+    size = _positive_size(width, height)
+    if size is None:
         return None
-    ratio = width / height
+    ratio = size[0] / size[1]
     label, expected = min(_PIXEL_ASPECT_RATIOS, key=lambda item: abs(ratio - item[1]))
-    if expected and abs(ratio / expected - 1) <= 0.07:
+    if abs(ratio / expected - 1) <= 0.07:
         return label
     return None
 
@@ -349,9 +357,10 @@ def canonical_resolution(width: int | None = None, height: int | None = None, *,
     (``family="openrouter_chat"``). Grok only documents ``1k`` / ``2k``.
     Imagen only documents ``1K`` / ``2K``.
     """
-    if not width or not height or width < 1 or height < 1:
+    size = _positive_size(width, height)
+    if size is None:
         return None
-    edge = max(width, height)
+    edge = max(size)
     if edge <= 768:
         tier = "512"
     elif edge <= 1536:
@@ -379,10 +388,10 @@ def coerce_image_data_url(image_url: str | None = None, source_image: str | None
     ref = image_url or source_image
     if not ref:
         return None
-    # Any data: URL is already labeled. Wrapping data:application/… again
-    # produced data:image/png;base64,data:application/… and the model could
-    # not decode it. Raw selection bytes stay PNG: get_selected_image_base64
-    # always exports PNG, and raw base64 has no MIME to sniff.
+    # Any data: URL is already labeled and is returned unchanged; wrapping it
+    # again would nest two data: prefixes. Raw selection bytes stay PNG:
+    # get_selected_image_base64 always exports PNG, and raw base64 has no MIME
+    # to sniff.
     if ref.startswith(("data:", "http://", "https://")):
         return ref
     return "data:image/png;base64," + ref
@@ -472,8 +481,7 @@ class BaseProviderShim:
         if response_format:
             data["response_format"] = response_format
 
-        openrouter = self._openrouter_chat()
-        if openrouter:
+        if self._openrouter_chat():
             extra = self.client.config.get("openrouter_chat_extra")
             if isinstance(extra, dict) and extra:
                 merge_openrouter_chat_extra(data, extra)
@@ -542,11 +550,8 @@ class BaseProviderShim:
                     break
 
         # Some OpenAI-compatible hosts send delta.content as a list of parts.
-        # Returning that list made ThinkTagStreamSplitter.feed concatenate
-        # str + list, which raised TypeError and aborted the stream. Sync
-        # parse already flattens parts with this helper.
-        # ``delta`` is always a dict here. ``if delta`` never failed: an empty
-        # dict is truthy, so the else branch was dead.
+        # ``normalize_message_content`` flattens it to the string
+        # ``ThinkTagStreamSplitter.feed`` expects, the same as the sync parse.
         raw_content = delta.get("content")
         content = normalize_message_content(raw_content) or ""
         thinking = extract_thinking_from_delta(chunk)

@@ -101,7 +101,7 @@ def _tag_rejected(buf: str) -> bool:
 
 def _parse_tag(buf: str) -> _Tag:
     """Return parsed tag attributes for a tag buffer without ``>``."""
-    inner = buf[1:] if buf.startswith("<") else buf
+    inner = buf[1:]
     if not inner:
         return _Tag(name="", is_close=False, is_empty=False, is_real=False)
     if inner[0] in "!?":
@@ -350,7 +350,7 @@ def text_has_real_html_tag(text: str) -> bool:
 @deal.post(lambda result: isinstance(result, str))
 def strip_html_tags(text: str) -> str:
     """Synchronous utility to strip HTML tags from a complete string."""
-    # crosshair: off  # wraps feed; whole-text @deal.pre removed — crashed long tool-result chat appends in debug.
+    # crosshair: off  # wraps feed(), which slices to DEAL_MAX_HTML_CHUNK; no whole-text @deal.pre, so long tool-result appends pass in debug builds.
     # Plain text without markup or entities needs no stripping.
     if "<" not in text and "&" not in text:
         return text
@@ -401,7 +401,7 @@ def html_to_search_text(text: str) -> str:
     tag_buf = ""
     quote = ""
     discard_until = ""
-    discard_body: list[str] = []
+    discard_body = ""
 
     for char in text:
         if not tag_buf:
@@ -409,11 +409,11 @@ def html_to_search_text(text: str) -> str:
                 tag_buf = "<"
                 quote = ""
             elif discard_until:
-                discard_body.append(char)
-                if len(discard_body) > _DISCARD_BODY_LIMIT or "\n\n" in "".join(discard_body):
-                    parts.append("".join(discard_body))
+                discard_body += char
+                if len(discard_body) > _DISCARD_BODY_LIMIT or "\n\n" in discard_body:
+                    parts.append(discard_body)
                     discard_until = ""
-                    discard_body.clear()
+                    discard_body = ""
             else:
                 parts.append(char)
         elif quote:
@@ -436,14 +436,14 @@ def html_to_search_text(text: str) -> str:
             if discard_until:
                 if tag.is_real and tag.is_close and tag.name == discard_until:
                     discard_until = ""
-                    discard_body.clear()
+                    discard_body = ""
                 else:
-                    discard_body.append(buf_str + ">")
+                    discard_body += buf_str + ">"
             elif not tag.is_real:
                 parts.append(buf_str + ">")
             elif tag.name in _SEARCH_DISCARD_TAGS and not tag.is_close and not tag.is_empty:
                 discard_until = tag.name
-                discard_body.clear()
+                discard_body = ""
             elif tag.name == "br":
                 flush_line_break()
             elif tag.name in _SEARCH_BLOCK_TAGS:

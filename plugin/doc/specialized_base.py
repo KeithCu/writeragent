@@ -23,7 +23,8 @@ from dataclasses import dataclass, field
 import logging
 from typing import Any, cast
 
-from plugin.framework.constants import ALL_DOCUMENT_SERVICES, DELEGATE_SUBAGENT_TOOL
+from plugin.framework.constants import DELEGATE_SUBAGENT_TOOL
+from plugin.framework.doc_type import DOCUMENT_SERVICES
 from plugin.framework.errors import append_warnings, is_disposal
 from plugin.framework.tool import ToolBase, ToolContext, field_from_tool_arguments
 from plugin.framework.prompts import (
@@ -307,7 +308,7 @@ class DelegateToSubagent(ToolBase):
 
     name: str | None = DELEGATE_SUBAGENT_TOOL
     description: str = _GENERIC_DELEGATE_DESCRIPTION
-    uno_services: list[str] | None = list(ALL_DOCUMENT_SERVICES)
+    uno_services: list[str] | None = list(DOCUMENT_SERVICES)
     is_mutation: bool | None = True
     long_running: bool = True
 

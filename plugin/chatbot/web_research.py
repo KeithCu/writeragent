@@ -500,7 +500,9 @@ def _resolve_web_research_window(client: Any) -> int:
 
 
 def _user_stopped_payload() -> dict[str, Any]:
-    return format_error_payload(ToolExecutionError("Web search stopped by user.", code="USER_STOPPED"))
+    from plugin.framework.errors import user_stopped_payload
+
+    return user_stopped_payload("Web search stopped by user.")
 
 
 def _run_web_agent(

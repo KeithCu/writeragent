@@ -53,7 +53,7 @@ def llm_request_lane(timeout: float | None = None, status_callback: Callable[[st
     """
     if timeout is None:
         from plugin.framework.config import get_config
-        timeout = float(get_config("request_timeout") or 60)
+        timeout = float(get_config("request_timeout"))
 
     deadline = time.monotonic() + timeout
     notified_status = False
@@ -107,7 +107,7 @@ def grammar_llm_request_gate(max_in_flight: int, timeout: float = 60.0) -> Gener
     finally:
         with _GRAMMAR_INFLIGHT_CV:
             _GRAMMAR_INFLIGHT_COUNT -= 1
-            # One release frees one slot, so wake one waiter. notify_all() woke
-            # every waiter; the extras rechecked the count and slept again.
-            # CPython's condition deque is FIFO, so the oldest waiter runs.
+            # One release frees one slot, so wake one waiter; notify_all() would
+            # wake the rest only to recheck the count and sleep. CPython's
+            # condition deque is FIFO, so the oldest waiter runs.
             _GRAMMAR_INFLIGHT_CV.notify()

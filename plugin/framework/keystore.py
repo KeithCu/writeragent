@@ -25,8 +25,8 @@ available, and replaced in ``writeragent.json`` with a reference token of the
 form ``keystore:<8 hex>`` (``REF_PREFIX``). When no OS store is available or
 a write fails, secrets remain in plain text in ``writeragent.json``.
 
-Concurrency: all ``set_secret`` and ``delete_secret`` calls run inside
-``config.save()`` while ``_config_write_lock`` is held. ``_read_locks``
+Concurrency: all ``set_secret`` and ``delete_secret`` calls run while
+``config._config_write_lock`` is held. ``_read_locks``
 serializes OS reads per secret name on macOS/Windows (where prompts are per
 item) and under a single shared lock key on Linux Secret Service (where one
 collection lock covers all items), so concurrent readers share one OS call and
@@ -329,17 +329,14 @@ class _LibSecret:
 
     def get(self, name: str, cancel: SendCancellation | None = None) -> str | None:
         err = ctypes.POINTER(_GError)()
-        cancellable = (
-            _Cancellable(
+        cancellable = None
+        if cancel is not None:
+            cancellable = _Cancellable(
                 self._g_cancellable_new,
                 self._g_cancellable_cancel,
                 self._g_cancellable_is_cancelled,
                 self._g_object_unref,
             )
-            if cancel is not None
-            else None
-        )
-        if cancel is not None and cancellable is not None:
             cancel.register_on_cancel(cancellable.cancel)
         try:
             with self._attrs(name) as table:
@@ -367,7 +364,8 @@ class _LibSecret:
                 finally:
                     self._secret_password_free(ptr)
         finally:
-            if cancel is not None and cancellable is not None:
+            if cancellable is not None:
+                assert cancel is not None
                 cancel.unregister_on_cancel(cancellable.cancel)
 
     def _item_exists(self, table: Any) -> bool:
@@ -814,7 +812,6 @@ def get_secret(name: str, cancel: SendCancellation | None = None) -> str | None:
         lock = _read_locks.setdefault(lock_key, threading.Lock())
     if not acquire_unless_cancelled(lock, cancel):
         return None
-    was_locked = False
     try:
         cached = _answer_without_read(name)
         if cached is not _UNSET:

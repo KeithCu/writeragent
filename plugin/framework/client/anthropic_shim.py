@@ -55,8 +55,8 @@ def _anthropic_tool_def(tool: Any) -> dict[str, Any] | None:
     """Accept an OpenAI tool wrapper or a flat Anthropic tool dict.
 
     Chat sends ``{"type":"function","function":{name,description,parameters}}``.
-    Indexing ``t["name"]`` on that shape raised ``KeyError`` before the request
-    was sent.
+    The name is read from ``function`` when that wrapper is present, otherwise
+    from the tool dict itself.
     """
     if not isinstance(tool, dict):
         return None
@@ -175,10 +175,9 @@ def _convert_messages(messages: list[dict[str, Any]]) -> tuple[str, list[dict[st
         content = m.get("content")
 
         if role in ("system", "developer"):
-            # Join every system message in order. Replacing the previous one
-            # dropped date/dev/instructions earlier in the list.
-            # ``developer`` is OpenAI's system stand-in. Anthropic has no such
-            # role; sending it unchanged was HTTP 400.
+            # Join every system message in order so date, dev and instruction
+            # messages all reach ``system``. ``developer`` is OpenAI's system
+            # stand-in; Anthropic has no such role and rejects it with HTTP 400.
             text = system_text(content)
             if text:
                 system_parts.append(text)
@@ -186,8 +185,8 @@ def _convert_messages(messages: list[dict[str, Any]]) -> tuple[str, list[dict[st
 
         if role == "tool":
             tool_use_id = m.get("tool_call_id")
-            # A tool name is not a tool_use id. ``or m.get("name")`` sent
-            # tool_use_id="search" and Anthropic returned 400. Drop the result
+            # A tool name is not a tool_use id, and Anthropic rejects one in
+            # ``tool_use_id`` with HTTP 400. A result without an id is dropped
             # the same way an orphan id is dropped.
             if not isinstance(tool_use_id, str) or not tool_use_id:
                 log.warning("Anthropic tool result has no tool_call_id; dropping it")
@@ -282,7 +281,7 @@ def _tool_calls_from_content_blocks(content_parts: list[dict[str, Any]]) -> list
         if not isinstance(tc_id, str) or not tc_id:
             log.warning("Anthropic tool_use has no id; omitting it")
             continue
-        raw_input = part.get("input", None)
+        raw_input = part.get("input")
         if raw_input is None:
             raw_input = {}
         elif not isinstance(raw_input, dict):
@@ -394,8 +393,8 @@ class AnthropicShim(BaseProviderShim):
 
         if msg_type == "message_start":
             indexes.clear()
-            # input_tokens live under message.usage, not on the event. The
-            # stream loop never saw them, so prompt_tokens stayed missing.
+            # input_tokens live under message.usage, not on the event, so they
+            # are normalized here and returned as a usage delta.
             message = chunk.get("message")
             usage = normalize_usage(message.get("usage") if isinstance(message, dict) else None)
             if usage:
@@ -455,5 +454,5 @@ class AnthropicShim(BaseProviderShim):
     def parse_sync_response(self, response_data: dict[str, Any]) -> tuple[str, str | None, list[dict[str, Any]] | None, dict[str, Any], list[str], dict[str, Any]]:
         content, finish_reason, _thinking, delta = self.parse_response_chunk(response_data, {})
         tool_calls = delta.get("tool_calls")
-        usage = normalize_usage(response_data.get("usage") or {})
+        usage = normalize_usage(response_data.get("usage"))
         return content, finish_reason, tool_calls, usage, [], delta

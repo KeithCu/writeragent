@@ -313,8 +313,7 @@ def safe_json_loads(text: Any, default: Any = None, strict: bool = False) -> Any
     # Do not swap this ahead of repair: literal_eval accepting a truncated
     # fragment is accepted behavior, not a bug.
     try:
-        # literal_eval handles 'True', 'False', 'None' out of the box.
-        # It also handles single quotes and tuple-like syntax.
+        # literal_eval accepts 'True', 'False', 'None' and single-quoted strings.
         parsed = ast.literal_eval(stripped)
         # literal_eval also returns tuples, sets, and bytes. Callers expect JSON.
         if parsed is None or type(parsed) in (bool, int, float, str, list, dict):
@@ -331,10 +330,7 @@ def safe_json_loads(text: Any, default: Any = None, strict: bool = False) -> Any
             log.debug("safe_json_loads stage=%s", "json_repair")
             return parsed
     except Exception:
-        # repair_json's pytest pre is total. This try is only the repair
-        # attempt: a contract error is an AssertionError, and mypy rejects
-        # that dynamically loaded class in an except clause. Any failure
-        # returns default.
+        # json_repair can raise on input it cannot parse; any failure returns the default.
         log.debug("safe_json_loads repair failed", exc_info=True)
 
     return default

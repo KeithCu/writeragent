@@ -51,7 +51,7 @@ def _discover_statements(
     Shared by :func:`iter_matching_statements` and
     :func:`remove_statements` so there is one matching implementation.
     """
-    tree = ast.parse(source or "")
+    tree = ast.parse(source)
 
     found: list[ast.stmt] = []
     parents: dict[ast.AST, ast.AST] = {}
@@ -133,9 +133,9 @@ def remove_statements(source: str, should_remove: Callable[[ast.stmt], bool], *,
     remove_set = set(nodes_to_remove)
     replacements: dict[int, str] = {}
     to_delete: set[int] = set()
-    # Spans are columns on the original line. Applying the first cut in place
-    # shifted the next Expr's col_offset, so ``print(1); print(2); keep()``
-    # became ``print(2)`` (keep deleted).
+    # Spans are columns on the original line. They are collected here and cut
+    # right to left below, because cutting in place would shift the columns of
+    # the next statement on that line.
     same_line_spans: dict[int, list[tuple[int, int]]] = {}
 
     for node in nodes_to_remove:

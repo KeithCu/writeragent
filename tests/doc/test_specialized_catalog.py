@@ -305,7 +305,7 @@ def test_live_catalog_hides_domains_that_cannot_run() -> None:
     from unittest.mock import patch
 
     from plugin.doc.specialized_catalog import catalog_entries_from_base
-    from plugin.framework.doc_type import WRITER_DOCUMENT_SERVICE
+    from plugin.framework.doc_type import TEXT_DOCUMENT_SERVICE
 
     with (
         patch("plugin.vision.vision_availability.vision_venv_configured", return_value=False),
@@ -316,7 +316,7 @@ def test_live_catalog_hides_domains_that_cannot_run() -> None:
 
         live_services = {
             e["domain"]
-            for e in catalog_entries_from_base(agent_label="Writer", uno_services=frozenset({WRITER_DOCUMENT_SERVICE}))
+            for e in catalog_entries_from_base(agent_label="Writer", uno_services=frozenset({TEXT_DOCUMENT_SERVICE}))
         }
         assert "vision" not in live_services
         assert "mcp" not in live_services
@@ -331,7 +331,7 @@ def test_live_catalog_hides_domains_that_cannot_run() -> None:
     ):
         with_server = {
             e["domain"]
-            for e in catalog_entries_from_base(agent_label="Writer", uno_services=frozenset({WRITER_DOCUMENT_SERVICE}))
+            for e in catalog_entries_from_base(agent_label="Writer", uno_services=frozenset({TEXT_DOCUMENT_SERVICE}))
         }
         assert "mcp" in with_server
         assert "vision" not in with_server

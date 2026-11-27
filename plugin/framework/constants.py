@@ -16,10 +16,9 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 from __future__ import annotations
 
-import datetime as _dt
+import datetime
 from enum import IntFlag
 import os
-from typing import Any
 
 from plugin.framework.deal_shim import deal
 
@@ -35,13 +34,6 @@ LLM_CONNECT_TIMEOUT_SEC = 15
 EXTENSION_ID_LIBREPY = "org.extension.librepy"
 EXTENSION_ID_WRITERAGENT = "org.extension.writeragent"
 EXTENSION_ID_LIBREHARPER = "org.extension.libreharper"
-
-ALL_DOCUMENT_SERVICES: tuple[str, ...] = (
-    "com.sun.star.sheet.SpreadsheetDocument",
-    "com.sun.star.text.TextDocument",
-    "com.sun.star.drawing.DrawingDocument",
-    "com.sun.star.presentation.PresentationDocument",
-)
 
 # Filter for a full Writer document. The generic "HTML" filter loads Writer/Web.
 HTML_WRITER_FILTER = "HTML (StarWriter)"
@@ -60,11 +52,9 @@ CHAT_DOCUMENT_CONTEXT_MAX_CHARS = 8000
 CHAT_DOCUMENT_TRUNCATED_MARKER = "\n\n[... document truncated ...]"
 
 
-def truncate_chat_context(text: str, limit: Any) -> str:
+def truncate_chat_context(text: str, limit: int) -> str:
     """Truncate text to limit with standard chat document truncation marker."""
-    lim = limit if isinstance(limit, int) and not isinstance(limit, bool) else 0
-    if lim < 0:
-        lim = 0
+    lim = max(0, limit) if isinstance(limit, int) and not isinstance(limit, bool) else 0
     if len(text) > lim:
         return text[:lim] + CHAT_DOCUMENT_TRUNCATED_MARKER
     return text
@@ -124,7 +114,7 @@ class ModelCapability(IntFlag):
     TOOLS = 256
 
 
-# document_research cross-file index (Settings: embeddings.folder_search_mode none | hybrid).
+# document_research cross-file index (Settings: embeddings.folder_search_mode).
 
 
 def configured_folder_search_mode() -> str:
@@ -201,10 +191,10 @@ def auto_imports() -> dict[str, str]:
 # -------------------------------------------------
 
 
-@deal.post(lambda result: isinstance(result, _dt.datetime) and result.tzinfo is not None)
-def now_aware() -> _dt.datetime:
+@deal.post(lambda result: isinstance(result, datetime.datetime) and result.tzinfo is not None)
+def now_aware() -> datetime.datetime:
     """Return the current local time as a timezone-aware datetime."""
-    return _dt.datetime.now().astimezone()
+    return datetime.datetime.now().astimezone()
 
 
 # Main-chat gateway tool (plugin/doc/specialized_base.py). Hands a plain-language

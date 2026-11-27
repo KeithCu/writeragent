@@ -21,7 +21,7 @@ from typing import Any, cast
 
 from plugin.framework.deal_shim import deal
 
-__all__ = ["LLM_DEV_BUILD_SYSTEM_PREFIX", "extract_and_strip_images_from_message", "normalize_multimodal_messages", "prepare_chat_messages", "prepend_dev_build_system_prefix_to_messages", "should_prepend_dev_llm_system_prefix", "strip_leaked_chat_template_control_tokens"]
+__all__ = ["LLM_DEV_BUILD_SYSTEM_PREFIX", "extract_and_strip_images_from_message", "normalize_message_content", "normalize_multimodal_messages", "prepare_chat_messages", "prepend_dev_build_system_prefix_to_messages", "should_prepend_dev_llm_system_prefix", "strip_leaked_chat_template_control_tokens", "text_of"]
 
 log = logging.getLogger(__name__)
 
@@ -194,10 +194,10 @@ def normalize_multimodal_messages(messages: list[dict[str, Any]], provider: str)
         if keep_in_place:
             target_message = m
         else:
-            # Identity, not equality. messages.index(m) attached both copies of
-            # two equal assistant messages to the first one, so the later
-            # image landed on the earlier user turn. Scan by identity since prior
-            # synthetic user inserts shift list positions.
+            # Find the message by identity, not equality: two equal assistant
+            # messages are different turns, and ``messages.index(m)`` would
+            # return the first. Scan each time because a synthetic user insert
+            # shifts positions.
             curr_idx = next((i for i, msg in enumerate(messages) if msg is m), 0)
 
             for prev_idx in range(curr_idx - 1, -1, -1):

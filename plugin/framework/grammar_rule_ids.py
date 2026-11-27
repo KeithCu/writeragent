@@ -164,9 +164,9 @@ def normalize_uno_locale_to_bcp47(a_locale: Any) -> str | None:
 
 def normalize_detected_bcp47(tag: str | None) -> str | None:
     """Map an LLM-detected BCP-47 tag onto a supported registry tag (same rules as UNO locales)."""
-    if not tag or not str(tag).strip():
+    if not tag or not tag.strip():
         return None
-    raw = str(tag).strip().replace("_", "-")
+    raw = tag.strip().replace("_", "-")
     lang, country = bcp47_to_uno_lang_country(raw)
     return _normalize_lang_country(lang, country)
 

@@ -80,7 +80,7 @@ def _join_http_error_body(base: str, content: str, *, is_snippet: bool = False) 
         sep = "\nProvider Response:\n" if has_terminal else ".\nProvider Response:\n"
     else:
         sep = " " if has_terminal else ". "
-    return str(base) + sep + str(content)
+    return base + sep + content
 
 
 def format_http_error_response(
@@ -108,15 +108,7 @@ def format_http_error_response(
     become a plain sentence (issue #570). The raw dict stays in ERROR logs.
     Missing ``context_window`` is fine — the sentence still explains overflow.
     """
-    if not isinstance(err_body, str):
-        if isinstance(err_body, (bytes, bytearray)):
-            err_body = err_body.decode("utf-8", errors="replace")
-        else:
-            err_body = str(err_body or "")
-    try:
-        status_num = int(status)
-    except (TypeError, ValueError):
-        status_num = 500
+    status_num = status
     reason_str = str(reason or "")
     if status_num == 500 and err_body and is_local_model_server_crash(err_body):
         return local_model_overflow_message(context_window)
@@ -133,15 +125,15 @@ def format_http_error_response(
     else:
         base = _("HTTP Error {0} from {1}: {2}").format(status_num, label, reason_str)
     if not body:
-        return str(base)
+        return base
     data = safe_json_loads(err_body)
     if isinstance(data, dict):
         err = data.get("error")
         detail = (err.get("message") or err.get("msg") or err.get("error") or "") if isinstance(err, dict) else (str(err) if err else "")
         if detail:
-            return _join_http_error_body(str(base), str(detail))
+            return _join_http_error_body(base, str(detail))
     snippet = body.replace("\n", " ")[:400]
-    return _join_http_error_body(str(base), str(snippet), is_snippet=True)
+    return _join_http_error_body(base, snippet, is_snippet=True)
 
 
 def append_zai_unknown_model_hint(message: str, err_body: Any, path: Any, provider: Any, request_model: Any = None) -> str:
@@ -219,8 +211,8 @@ def stream_error_message(chunk: dict[str, Any]) -> str | None:
     return None
 
 
-# 529 is Anthropic "overloaded". A 200 SSE body that says overload is
-# already retried; the HTTP status was not, so that path never ran.
+# 529 is Anthropic's "overloaded" status. It is retried like 429 and 503,
+# the same as an overload reported inside a 200 SSE body.
 RETRYABLE_HTTP_STATUS = frozenset({429, 503, 529})
 
 # We match structured codes first and only narrow phrases here, not bare
@@ -329,12 +321,10 @@ def _request_payload_byte_length(body: Any) -> int:
 def parse_provider_envelope(raw: Any, path: str, *, api_key: str = "") -> dict[str, Any]:
     """Parse an HTTP 200 provider body as a JSON object.
 
-    ``safe_json_loads`` without ``strict=True`` repairs truncated model text,
-    so a cut-off envelope such as
-    ``{"choices":[{"message":{"content":"hel`` became a dict and looked like a
-    finished reply. A JSON array was not ``None``, then ``.get`` ran outside
-    the request ``try``. Provider envelopes are not model text.
-    ``parse_strict_json`` is ``json.loads`` only, and only a dict is a response.
+    Provider envelopes are not model text, so they are parsed with
+    ``parse_strict_json`` (``json.loads`` only) and a truncated body is
+    ``BAD_RESPONSE``, not a repaired object. Only a dict is a response;
+    a JSON array or scalar is also ``BAD_RESPONSE``.
     """
     from plugin.framework.client.http_transport import parse_strict_json
 
@@ -373,7 +363,7 @@ def _full_url_for_request_path(endpoint: str, path: str) -> str:
     return shown
 
 
-def log_chat_request_body_diag(client: Any, path: str, body: Any, headers: Any, tools: Any) -> None:
+def log_chat_request_body_diag(client: Any, path: str, body: Any, tools: Any) -> None:
     """Log wire-level chat fields (no secrets) for provider debugging."""
     payload = _chat_request_payload_from_body(body)
     api_key = str(client.config.get("api_key") or "").strip()
@@ -429,7 +419,7 @@ def log_http_500_request_diag(client: Any, response: Any, path: str, body: Any, 
         payload.get("model"),
         _full_url_for_request_path(client._endpoint(), path),
         response.status,
-        getattr(response, "reason", ""),
+        response.reason,
         payload.get("stream"),
         len(messages) if isinstance(messages, list) else 0,
         len(tools) if isinstance(tools, list) else 0,

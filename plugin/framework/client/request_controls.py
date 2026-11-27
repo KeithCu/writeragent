@@ -30,7 +30,6 @@ import json
 import logging
 import math
 import random
-import re
 import threading
 import time
 from typing import TYPE_CHECKING, Any, Callable, Literal
@@ -43,7 +42,6 @@ from plugin.framework.i18n import _
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 
 from . import http_security
-from .errors import stream_error_message
 from .ssl_helpers import is_certificate_verify_error
 from .provider_detection import is_local_host
 
@@ -68,24 +66,6 @@ CONNECTION_ERRORS = (http.client.HTTPException, OSError)
 
 def stopped_error() -> NetworkError:
     return NetworkError("LLM request aborted by Stop", code="STOPPED")
-
-
-# 529 is Anthropic "overloaded". A 200 SSE body that says overload is
-# already retried; the HTTP status was not, so that path never ran.
-RETRYABLE_HTTP_STATUS = frozenset({429, 503, 529})
-
-# We match structured codes first and only narrow phrases here, not bare
-# "too many" / "unavailable", because those also match fatal errors such as
-# "too many tokens" (context overflow) or "model unavailable", which a retry
-# cannot fix. The full HTTP reason phrases for 429 and 503 stay.
-_OVERLOAD_TEXT_MARKERS = ("overload", "rate_limit", "rate limit", "too many requests", "service unavailable")
-
-# Explicit HTTP status indicator (e.g. "HTTP 429", "status 503", "HTTP status 429", "error code 503").
-# Bare 429 or 503 (such as "limit is 503 tokens" or "4290 tokens") must never match.
-_HTTP_STATUS_OVERLOAD_RE = re.compile(
-    r"\b(?:https?|status(?:\s+code)?|http\s+error|error\s+code)\s*(?:is\s*|:\s*)?(?:429|503)\b",
-    re.IGNORECASE,
-)
 
 
 def _shown_seconds(delay_sec: float) -> int | float:
@@ -195,76 +175,6 @@ def wait_abortable(
         if remaining <= 0:
             return not is_cancelled(cancel)
         sleeper(min(chunk_sec, remaining))
-
-
-def _error_code_is_overload(value: Any) -> bool:
-    """True when a structured provider code is itself an overload signal."""
-    if isinstance(value, bool) or value is None:
-        return False
-    if isinstance(value, (int, float)):
-        return value in RETRYABLE_HTTP_STATUS
-    text = str(value).strip().lower()
-    if text in {"429", "503", "529"}:
-        return True
-    return any(marker in text for marker in _OVERLOAD_TEXT_MARKERS)
-
-
-def _structured_error_is_overload(chunk: dict[str, Any]) -> bool:
-    """Prefer error.code / type / status over scanning the message text."""
-    if any(_error_code_is_overload(chunk.get(key)) for key in ("code", "status")):
-        return True
-    err = chunk.get("error")
-    if isinstance(err, dict):
-        if any(_error_code_is_overload(err.get(key)) for key in ("code", "type", "status")):
-            return True
-        metadata = err.get("metadata")
-        if isinstance(metadata, dict) and any(_error_code_is_overload(metadata.get(key)) for key in ("code", "status", "http_status")):
-            return True
-    elif _error_code_is_overload(err):
-        return True
-    return False
-
-
-def _text_is_overload(message: Any) -> bool:
-    """Check if an error indicates an overload/rate-limit condition.
-
-    Checks HTTP status / structured error code (including OpenRouter error.code
-    in the body) first; the text fallback matches only phrases like 'overloaded' /
-    'rate limit', no bare 429/503.
-    """
-    if not message or not isinstance(message, str):
-        return False
-
-    # Check for embedded JSON with structured error code (e.g. OpenRouter error payload)
-    if "{" in message and "}" in message:
-        try:
-            start = message.find("{")
-            end = message.rfind("}")
-            parsed = json.loads(message[start : end + 1])
-            if isinstance(parsed, dict) and _structured_error_is_overload(parsed):
-                return True
-        except (ValueError, TypeError):
-            pass
-
-    # Check for explicit HTTP status indicator in text (e.g. "HTTP 429", "status 503")
-    if _HTTP_STATUS_OVERLOAD_RE.search(message):
-        return True
-
-    # Text fallback: matches only phrases like 'overloaded'/'rate limit', no bare 429/503
-    low = message.lower()
-    return any(marker in low for marker in _OVERLOAD_TEXT_MARKERS)
-
-
-def stream_error_is_overload(chunk: dict[str, Any]) -> bool:
-    """True when a mid-stream error is worth one retry before any UI text.
-
-    A structured code (429, 503, rate_limit_exceeded, overloaded_error) wins.
-    Otherwise explicit HTTP status or phrases match; bare numbers like 503 tokens do not.
-    """
-    if _structured_error_is_overload(chunk):
-        return True
-    message = stream_error_message(chunk) or ""
-    return _text_is_overload(message)
 
 
 # Process-wide spacing after a retry: keyed by host so chat, grammar, and
@@ -453,14 +363,13 @@ class RetryBudget:
             self.attempt_charged = True
         return RETRY_MAX_ATTEMPTS - self.sends_left
 
-    def rejected_effort(self, exc: BaseException) -> bool:
-        details = getattr(exc, "details", None)
+    def rejected_effort(self, exc: NetworkError) -> bool:
+        details = exc.details
         return (
             self._on_bad_request is not None
             and not self.emitted_any
             and not self.stopped()
-            and getattr(exc, "code", None) == "HTTP_ERROR"
-            and isinstance(details, dict)
+            and exc.code == "HTTP_ERROR"
             and details.get("status") == 400
             and "effort" in str(exc).lower()
         )
@@ -478,11 +387,9 @@ class RetryBudget:
         close_on_fatal: bool = False,
     ) -> None:
         """Return to retry. Stop raises stopped_error(). Fatal loss raises NetworkError(code='CONNECTION_LOST')."""
-        # stop() closes the socket, so the blocked read raises here.
-        # Looking only at emitted_any reported Stop after the first
-        # token as CONNECTION_LOST. A latched Stop (or cancel scope)
-        # is a user cancel, same as the pre-token path. A real drop
-        # still refuses retry once any token reached the UI.
+        # stop() closes the socket, so the blocked read raises here. A latched
+        # Stop (or cancel scope) is a user cancel whether or not a token was
+        # shown; only a real drop is CONNECTION_LOST once a token reached the UI.
         if self.stopped():
             self._transport.close()
             raise stopped_error()

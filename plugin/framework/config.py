@@ -62,13 +62,10 @@ import shutil
 import tempfile
 import threading
 import time
-from typing import TYPE_CHECKING, Any, Callable, Dict, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Dict
 
 if TYPE_CHECKING:
     from plugin.framework.send_cancellation import SendCancellation
-
-_T = TypeVar("_T", int, float)
-_S = TypeVar("_S")
 
 from plugin.framework.errors import ConfigError, ConfigValidationError, UnoObjectError, uno_call
 from plugin.framework.log_redaction import register_known_secret
@@ -101,7 +98,7 @@ log = logging.getLogger(__name__)
 CONFIG_FILENAME = "writeragent.json"
 CONFIG_BACKUP_SUFFIX = ".bak"
 
-# Max items for all LRU lists; base names also listed in _LRU_LIST_CONFIG_KEY_PREFIXES for get_config defaults.
+# Max items for all LRU lists; base names also listed in config_schema._LRU_LIST_CONFIG_KEY_PREFIXES for get_config defaults.
 LRU_MAX_ITEMS = 10
 
 _resolved_config_path = None
@@ -169,10 +166,10 @@ def user_config_dir() -> str:
     return os.path.dirname(get_config_file_path())
 
 
-def _backup_config_file(config_file_path: str, *, reason: str = "invalid-json") -> str | None:
+def _backup_config_file(config_file_path: str) -> str | None:
     """Copy the raw config file before repair or other destructive handling."""
     # Reuses an existing backup if it already matches the source bytes.
-    if not config_file_path or not os.path.exists(config_file_path):
+    if not os.path.exists(config_file_path):
         return None
     try:
         with open(config_file_path, "rb") as f:
@@ -208,7 +205,7 @@ def _backup_config_file(config_file_path: str, *, reason: str = "invalid-json") 
         dest_path = stamped
     try:
         shutil.copy2(config_file_path, dest_path)
-        log.warning("Backed up config %s to %s (%s)", config_file_path, dest_path, reason)
+        log.warning("Backed up config %s to %s (invalid-json)", config_file_path, dest_path)
         return dest_path
     except OSError:
         log.exception("Failed to backup config %s", config_file_path)
@@ -255,10 +252,8 @@ def _try_repair_config_dict(text: str) -> dict[str, Any] | None:
         if isinstance(data, dict):
             return data
     except Exception:
-        # This try is only the repair attempt. A contract error is an
-        # AssertionError, and mypy rejects that class in an except clause.
-        # A failure falls through the existing unrepairable path. A
-        # successful repair still returns the dict above.
+        # json_repair can raise on input it cannot parse; any failure falls
+        # through to the unrepairable path.
         log.debug("config JSON repair failed", exc_info=True)
 
     return None
@@ -347,12 +342,12 @@ class ConfigCache:
 _cache = ConfigCache()
 
 
-def _config_stat_id(path: str) -> tuple[str, int, int] | None:
+def _config_stat_info(path: str) -> tuple[tuple[str, int, int] | None, float]:
     try:
         st = os.stat(path)
-        return (path, st.st_mtime_ns, st.st_size)
+        return (path, st.st_mtime_ns, st.st_size), st.st_mtime
     except OSError:
-        return None
+        return None, 0
 
 
 def _remember_config_read_failure(path: str, stat_id: tuple[str, int, int] | None) -> None:
@@ -385,7 +380,7 @@ def _load(config_file_path: str | None = None, *, fail_on_unrepairable: bool = F
                 _config_uninitialized_warned = True
             return {}
 
-    if not config_file_path or not os.path.exists(config_file_path):
+    if not os.path.exists(config_file_path):
         return {}
 
     current_time = time.time()
@@ -398,11 +393,7 @@ def _load(config_file_path: str | None = None, *, fail_on_unrepairable: bool = F
         if _cache.data is not None and (current_time - _cache.mtime_last_checked) < 2.0:
             return _cache.data
 
-        stat_id = _config_stat_id(config_file_path)
-        try:
-            current_mtime = os.path.getmtime(config_file_path)
-        except OSError:
-            current_mtime = 0
+        stat_id, current_mtime = _config_stat_info(config_file_path)
 
         _cache.mtime_last_checked = current_time
 
@@ -413,7 +404,7 @@ def _load(config_file_path: str | None = None, *, fail_on_unrepairable: bool = F
                     code="CONFIG_INVALID_FORMAT",
                     details={"path": config_file_path},
                 )
-            return _cache.data if isinstance(_cache.data, dict) else {}
+            return _cache.data or {}
 
         if _cache.data is not None and current_mtime == _cache.mtime and current_mtime != 0:
             return _cache.data
@@ -423,12 +414,12 @@ def _load(config_file_path: str | None = None, *, fail_on_unrepairable: bool = F
                 text = f.read()
         except OSError:
             _remember_config_read_failure(config_file_path, stat_id)
-            return _cache.data if isinstance(_cache.data, dict) else {}
+            return _cache.data or {}
 
         data = parse_config_json_text(text)
         repaired_json = False
         if data is None:
-            backup_path = _backup_config_file(config_file_path, reason="invalid-json")
+            backup_path = _backup_config_file(config_file_path)
             data = _try_repair_config_dict(text)
             if data is None:
                 _remember_config_read_failure(config_file_path, stat_id)
@@ -439,7 +430,7 @@ def _load(config_file_path: str | None = None, *, fail_on_unrepairable: bool = F
                         details={"path": config_file_path, "backup_path": backup_path},
                     )
                 log.warning("Invalid JSON in %s could not be auto-repaired (backup: %s)", config_file_path, backup_path or "none")
-                return _cache.data if isinstance(_cache.data, dict) else {}
+                return _cache.data or {}
             log.info("Auto-repaired invalid JSON in %s (backup: %s)", config_file_path, backup_path)
             repaired_json = True
 
@@ -482,7 +473,7 @@ def _load(config_file_path: str | None = None, *, fail_on_unrepairable: bool = F
                 except ConfigValidationError as exc:
                     schema = _config_schema.get_config_schema(k) or {}
                     fallback = None
-                    if getattr(exc, "details", {}).get("reason") == "parse":
+                    if exc.details.get("reason") == "parse":
                         fallback = schema.get("parse_fallback")
                     if fallback is None:
                         fallback = schema.get("fallback")
@@ -495,10 +486,7 @@ def _load(config_file_path: str | None = None, *, fail_on_unrepairable: bool = F
 
         validated = _config_schema.validate(repaired)
 
-        to_persist: dict[str, Any] = {}
-        for k, v in validated.items():
-            if not _config_schema.is_default_value(k, v):
-                to_persist[k] = v
+        to_persist = _without_defaults(validated)
 
         if repaired_json or to_persist != raw_loaded:
             try:
@@ -564,6 +552,10 @@ def _emit_pending(
     get_event_bus().emit("config:changed", **payload)
 
 
+def _without_defaults(validated: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in validated.items() if not _config_schema.is_default_value(k, v)}
+
+
 def save(patch: dict[str, Any], *, event_key: str | None = None) -> None:
     """Save a config patch. Validate, drop defaults, write, invalidate, emit."""
     if not patch:
@@ -590,14 +582,15 @@ def save(patch: dict[str, Any], *, event_key: str | None = None) -> None:
 
         validated = _config_schema.validate(merged)
 
-        to_write: dict[str, Any] = {}
-        for k, v in validated.items():
-            if not _config_schema.is_default_value(k, v):
-                to_write[k] = v
+        to_write = _without_defaults(validated)
 
         for k in patch:
-            old_val = loaded[k] if k in loaded else (_config_schema.resolve_default(k) if _config_schema.is_known_config_key(k) else None)
-            new_val = to_write[k] if k in to_write else (_config_schema.resolve_default(k) if _config_schema.is_known_config_key(k) else None)
+            try:
+                default = _config_schema.resolve_default(k)
+            except ConfigError:
+                default = None
+            old_val = loaded.get(k, default)
+            new_val = to_write.get(k, default)
             if old_val != new_val or (k in loaded) != (k in to_write):
                 effective.append((k, new_val, old_val))
 
@@ -741,12 +734,12 @@ def _api_key_slot_raw(normalized_endpoint: str) -> str:
 
 def api_key_slot_value(endpoint: Any) -> str:
     """Return the raw stored JSON value (plain text, ref, or ``""``) for *endpoint*."""
-    return _api_key_slot_raw(normalize_endpoint_url(endpoint or ""))
+    return _api_key_slot_raw(normalize_endpoint_url(endpoint))
 
 
 def get_api_key_for_endpoint(endpoint: Any, cancel: SendCancellation | None = None) -> str:
     """Return API key for the given endpoint."""
-    normalized = normalize_endpoint_url(endpoint or "")
+    normalized = normalize_endpoint_url(endpoint)
     return _resolve_secret(_api_key_secret_name(normalized), _api_key_slot_raw(normalized), cancel=cancel)
 
 
@@ -757,28 +750,28 @@ def has_api_key_for_endpoint(endpoint: Any) -> bool:
     creation, gating) where a locked keyring read would block on its unlock
     prompt; read the real key only when it is about to be sent.
     """
-    return bool(_api_key_slot_raw(normalize_endpoint_url(endpoint or "")))
+    return bool(api_key_slot_value(endpoint))
 
 
 def api_key_locked_for_endpoint(endpoint: Any) -> bool:
     """True when the endpoint's key is in the OS keystore and its last read hit a locked store."""
-    normalized = normalize_endpoint_url(endpoint or "")
+    normalized = normalize_endpoint_url(endpoint)
     return keystore.is_ref(_api_key_slot_raw(normalized)) and keystore.is_locked(_api_key_secret_name(normalized))
 
 
 def api_key_needs_keystore_read(endpoint: Any) -> bool:
     """True when *endpoint* has a ``keystore:`` ref not yet cached, so reading it would call the OS store and may open an unlock prompt."""
-    normalized = normalize_endpoint_url(endpoint or "")
+    normalized = normalize_endpoint_url(endpoint)
     return keystore.is_ref(_api_key_slot_raw(normalized)) and not keystore.is_cached(_api_key_secret_name(normalized))
 
 
 def cached_api_key_for_endpoint(endpoint: Any) -> str:
     """Return the API key for *endpoint* from plain text or cache without reading the OS."""
-    normalized = normalize_endpoint_url(endpoint or "")
+    normalized = normalize_endpoint_url(endpoint)
     raw = _api_key_slot_raw(normalized)
     if keystore.is_ref(raw):
         return keystore.cached_secret(_api_key_secret_name(normalized)) or ""
-    return str(raw or "")
+    return raw
 
 
 def _secret_field_text(name: str, raw: Any) -> str:
@@ -791,7 +784,7 @@ def _secret_field_text(name: str, raw: Any) -> str:
 
 def api_key_field_text(endpoint: Any) -> str:
     """Return the Settings field text for *endpoint*'s API key, falling back to its raw ref when unreadable."""
-    normalized = normalize_endpoint_url(endpoint or "")
+    normalized = normalize_endpoint_url(endpoint)
     return _secret_field_text(_api_key_secret_name(normalized), _api_key_slot_raw(normalized))
 
 
@@ -888,7 +881,7 @@ def get_reasoning_effort_for_endpoint(endpoint: Any) -> str:
 
 
 def set_reasoning_effort_for_endpoint(endpoint: Any, effort: Any, *, event_key: str | None = None) -> None:
-    normalized = normalize_endpoint_url(endpoint or "")
+    normalized = normalize_endpoint_url(endpoint)
     text = "" if effort is None else str(effort).strip()
     save({"reasoning_effort": {normalized: text}}, event_key=event_key)
 
@@ -906,7 +899,7 @@ def get_api_config(*, with_api_key: bool = True) -> dict[str, Any]:
     """
     from plugin.framework.client.model_fetcher import get_text_model
 
-    endpoint = str(get_config("endpoint") or "").rstrip("/")
+    endpoint = get_current_endpoint().rstrip("/")
 
     from plugin.framework.client.provider_detection import is_openrouter_endpoint, is_openwebui_endpoint
 
@@ -951,14 +944,14 @@ def fill_api_key(api_config: dict[str, Any], cancel: SendCancellation | None = N
         api_config["api_key"] = get_api_key_for_endpoint(api_config.get("endpoint"), cancel=cancel)
 
 
-def validate_api_config(config: Any) -> tuple[bool, str]:
+def validate_api_config(api_config: dict[str, Any]) -> tuple[bool, str]:
     """Validate API config dict (from get_api_config). Returns (ok: bool, error_message: str)."""
     from plugin.framework.i18n import _
 
-    endpoint = (config.get("endpoint") or "").strip()
+    endpoint = (api_config.get("endpoint") or "").strip()
     if not endpoint:
         return (False, _("Please set Endpoint in Settings."))
-    model = (config.get("model") or "").strip()
+    model = (api_config.get("model") or "").strip()
     if not model:
         return (False, _("Please set Model in Settings."))
     try:
