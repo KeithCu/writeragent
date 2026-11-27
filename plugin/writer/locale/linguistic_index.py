@@ -103,7 +103,7 @@ class _DocIndex:
     detected_language: str | None = None
     stem_fallback: bool = False
 
-    def _paragraphs_for(self, stems: list[str]) -> set[int]:
+    def paragraphs_for(self, stems: list[str]) -> set[int]:
         found: set[int] = set()
         for stem in stems:
             ps = self.terms.get(stem)
@@ -123,8 +123,8 @@ class _DocIndex:
         return set.intersection(*sorted(sets, key=len))
 
     def query_near(self, stems_a: list[str], stems_b: list[str], distance: int) -> set[int]:
-        set_a = self._paragraphs_for(stems_a)
-        set_b = self._paragraphs_for(stems_b)
+        set_a = self.paragraphs_for(stems_a)
+        set_b = self.paragraphs_for(stems_b)
         if not set_a or not set_b:
             return set()
         result = set()
@@ -360,12 +360,12 @@ class IndexService(ServiceBase):
         if near:
             hits = idx.query_near(near[0], near[1], near[2])
         elif mode == "or":
-            hits = idx._paragraphs_for(positive)
+            hits = idx.paragraphs_for(positive)
         else:
             hits = idx.query_and(positive)
 
         if not_stems:
-            hits = hits - idx._paragraphs_for(not_stems)
+            hits = hits - idx.paragraphs_for(not_stems)
 
         total = len(hits)
         selected = sorted(hits)[:max_results]

@@ -537,6 +537,9 @@ def test_enqueue_misses_emits_one_queued_status() -> None:
             "doc1",
             "en-US",
             uncached,
+            provider="llm",
+            checker_identity="llm:test-model",
+            paragraph_text="Sentence one. Sentence two.",
         )
     mock_status.start.assert_called_once_with("2 sentences", result="queued", routine=True)
     assert queue.enqueue.call_count == 2

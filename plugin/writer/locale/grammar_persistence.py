@@ -120,13 +120,6 @@ def sniff_v2_cache_identity(data: dict[str, Any]) -> str | None:
         return None
     return next(iter(found))
 
-_HAVE_UNO_DOC_EVENTS = False
-try:
-    from com.sun.star.document import XDocumentEventListener as _XDocumentEventListener_impl  # noqa: F401  # pyright: ignore[reportUnusedImport]
-    _HAVE_UNO_DOC_EVENTS = True
-except ImportError:
-    pass
-
 # L1 tuple layout: fingerprint is index 0, errors is index 3. Getters still copy the list themselves.
 class SentenceCacheEntry(NamedTuple):
     fingerprint: str
@@ -305,7 +298,7 @@ class DocumentPersistence:
         log.debug("[grammar] DocumentPersistence: bound model for doc_id=%s", self._short_id)
 
     def _register_listeners(self) -> None:
-        if not _HAVE_UNO_DOC_EVENTS or self.model is None:
+        if self.model is None:
             return
         try:
             self._doc_listener = _GrammarDocumentEventListener(self)
