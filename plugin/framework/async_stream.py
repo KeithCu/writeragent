@@ -1214,7 +1214,7 @@ def run_async_worker_with_drain(
 
     # Chat's tool loop passes flush_pending so Stop emits text still inside the 250ms batcher.
     def _spawn_worker() -> None:
-        run_in_background(worker_wrapper, daemon=True, name=name, dedicated=True)
+        run_in_background(worker_wrapper, name=name, dedicated=True)
 
     run_stream_drain_loop(
         _real_q,

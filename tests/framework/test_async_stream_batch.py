@@ -443,7 +443,7 @@ def test_pump_ui_idle_unblocks_call_when_poke_noop():
             saved_policy = qe.main.policy
             qe.main.install(qe.Policy.test_marshal)
             try:
-                t = run_in_background(worker, name="marshal-worker", daemon=False)
+                t = run_in_background(worker, name="marshal-worker", dedicated=True)
                 deadline = time.time() + 3.0
                 while not done.is_set() and time.time() < deadline:
                     qe.pump_ui_idle(toolkit, max_queue_items=4)
@@ -669,7 +669,7 @@ def test_run_stream_drain_loop_idle_unblocks_marshaled_worker():
             saved_policy = qe.main.policy
             qe.main.install(qe.Policy.test_marshal)
             try:
-                run_in_background(worker, name="tool-async-marshal", daemon=False)
+                run_in_background(worker, name="tool-async-marshal", dedicated=True)
                 outcome = DrainOutcome()
 
                 def stream_done(_item):

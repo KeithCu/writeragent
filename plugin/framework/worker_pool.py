@@ -194,11 +194,11 @@ def _get_pool() -> _DaemonWorkPool:
         return _pool
 
 
-def run_in_background(func: Callable[..., Any], *args: Any, name: str | None = None, error_callback: Callable[[WorkerPoolError], None] | None = None, daemon: bool = True, dedicated: bool = False, **kwargs: Any) -> BackgroundHandle:
+def run_in_background(func: Callable[..., Any], *args: Any, name: str | None = None, error_callback: Callable[[WorkerPoolError], None] | None = None, dedicated: bool = False, **kwargs: Any) -> BackgroundHandle:
     """Run *func* off the caller thread with WorkerPoolError isolation and Layer A tagging.
 
     Short fire-and-forget work is queued on a daemon pool with a fixed worker
-    count (unbounded submit queue). Pass ``dedicated=True`` (or ``daemon=False``)
+    count (unbounded submit queue). Pass ``dedicated=True``
     for servers, pipe drains, infinite loops, and any job another thread will
     ``join()`` — those must not occupy a pool slot.
 
@@ -250,10 +250,9 @@ def run_in_background(func: Callable[..., Any], *args: Any, name: str | None = N
     def _run_in_caller_context() -> None:
         caller_ctx.run(_worker)
 
-    use_dedicated = dedicated or (daemon is False)
-    if use_dedicated:
+    if dedicated:
         thread_name = name or f"worker-{getattr(func, '__name__', 'anon')}"
-        t = threading.Thread(target=_run_in_caller_context, name=thread_name, daemon=daemon)
+        t = threading.Thread(target=_run_in_caller_context, name=thread_name, daemon=True)
         t.start()
         return BackgroundHandle(thread=t)
 

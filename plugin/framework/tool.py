@@ -324,7 +324,7 @@ class ToolBase(_ToolErrorMixin, ABC):
     # (style_list on the page domain). Same list; get_tools admits both tiers.
     required_core_tools: ClassVar[frozenset[str] | None] = None
     is_app_specialized_tool: ClassVar[bool] = False
-    timeout: Any = None
+    timeout: float | None = None
 
     def detects_mutation(self, arguments: Any = None) -> bool:
         """Return True if the tool mutates the document.
@@ -1038,7 +1038,6 @@ class ToolRegistry:
             kwargs, ignored, common_details = prepared.kwargs, prepared.ignored, prepared.details
 
             if ctx.read_only_target and tool.detects_mutation():
-                # Use the central factory.
                 return make_tool_error("This document is open for read-only document_research access; writes are not allowed.", code="READ_ONLY_TARGET", **common_details)
 
             # Execution with simple isolation and timeout.
@@ -1046,7 +1045,7 @@ class ToolRegistry:
             # Sync tools are marshaled to the LO main thread so MCP long-running and any
             # other worker-thread caller cannot touch UNO off-thread.
             runner = tool.execute if bypass_thread_guard else tool.execute_safe
-            timeout = float(tool.timeout) if tool.timeout else 0.0
+            timeout = float(tool.timeout or 0.0)
 
             # Invoking runner via a zero-argument closure prevents keyword parameter collisions with caller kwargs.
             def _run_tool() -> Any:

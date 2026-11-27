@@ -85,7 +85,7 @@ def install(executor: Any) -> bool:
         # A forked child (multiprocessing 'fork') has no main-thread ticker.
         os.register_at_fork(after_in_child=gc.enable)
     gc.callbacks.append(_sentinel)
-    run_in_background(_ticker_loop, executor, name="gc-ticker", daemon=True, dedicated=True)
+    run_in_background(_ticker_loop, executor, name="gc-ticker", dedicated=True)
     log.info("gc_policy: active")
     return True
 

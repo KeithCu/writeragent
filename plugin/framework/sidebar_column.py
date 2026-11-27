@@ -78,9 +78,9 @@ def apply_sidebar_height_for_width(
         eff_w = sidebar_column_width(n_width, parent_w, min_w=min_w)
 
         if panel_window is not None:
-            # Size the AWT dialog only; ChildFrame setPosSize is
-            # gtk_widget_set_size_request (a minimum) and can lock the column
-            # narrower than the pane.
+            # Size the AWT dialog only. ChildFrame setPosSize is
+            # gtk_widget_set_size_request (a minimum), so sizing the ChildFrame
+            # lets typing grow the column past the requested width.
             panel_window.setPosSize(0, 0, eff_w, current_h, _POS_SIZE_FLAGS)
 
     return (eff_w, current_h), layout_size

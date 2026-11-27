@@ -655,7 +655,7 @@ def test_grep_nearby_files_runs_uno_only_when_current(mock_resolve, mock_search,
                 err = exc
 
         with patch.object(tg, "_notify_thread_violation"):
-            t = run_in_background(worker, name="grep-uno-marshal", daemon=False)
+            t = run_in_background(worker, name="grep-uno-marshal", dedicated=True)
             t.join(timeout=5.0)
     finally:
         tg.GUARD_ON = was_guard

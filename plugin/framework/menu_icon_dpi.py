@@ -142,16 +142,13 @@ def _candidate_windows(ctx: Any = None) -> list[Any]:
         for frame in frames_to_try:
             if frame is None:
                 continue
-            for name, fn in (
-                ("getContainerWindow", frame.getContainerWindow),
-                ("getComponentWindow", frame.getComponentWindow),
-            ):
-                try:
+            try:
+                for fn in (frame.getContainerWindow, frame.getComponentWindow):
                     w = fn()
                     if w is not None:
                         wins.append(w)
-                except Exception:
-                    log.debug("menu icon DPI: %s failed", name, exc_info=True)
+            except Exception:
+                log.debug("menu icon DPI: frame window lookup failed", exc_info=True)
     except Exception:
         log.debug("candidate windows failed", exc_info=True)
     # Dedupe by id while preserving order (first wins).

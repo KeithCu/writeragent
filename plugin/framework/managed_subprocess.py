@@ -799,7 +799,6 @@ def _enqueue_reaper(item: ManagedSubprocess) -> None:
         # Set flag only after run_in_background succeeds so failed starts can retry.
         run_in_background(
             _reaper_loop,
-            daemon=True,
             name="managed-subprocess-reaper",
             dedicated=True,
         )

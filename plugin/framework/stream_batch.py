@@ -157,7 +157,7 @@ class BatchingStreamQueue:
     def __init__(self, raw_q: queue.Queue[Any], batch_interval: float) -> None:
         self._raw: queue.Queue[Any] = raw_q
         self._batch_interval: float = batch_interval
-        # Contiguous runs in arrival order, keeping THINKING ahead of CHUNK.
+        # Contiguous runs in arrival order, so a reply never shows before the [Thinking] text that came first.
         self._runs: list[tuple[StreamQueueKind, list[str]]] = []
         self._lock: threading.Lock = threading.Lock()
         self._dropped: bool = False

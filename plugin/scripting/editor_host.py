@@ -521,12 +521,12 @@ class PersistentEditor:
             generation = self._stderr_generation
             self._stderr_tail.clear()
             self._stderr_tail_chars = 0
-        self._reader_thread = run_in_background(self._read_loop, name="editor-pipe-reader", daemon=True, dedicated=True)
+        self._reader_thread = run_in_background(self._read_loop, name="editor-pipe-reader", dedicated=True)
         if proc.stderr is not None:
             def _drain() -> None:
                 self._stderr_drain_loop(proc, generation)
 
-            self._stderr_thread = run_in_background(_drain, name="editor-stderr-drain", daemon=True, dedicated=True)
+            self._stderr_thread = run_in_background(_drain, name="editor-stderr-drain", dedicated=True)
 
     def terminate(self) -> None:
         """Force terminate the subprocess and its WebEngine children.

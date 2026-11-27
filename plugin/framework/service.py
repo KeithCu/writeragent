@@ -124,9 +124,8 @@ class ServiceRegistry:
                     svc_instance = cast("Any", obj)(self)
                 else:
                     svc_instance = obj()
-                svc_name = getattr(obj, "name", None)
-                if isinstance(svc_name, str):
-                    self.register(svc_name, svc_instance)
+                # iter_named_concrete_subclasses (:84) already filters on a truthy name.
+                self.register(cast("str", getattr(obj, "name")), svc_instance)
             except Exception:
                 log.exception("Failed to instantiate service %s", obj.__name__)
 

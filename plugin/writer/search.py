@@ -1288,7 +1288,7 @@ def _regex_find_hits(pattern: str, text: str, flags: int) -> list[tuple[int, int
         except Exception as exc:
             box["err"] = exc
 
-    handle = run_in_background(_run, name="shape-text-regex", dedicated=True, daemon=True)
+    handle = run_in_background(_run, name="shape-text-regex", dedicated=True)
     _shape_regex_inflight = handle
     handle.join(_SHAPE_REGEX_TIMEOUT_SEC)
     if handle.is_alive():

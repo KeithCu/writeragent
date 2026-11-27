@@ -274,7 +274,6 @@ class AudioRecorder:
             *args,
             name="audio-rec-stop",
             dedicated=True,
-            daemon=True,
             **kwargs,
         )
 
@@ -505,7 +504,6 @@ class AudioRecorder:
                 epoch,
                 name="audio-rec-start",
                 dedicated=True,
-                daemon=True,
             )
 
         elif isinstance(effect, StartRecordingEffect):

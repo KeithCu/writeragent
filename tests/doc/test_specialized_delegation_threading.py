@@ -192,7 +192,7 @@ def test_calc_delegate_guard_proxied_doc_presence_is_identity_safe(
                 except BaseException as e:
                     err = e
 
-            t = run_in_background(worker, name="calc-delegate-uno-bool", daemon=False)
+            t = run_in_background(worker, name="calc-delegate-uno-bool", dedicated=True)
             t.join(timeout=5.0)
     finally:
         tg.GUARD_ON = was_guard
@@ -251,7 +251,7 @@ def test_writer_delegate_marshals_get_tools_to_main_thread(smol_agent_mocks):
                 err = exc
 
         with patch.object(tg, "_notify_thread_violation"):
-            t = run_in_background(worker, name="spec-get-tools", daemon=False)
+            t = run_in_background(worker, name="spec-get-tools", dedicated=True)
             t.join(timeout=5.0)
     finally:
         tg.GUARD_ON = was_guard
@@ -347,7 +347,7 @@ def test_document_research_hint_off_main_does_not_touch_runtime_uid():
                 err = e
 
         t = run_in_background(
-            worker, name="tool-async-delegate_to_subagent", daemon=False
+            worker, name="tool-async-delegate_to_subagent", dedicated=True
         )
         t.join(timeout=5.0)
     finally:
@@ -410,7 +410,7 @@ def test_document_research_delegate_off_main_does_not_touch_runtime_uid(
                 t = run_in_background(
                     worker,
                     name="tool-async-delegate_to_subagent",
-                    daemon=False,
+                    dedicated=True,
                 )
                 t.join(timeout=5.0)
     finally:
@@ -450,7 +450,7 @@ def test_writer_footnotes_list_runs_uno_only_when_current():
             except AssertionError as e:
                 err = e
 
-        t = run_in_background(worker, name="spec-footnotes", daemon=False)
+        t = run_in_background(worker, name="spec-footnotes", dedicated=True)
         t.join(timeout=3.0)
         assert err is None, f"direct UNO from worker: {err}"
         assert result is not None and result.get("status") == "ok"
@@ -490,7 +490,7 @@ def test_calc_list_sheets_runs_uno_only_when_current():
             except AssertionError as e:
                 err = e
 
-        t = run_in_background(worker, name="spec-list-sheets", daemon=False)
+        t = run_in_background(worker, name="spec-list-sheets", dedicated=True)
         t.join(timeout=3.0)
         assert err is None, f"direct UNO from worker: {err}"
         assert result is not None and result.get("status") == "ok"

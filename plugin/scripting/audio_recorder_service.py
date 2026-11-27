@@ -354,7 +354,7 @@ class Recording:
                 except Exception:
                     log.exception("Recording stdout callback failed")
 
-        self.monitor = run_in_background(_reader, name="audio-rec-stdout-monitor", daemon=True, dedicated=True)
+        self.monitor = run_in_background(_reader, name="audio-rec-stdout-monitor", dedicated=True)
 
     def terminate(self) -> None:
         """Best-effort shutdown of a recording child."""

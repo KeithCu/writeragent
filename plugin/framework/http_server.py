@@ -426,7 +426,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
             self.executor.shutdown(wait=True, cancel_futures=False)
             done.set()
 
-        run_in_background(_wait, name="http-drain", daemon=True, dedicated=True)
+        run_in_background(_wait, name="http-drain", dedicated=True)
         if not done.wait(timeout):
             log.warning("HTTP request drain exceeded %.0fs; abandoning in-flight handlers", timeout)
 

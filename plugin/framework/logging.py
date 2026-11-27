@@ -806,7 +806,7 @@ def start_watchdog_thread(ctx: Any, status_control: Any = None) -> None:
         def _watchdog_job(status: Any) -> None:
             _watchdog_loop(status)
 
-        run_in_background(_watchdog_job, status_control, name="watchdog", daemon=True, dedicated=True)
+        run_in_background(_watchdog_job, status_control, name="watchdog", dedicated=True)
         return True
 
     process_global("watchdog", _start)

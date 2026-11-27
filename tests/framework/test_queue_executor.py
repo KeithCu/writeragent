@@ -68,8 +68,8 @@ def test_call_background(mock_poke, mock_get_async):
             results[val] = res
         except Exception as e:
             exceptions[val] = e
-    t1 = run_in_background(bg_thread, 5, daemon=False)
-    t2 = run_in_background(bg_thread, 0, daemon=False)
+    t1 = run_in_background(bg_thread, 5, dedicated=True)
+    t2 = run_in_background(bg_thread, 0, dedicated=True)
     t1.join(timeout=2.0)
     t2.join(timeout=2.0)
     assert results.get(5) == 50
@@ -95,7 +95,7 @@ def test_call_timeout(mock_poke, mock_get_async):
             main.call(slow_func, timeout=0.1)
         except Exception as e:
             exc_caught = e
-    t = run_in_background(bg_thread, daemon=False)
+    t = run_in_background(bg_thread, dedicated=True)
     t.join(timeout=1.0)
     assert isinstance(exc_caught, TimeoutError)
     assert 'slow_func' in str(exc_caught)

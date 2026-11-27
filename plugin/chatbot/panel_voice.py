@@ -608,7 +608,7 @@ class PanelVoiceController:
                 force_queue=True,
             )
 
-        run_in_background(_worker, daemon=True, name="stt-transcribe")
+        run_in_background(_worker, name="stt-transcribe")
         return True
 
     def _put_stopped_transcript_in_ask(self, transcript: str, query_text: str) -> None:
