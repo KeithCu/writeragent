@@ -68,17 +68,13 @@ class _DownloadVecPackListener(BaseActionListener):
 def _configure_librepy_settings_chrome(dlg: Any) -> None:
     """Hide General/Image tabs and show Python-only settings chrome."""
     for tab_id in ("btn_tab_chat", "btn_tab_image"):
-        tab = get_optional(dlg, tab_id)
-        if tab is not None:
-            set_control_visible(tab, False)
+        set_control_visible(get_optional(dlg, tab_id), False)
 
     scripting_tab = get_optional(dlg, "btn_tab_scripting")
     if scripting_tab is not None:
         scripting_tab.addActionListener(TabListener(dlg, _SCRIPTING_TAB_PAGE))
 
-    download_label = get_optional(dlg, "label_scripting__download_audio_binaries")
-    if download_label is not None:
-        set_control_text(download_label, _("Download Cython serialization binary:"))
+    set_control_text(get_optional(dlg, "label_scripting__download_audio_binaries"), _("Download Cython serialization binary:"))
 
 
 def open_librepy_settings(ctx: Any) -> None:
@@ -93,9 +89,7 @@ def open_librepy_settings(ctx: Any) -> None:
         msgbox(ctx, _("Python Settings"), _("Could not open Settings.") + detail, box_type=3)
         return
 
-    # SettingsDialog.show wraps create, populate, and execute in one
-    # try/finally that disposes. Running Step, chrome, populate, and the
-    # title before that try leaked the UNO dialog on a raise.
+    # Step, chrome, populate and the title all run inside the try so a raise in any of them still disposes the UNO dialog.
     # UNO multi-page dialogs use model.Step (not Page); setPropertyValue("Page") fails on Linux.
     attached: list[tuple[Any, Any]] = []
     try:
@@ -132,9 +126,7 @@ def open_librepy_settings(ctx: Any) -> None:
             populated.append((ctrl, field))
 
         while dlg.execute():
-            result: dict[str, Any] = {}
-            for ctrl, field in populated:
-                result[field["name"]] = read_settings_control(ctrl, field)
+            result = {field["name"]: read_settings_control(ctrl, field) for ctrl, field in populated}
             try:
                 apply_field_specs_result(result, field_specs)
                 break

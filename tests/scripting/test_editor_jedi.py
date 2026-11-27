@@ -167,7 +167,8 @@ def test_monaco_api_get_completions_drops_stale_request(monkeypatch):
     assert res == {"items": []}
 
 
-def test_get_completions_returns_empty_while_a_call_is_in_flight():
+def test_get_completions_returns_empty_while_a_call_is_in_flight(monkeypatch):
+    monkeypatch.setattr(ej, "jedi", MagicMock())
     api = ej.MonacoEditorApi()
     mock_jedi = MagicMock()
 
@@ -226,6 +227,7 @@ def test_get_completions_returns_empty_while_a_call_is_in_flight():
 
 
 def test_get_completions_abandons_a_stuck_worker(monkeypatch):
+    monkeypatch.setattr(ej, "jedi", MagicMock())
     monkeypatch.setattr(ej, "_JEDI_CALL_TIMEOUT_SEC", 0.05)
 
     api = ej.MonacoEditorApi()

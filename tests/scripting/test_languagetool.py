@@ -16,7 +16,7 @@ from typing import Any
 import pytest
 
 from plugin.framework.grammar_rule_ids import LANGUAGETOOL_RULE_PREFIX, make_rule_identifier
-from plugin.scripting.venv.languagetool import _match_wrong_text, run_languagetool_check
+from plugin.scripting.venv.languagetool import run_languagetool_check
 
 
 def test_run_languagetool_check_prefixes_rule_identifier() -> None:
@@ -47,30 +47,35 @@ def test_run_languagetool_check_prefixes_rule_identifier() -> None:
 
 
 def test_empty_matched_text_is_not_replaced_by_lenient_slice() -> None:
-    """``matched_text=""`` must not fall through to an out-of-range context slice."""
-    negative = SimpleNamespace(
-        matched_text="",
-        context="hello world",
-        offset_in_context=-1,
-        error_length=5,
-    )
-    assert _match_wrong_text(negative) == ""
-
-    truncated = SimpleNamespace(
-        matched_text="",
-        context="hello",
-        offset_in_context=1,
-        error_length=100,
-    )
-    assert _match_wrong_text(truncated) == ""
-
-    preferred = SimpleNamespace(
-        matched_text="teh",
-        context="xxxx",
-        offset_in_context=0,
-        error_length=4,
-    )
-    assert _match_wrong_text(preferred) == "teh"
+    """``matched_text=""`` reaches the error as ``""`` and is not replaced."""
+    matches = [
+        SimpleNamespace(
+            matched_text="",
+            replacements=[],
+            offset=0,
+            error_length=0,
+            message="msg",
+            sentence="hello world",
+            rule_id="R1",
+        ),
+        SimpleNamespace(
+            matched_text="teh",
+            replacements=["the"],
+            offset=0,
+            error_length=3,
+            message="msg",
+            sentence="teh",
+            rule_id="R2",
+        ),
+    ]
+    tool = MagicMock()
+    tool.check.return_value = matches
+    with (
+        patch.dict(sys.modules, {"language_tool_python": MagicMock()}),
+        patch("plugin.scripting.venv.languagetool._LT_CACHE", {"en-US": tool}),
+    ):
+        res = run_languagetool_check("hello world", "en-US")
+    assert [e["wrong"] for e in res["errors"]] == ["", "teh"]
 
 
 def test_lt_cache_constructs_one_client_under_contention() -> None:

@@ -93,7 +93,7 @@ def inspect_input(val: Any) -> InspectedInput:
 
         rect_grid = ensure_rectangular_2d(val)
         nrows = len(rect_grid)
-        ncols = len(rect_grid[0]) if rect_grid else 0
+        ncols = len(rect_grid[0])
 
         if nrows == 1 and ncols == 1:
             # 1x1 CalcRange / [[v]] is treated as scalar for single-cell formulas
@@ -115,7 +115,7 @@ def rewrap_output(results: list[Any], inspected: InspectedInput) -> Any:
     - M x N grid -> [[...], [...]].
     """
     if inspected.is_scalar:
-        return results[0] if results else ""
+        return results[0]
     if inspected.is_python_1d:
         return list(results)
     if inspected.ncols == 1:
@@ -126,10 +126,7 @@ def rewrap_output(results: list[Any], inspected: InspectedInput) -> Any:
     # M x N grid
     nrows = inspected.nrows
     ncols = inspected.ncols
-    padded_results = list(results)
-    if len(padded_results) < nrows * ncols:
-        padded_results.extend([""] * (nrows * ncols - len(padded_results)))
-    return [padded_results[i * ncols : (i + 1) * ncols] for i in range(nrows)]
+    return [results[i * ncols : (i + 1) * ncols] for i in range(nrows)]
 
 
 def broadcast_args(
@@ -139,7 +136,7 @@ def broadcast_args(
     """Inspect arguments and broadcast scalars across vector length.
 
     Returns:
-        (primary_inspected, broadcasted_args, broadcasted_kwargs)
+        BroadcastResult (primary input, broadcast args and kwargs, and which args and kwargs are vectors).
     Raises:
         ValueError: If vector lengths mismatch, M×N grid is paired with a non-equal-shape vector,
             or vector orientations mismatch (e.g. 1×N row vs N×1 column).

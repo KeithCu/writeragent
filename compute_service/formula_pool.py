@@ -30,8 +30,7 @@ from compute_service import error_codes as ec
 from compute_service.config import COMPUTE_MAX_PAYLOAD_BYTES, DEFAULT_SETTINGS, ComputeSettings
 from compute_service.json_forward import ExecuteRequestError, validate_session_id
 from compute_service.worker_base import BaseProcessPool, BaseProcessWorker, PoolSingleton, bind_pool_singleton
-from plugin.framework.child_runtime import Deadline
-from plugin.framework.child_runtime import error_dict
+from plugin.framework.child_runtime import Deadline, error_dict
 from plugin.scripting.config_limits import HOST_IPC_READ_GRACE_SEC
 
 if TYPE_CHECKING:
@@ -57,9 +56,9 @@ _WORKER_SCRIPT = os.path.join(_SCRIPT_DIR, "formula_worker.py")
 class _Session:
     """One shared kernel.
 
-    ``child`` is the live process that owned the namespace. Identity replaces
-    the old pid: a respawn installs a different ``Child`` even when the kernel
-    has not exited.
+    ``child`` is the live process that owned the namespace. Keyed by object
+    identity rather than pid so a respawn installs a different ``Child`` even
+    when the kernel has not exited.
     """
 
     worker: BaseProcessWorker
@@ -90,8 +89,7 @@ class FormulaProcessPool(BaseProcessPool):
     def __init__(self, settings: ComputeSettings | None = None) -> None:
         cfg = DEFAULT_SETTINGS if settings is None else settings
 
-        # Session counts are derived from this map. A parallel index had to
-        # stay in sync across set, delete, pop, and clear.
+        # Session counts are derived from this map; there is no second index to keep in sync.
         self._sessions: dict[str, _Session] = {}
         self._session_locks: dict[str, _SessionGate] = {}
         self._recycling: set[BaseProcessWorker] = set()
@@ -229,7 +227,7 @@ class FormulaProcessPool(BaseProcessPool):
         if clean_workers:
             chosen = clean_workers[0]
         else:
-            chosen = min(self._idle, key=lambda w: self._worker_session_count(w))
+            chosen = min(self._idle, key=self._worker_session_count)
         self._idle.pop(chosen, None)
         return chosen
 
@@ -359,7 +357,7 @@ class FormulaProcessPool(BaseProcessPool):
         the remaining budget rounded up, and the host waits alarm + grace so
         the alarm, not a SIGKILL, ends a long cell. The worker stamps
         ``session_reset`` into the envelope and body when ``expect_namespace``
-        is set and it created the namespace (formula_worker.py:148).
+        is set and it created the namespace (`formula_worker._handle_request`, the `json_forward_envelope` call).
         """
         child_alarm = math.ceil(clock.run_for())
         payload["timeout_sec"] = child_alarm
@@ -378,11 +376,10 @@ class FormulaProcessPool(BaseProcessPool):
         """Record the session (the only insert into ``_sessions``) after a cell ran, then release *leased*."""
         try:
             with self._cond:
-                result_code = result.get("code") if isinstance(result, dict) else None
                 if (
                     session_id is not None
                     and result is not None
-                    and result_code not in _UNRUN_RESULT_CODES
+                    and result.get("code") not in _UNRUN_RESULT_CODES
                 ):
                     now = time.monotonic()
                     sess = self._sessions.get(session_id)
@@ -435,10 +432,9 @@ class FormulaProcessPool(BaseProcessPool):
         except ExecuteRequestError as exc:
             return error_dict(ec.INVALID_REQUEST, str(exc), req_id=req_id)
 
-        clock = deadline
         # Before select, so a miss does not reserve a session or consume the
         # lost-session marker.
-        if clock.usable() is None:
+        if deadline.usable() is None:
             return error_dict(ec.QUEUE_TIMEOUT, "Request deadline expired before a worker lease.", req_id=req_id)
 
         payload: dict[str, Any] = {"id": req_id, "code": code, "session_id": session_id, "init_script": init_script}
@@ -446,7 +442,7 @@ class FormulaProcessPool(BaseProcessPool):
             payload["data_json"] = bytes(data_json)
 
         gate = (
-            self._session_gate(session_id, max(clock.left(), 0.0))
+            self._session_gate(session_id, max(deadline.left(), 0.0))
             if session_id is not None
             else nullcontext(True)  # None would look like a gate miss
         )
@@ -455,11 +451,11 @@ class FormulaProcessPool(BaseProcessPool):
                 return error_dict(ec.WORKER_POOL_BUSY, _SESSION_GATE_BUSY, req_id=req_id)
             leased: BaseProcessWorker | None = None
             admission: _SharedAdmission | None = None
+            lease_budget = max(deadline.left(), 0.0)
             if session_id is not None:
                 admission = self._admit_shared_session(session_id)
                 if admission.worker is None:
                     return error_dict(ec.SERVICE_SHUTDOWN, "Formula compute pool is shutting down.", req_id=req_id)
-                lease_budget = max(clock.left(), 0.0)
                 leased = self.lease_specific(admission.worker, timeout_sec=lease_budget)
                 if leased is not None:
                     with self._cond:
@@ -468,7 +464,6 @@ class FormulaProcessPool(BaseProcessPool):
                             assert row.worker is leased, "shared session row worker must match leased worker"
                 busy_err = "Sticky session worker is busy and request timed out waiting for worker lease."
             else:
-                lease_budget = max(clock.left(), 0.0)
                 leased = self.lease_any(timeout_sec=lease_budget)
                 busy_err = "All formula workers are currently busy and request timed out waiting for worker lease."
 
@@ -478,13 +473,13 @@ class FormulaProcessPool(BaseProcessPool):
             result: dict[str, Any] | None = None
             try:
                 # The lease wait spent part of the clock.
-                if clock.usable() is None:
+                if deadline.usable() is None:
                     result = error_dict(ec.QUEUE_TIMEOUT, "Request deadline expired before a worker lease.", req_id=req_id)
                     return result
                 result = self._run_execution(
                     leased,
                     payload=payload,
-                    clock=clock,
+                    clock=deadline,
                     req_id=req_id,
                     expect_namespace=(admission is not None and admission.had_binding),
                 )
@@ -497,8 +492,4 @@ class FormulaProcessPool(BaseProcessPool):
 _POOL_SINGLETON: PoolSingleton[FormulaProcessPool] = PoolSingleton()
 
 
-def _new_formula_pool(settings: ComputeSettings | None = None) -> FormulaProcessPool:
-    return FormulaProcessPool(settings=settings)
-
-
-get_formula_pool, shutdown_formula_pool = bind_pool_singleton(_POOL_SINGLETON, _new_formula_pool)
+get_formula_pool, shutdown_formula_pool = bind_pool_singleton(_POOL_SINGLETON, FormulaProcessPool)

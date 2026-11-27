@@ -291,7 +291,7 @@ def textjoin(delim: Any, ignore_empty: Any, *args: Any) -> str | float:
     try:
         skip_empty = as_nonzero(ignore_empty)
     except (ValueError, TypeError, OverflowError):
-        # Calc shows #VALUE! for a text flag; this returns #VALUE!, pinned by test_flag_strings_follow_getdouble.
+        # A text flag is #VALUE!, as in Calc (pinned by test_flag_strings_follow_getdouble).
         return "#VALUE!"
     parts = []
     for arg in args:
@@ -301,10 +301,9 @@ def textjoin(delim: Any, ignore_empty: Any, *args: Any) -> str | float:
         values = _flatten_range(arg) if _is_calc_range(arg) else np.asarray(arg, dtype=object).ravel()
         for val in values:
             # Formula errors stop TEXTJOIN like Calc; blanks use is_blank_value, not is_missing_value, so #VALUE! is not silently dropped.
-            if is_calc_error(val):
-                if isinstance(val, str):
-                    return val.strip()
-                return float(val)
+            err = first_error([val])
+            if err is not None:
+                return err
             if is_blank_value(val):
                 if not skip_empty:
                     parts.append("")
@@ -531,7 +530,7 @@ def _unique_key(item: Any) -> Any:
     if isinstance(item, (int, float, np.integer, np.floating)):
         try:
             number = float(item)
-        except (ValueError, TypeError, OverflowError):
+        except OverflowError:
             return ("o", item)
         if math.isnan(number):
             return ("nan",)
@@ -565,7 +564,7 @@ def unique(arr: Any, by_col: bool = False, unique_only: bool = False) -> list[An
         by_column = as_nonzero(by_col)
         once = as_nonzero(unique_only)
     except (ValueError, TypeError, OverflowError):
-        # Calc shows #VALUE! for a text flag; this returns #VALUE!, pinned by test_flag_strings_follow_getdouble.
+        # A text flag is #VALUE!, as in Calc (pinned by test_flag_strings_follow_getdouble).
         return "#VALUE!"
     # dtype=object. A bare asarray makes 1 and '1' the same string.
     data = np.asarray(arr, dtype=object)
@@ -845,26 +844,28 @@ _MATCH_MODES = (-1, 0, 1, 2)
 _SEARCH_MODES = (-2, -1, 1, 2)
 
 
-def _modes_supported(match_mode: int | float, search_mode: int | float) -> bool:
+def _modes_supported(match_mode: int | float, search_mode: int | float) -> tuple[int, int] | None:
     # ScXLookup / ScXMatch (interpr1.cxx) validate match_mode and search_mode before searching (callers return Err:504);
     # mode 3 (regex) is valid in Calc but gets Err:504 here because it is not supported.
-    return int(float(match_mode)) in _MATCH_MODES and int(float(search_mode)) in _SEARCH_MODES
+    mm = int(float(match_mode))
+    sm = int(float(search_mode))
+    return (mm, sm) if mm in _MATCH_MODES and sm in _SEARCH_MODES else None
 
 
 def _find_match_index(
     lookup_val: Any,
     lookup_arr: Any,
-    match_mode: int | float = 0,
-    search_mode: int | float = 1,
+    match_mode: int = 0,
+    search_mode: int = 1,
 ) -> int | None:
     """Find 0-based index matching Excel lookup semantics (exact, smaller, larger, wildcard)."""
     # dtype=object keeps numbers as numbers. Text matches case-insensitively.
     # A text match_mode or search_mode is left to the worker exception path, which returns #VALUE!.
     l_flat = np.asarray(lookup_arr, dtype=object).ravel()
     indices = list(range(len(l_flat)))
-    if int(float(search_mode)) == -1:
+    if search_mode == -1:
         indices.reverse()
-    mm = int(float(match_mode))
+    mm = match_mode
 
     def _is_exact(cell: Any, target: Any) -> bool:
         if isinstance(cell, str) and isinstance(target, str):
@@ -954,8 +955,10 @@ def vlookup(lookup_val: Any, table: Any, col_index: Any, is_sorted: Any = True) 
 
 
 def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any = OMITTED, match_mode: int | float = 0, search_mode: int | float = 1) -> Any:
-    if not _modes_supported(match_mode, search_mode):
+    modes = _modes_supported(match_mode, search_mode)
+    if modes is None:
         return "Err:504"
+    mm, sm = modes
     # dtype=object keeps a mixed return such as ["x", 5] from turning into a
     # text array, so the hit is the number 5, not "5". The lookup path keeps
     # numbers as numbers the same way.
@@ -965,7 +968,7 @@ def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any
         return "Err:504"
     lookup_val = cell_value(lookup_val)
     err = first_error([lookup_val])
-    best_idx = None if err is not None else _find_match_index(lookup_val, lookup_arr, match_mode, search_mode)
+    best_idx = None if err is not None else _find_match_index(lookup_val, lookup_arr, mm, sm)
     if best_idx is None:
         # ScXLookup pushes #N/A (or the lookup error) when the 4th argument is omitted.
         # An explicit None is still returned.
@@ -980,13 +983,15 @@ def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any
 
 
 def xmatch(lookup_val: Any, lookup_arr: Any, match_mode: int | float = 0, search_mode: int | float = 1) -> float | str:
-    if not _modes_supported(match_mode, search_mode):
+    modes = _modes_supported(match_mode, search_mode)
+    if modes is None:
         return ILLEGAL_PARAMETER_NAN
+    mm, sm = modes
     lookup_val = cell_value(lookup_val)
     err = first_error([lookup_val])
     if err is not None:
         return err
-    best_idx = _find_match_index(lookup_val, lookup_arr, match_mode, search_mode)
+    best_idx = _find_match_index(lookup_val, lookup_arr, mm, sm)
     if best_idx is not None:
         return float(best_idx + 1)
     return NA_NAN
@@ -1018,8 +1023,6 @@ def xnpv(rate: Any, values: Any, dates: Any) -> float:
 
 
 def _is_calc_range(arg: Any) -> bool:
-    if isinstance(arg, (str, bytes, bytearray)):
-        return False
     if isinstance(arg, np.ndarray):
         return arg.ndim >= 1
     return isinstance(arg, (list, tuple, CalcRange))

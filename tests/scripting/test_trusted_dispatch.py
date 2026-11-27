@@ -219,11 +219,11 @@ def test_text_dispatch_reaches_one_branch_per_registry_name(monkeypatch: pytest.
     from plugin.scripting.venv.trusted_dispatch import run_domain
 
     monkeypatch.setattr(text_analytics, "check_diagnostics", lambda lang=None: {"stub": "diag"})
-    monkeypatch.setattr(text_analytics, "analyze_text", lambda text, lang=None, context=None: {"status": "ok", "stub": "full"})
+    monkeypatch.setattr(text_analytics, "analyze_text", lambda text, lang=None: {"status": "ok", "stub": "full"})
     monkeypatch.setattr(
         text_analytics,
         "_nlp_result",
-        lambda text, lang, context, extract: {"status": "ok", "result": extract(None)},
+        lambda text, lang, extract: {"status": "ok", "result": extract(None)},
     )
     monkeypatch.setattr(text_analytics, "_extract_readability", lambda doc: ({"r": 1}, {}))
     monkeypatch.setattr(text_analytics, "_extract_entities", lambda doc: [])

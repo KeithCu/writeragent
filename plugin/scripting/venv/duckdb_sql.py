@@ -91,12 +91,7 @@ def _duckdb_version_tuple() -> tuple[int, ...]:
 
 
 def _is_duckdb_error(exc: BaseException) -> bool:
-    try:
-        import duckdb  # type: ignore[import-not-found]
-
-        return isinstance(exc, duckdb.Error)
-    except Exception:
-        return False
+    return isinstance(exc, _require_duckdb().Error)
 
 
 def _flat_ext(path: str) -> str:
@@ -114,8 +109,8 @@ def unsupported_flat_type_message(filename: str, ext: str) -> str:
 
 
 def _assert_under_scoped_dir(scoped_dir: str, path: str) -> str:
-    base = os.path.realpath(os.path.abspath(scoped_dir))
-    rp = os.path.realpath(os.path.abspath(path))
+    base = os.path.realpath(scoped_dir)
+    rp = os.path.realpath(path)
     if rp == base or not rp.startswith(base + os.sep):
         raise SqlError(
             "READONLY_VIOLATION",
@@ -145,7 +140,7 @@ def resolve_flat_file_path(scoped_dir: str, spec: str) -> str:
     ext = _flat_ext(bn)
     if ext not in FLAT_FILE_EXTS:
         raise SqlError("UNSUPPORTED_FILE_TYPE", unsupported_flat_type_message(bn, ext))
-    candidate = os.path.join(os.path.realpath(os.path.abspath(scoped_dir)), bn)
+    candidate = os.path.join(os.path.realpath(scoped_dir), bn)
     if not os.path.isfile(candidate):
         raise SqlError(
             "MISSING_FILE",
@@ -302,7 +297,7 @@ def _memory_view_definition(raw: Any, name: str) -> str | None:
     )
     try:
         rows = raw.execute(sql, [name]).fetchall()
-    except Exception:
+    except _require_duckdb().Error:
         return None
     if not rows:
         return None
@@ -510,7 +505,7 @@ class GuardedDuckDBConnection:
             return
         if _duckdb_version_tuple() < (1, 3):
             return
-        base = os.path.realpath(os.path.abspath(chosen))
+        base = os.path.realpath(chosen)
         if self.__jailed_folder is not None and self.__jailed_folder != base:
             log.warning("Cannot widen jailed DuckDB folder from %r to %r", self.__jailed_folder, base)
             return
@@ -857,7 +852,7 @@ def _execute(
             "scoped_dir is required for file-based queries (resolved on host)",
         )
 
-    base = os.path.realpath(os.path.abspath(scoped_dir)) if scoped_dir else None
+    base = os.path.realpath(scoped_dir) if scoped_dir else None
 
     validated: list[str] = []
     resolved_flat = dict(flat_files) if flat_files else {}
@@ -952,7 +947,7 @@ def run_sql(
     *,
     session_id: str | None = None,
 ) -> dict[str, Any]:
-    """Guarded SQL for ``=PY()`` — returns honesty dict (200-row cap); converts SqlError to error dict."""
+    """Guarded SQL for ``=PY()``: a result dict capped at ``MAX_TABLE_ROWS`` rows with ``truncated`` / ``warning`` set when cut; a SqlError becomes an error dict."""
     helper = "run_sql"
     _require_duckdb(helper)
 
@@ -993,6 +988,7 @@ def query_folder_sql(
     """Run read-only SQL against scoped folder files + preloaded tables (from sibling spreadsheets or live ranges).
 
     - preloaded: dict table_name -> 2D grid data (from host LO reads for ranges/office files).
+      ``'data'`` is conventional for sheet ranges.
     - files: list or dict of basenames. Each basename is copied into an
       in-memory table, and its stem (``sales`` for ``sales.csv``) becomes a
       view of it unless that name is already taken (logged and skipped, see
@@ -1001,7 +997,6 @@ def query_folder_sql(
     - session_id: shared-kernel workbook id. When persistable (or the current
       ``=PY()`` sandbox session is), reuse one connection and keep tables
       that this call does not re-register. Isolated / omitted: per-request.
-    'data' is conventional for sheet ranges.
 
     Results longer than ``MAX_TABLE_ROWS`` set ``truncated=True`` and a visible
     ``warning`` / ``flags`` / ``message`` — do not treat ``rows`` as complete.

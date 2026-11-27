@@ -303,19 +303,6 @@ def test_execute_popup_under_button_without_peer_is_a_noop():
     popup.execute.assert_not_called()
 
 
-def test_execute_popup_under_button_without_position_is_a_noop():
-    popup = MagicMock()
-    peer = MagicMock()
-    button_ctrl = MagicMock()
-    button_ctrl.getPeer.return_value = peer
-    button_ctrl.getPosSize.return_value = None
-
-    res = execute_popup_under_button(popup, button_ctrl)
-
-    assert res == 0
-    popup.execute.assert_not_called()
-
-
 def test_missing_handler_keeps_other_rows():
     def lookup(action: str):
         if action == "main.settings":

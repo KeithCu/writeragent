@@ -28,12 +28,9 @@ from compute_service import error_codes as ec
 from compute_service.config import DEFAULT_SETTINGS
 from compute_service.json_egress import normalize_execute_response
 from compute_service.json_forward import json_forward_envelope
-from compute_service.worker_stdio import configure_compute_worker_env, run_compute_worker
+from compute_service.worker_stdio import run_compute_worker
 from plugin.framework.child_runtime import error_dict
 from plugin.scripting.session_key import SessionKey, SessionKind
-
-# Default math/OpenMP thread pools to 1 thread early before any heavy math imports.
-configure_compute_worker_env()
 
 from plugin.framework.uno_bootstrap import register_alias_importer
 
@@ -54,7 +51,7 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
     action = req.get("action")
 
     if action == "check_dependencies":
-        packages = req.get("packages") or ["numpy", "sympy", "pandas"]
+        packages = req["packages"]
         missing: list[str] = []
         # find_spec locates a package without importing it. Importing
         # scipy and pandas here cost startup time for a check that
@@ -82,7 +79,7 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
             from plugin.scripting.venv.venv_sandbox import reset_sandbox_session
 
             res = reset_sandbox_session(session_id)
-            if req_id is not None and isinstance(res, dict):
+            if req_id is not None:
                 res["id"] = req_id
             return res
         return {"id": req_id, "status": "ok"}

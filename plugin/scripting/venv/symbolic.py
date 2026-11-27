@@ -103,10 +103,10 @@ def _reject_unsafe_expression(text: str) -> None:
     """Reject source that ``parse_expr`` would eval.
 
     ``parse_expr`` compiles the string and evals it. A restricted global dict
-    still runs attribute chains such as ``(1).__class__`` before we can look
-    at the result, and ``__subclasses__()`` had already executed on that path.
-    Dunder names are not math. A dot is a decimal only when the character
-    before it or after it is a digit (``1.5``, ``.5``, ``1.``, ``x.5``).
+    still runs attribute chains such as ``(1).__class__.__subclasses__()``
+    before the result can be inspected. Dunder names are not math. A dot is
+    a decimal only when the character before it or after it is a digit
+    (``1.5``, ``.5``, ``1.``, ``x.5``).
     """
     if "__" in text:
         raise HelperError("PARSE_ERROR", "Dunder attribute access is not allowed in expressions.")
@@ -153,10 +153,9 @@ def _parse_expression(sp: Any, expr: Any, *, variable: Any | None = None) -> Any
                 raise HelperError("PARSE_ERROR", f"Undefined function in expression: {', '.join(names)}") from exc
         raise HelperError("PARSE_ERROR", f"Could not parse expression: {exc}") from exc
 
-    # parse_expr returns a Python str, list, tuple, or dict for quotes, brackets,
-    # and braces, and returns the Float class for 1.0.func. Those objects have no
-    # .atoms. The wrapper reported SYMBOLIC_ERROR with 'str' object has no attribute
-    # 'atoms'. They are not expressions, so the failure is PARSE_ERROR.
+    # parse_expr returns a Python str, list, tuple or dict for quotes, brackets
+    # and braces, and the Float class for 1.0.func. Those have no .atoms, so
+    # reject them here as PARSE_ERROR.
     if not isinstance(parsed, sp.Basic):
         raise HelperError("PARSE_ERROR", "Not a math expression.")
 
@@ -299,11 +298,10 @@ def solve_equation(sp: Any, *, equation: Any, variable: Any = "x") -> dict[str, 
         solutions = [solutions]
 
     # sp.solve returns [] when nothing is a root (exp(x), 1 = 0) and when every
-    # complex value works (x = x, 0). The success dict then had latex "", and
-    # Writer raised "Symbolic helper returned no LaTeX." solveset on that empty list
-    # separates EmptySet (NO_SOLUTION) from any other set, which is returned as
-    # one latex value so egress has a formula. A non-empty solve list is still the
-    # explicit roots (sin(x) stays 0, pi).
+    # complex value works (x = x, 0), which would leave latex empty. solveset on
+    # that empty list separates EmptySet (NO_SOLUTION) from any other set, which
+    # is returned as one latex value so egress has a formula. A non-empty solve
+    # list is still the explicit roots (sin(x) stays 0, pi).
     if not solutions:
         solution_set = sp.solveset(target, sym, domain=sp.S.Complexes)
         if solution_set == sp.S.EmptySet:
@@ -312,8 +310,8 @@ def solve_equation(sp: Any, *, equation: Any, variable: Any = "x") -> dict[str, 
     else:
         exprs = solutions
     latex = ", ".join(str(sp.latex(expr)) for expr in exprs)
-    text_sol = ", ".join(str(expr) for expr in exprs)
     solution_strs = [str(expr) for expr in exprs]
+    text_sol = ", ".join(solution_strs)
     return ok_result(
         "solve_equation",
         latex=latex,

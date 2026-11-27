@@ -69,7 +69,7 @@ def _clean_str(val: Any) -> str | None:
     return val if isinstance(val, str) and val.strip() else None
 
 
-def emit_heartbeat(stream: BinaryIO | Any, payload: dict[str, Any]) -> None:
+def emit_heartbeat(stream: BinaryIO, payload: dict[str, Any]) -> None:
     # Heartbeat and result frames share _tool_call_lock with exchange_tool_call.
     # write_all's header and payload are separate writes; a second thread in
     # a host tool_call would otherwise split the length prefix. The lock is not
@@ -80,7 +80,7 @@ def emit_heartbeat(stream: BinaryIO | Any, payload: dict[str, Any]) -> None:
     )
 
 
-def write_result_frame(stream: BinaryIO | Any, response: dict[str, Any]) -> None:
+def write_result_frame(stream: BinaryIO, response: dict[str, Any]) -> None:
     """Write the terminal result frame for a heartbeat-enabled worker request."""
     frame = dict(response)
     frame["frame_type"] = FRAME_RESULT
@@ -91,7 +91,7 @@ def _handle_trusted_action(
     request: dict[str, Any],
     data: dict[str, Any],
     *,
-    stdout: Any | None = None,
+    stdout: BinaryIO | None = None,
 ) -> dict[str, Any] | None:
     """Dispatch run_trusted_action via the declarative registry. None means the terminal frame is already written."""
     domain = str(data.get("domain") or "")
@@ -105,6 +105,7 @@ def _handle_trusted_action(
         else:
             heartbeat_fn = None
             if emit_result_frame and wiring.supports_heartbeat:
+                assert stdout is not None
                 heartbeat_fn = partial(emit_heartbeat, stdout)
             result = wiring.dispatch(data, heartbeat_fn=heartbeat_fn)
             resp = {"status": "ok", "result": result}
@@ -134,7 +135,7 @@ def _handle_trusted_action(
     return resp
 
 
-def _action_ppt_master_turn(request: dict[str, Any]) -> dict[str, Any] | None:
+def _action_ppt_master_turn(request: dict[str, Any]) -> dict[str, Any]:
     # Lazy (weight): the ppt-master agent stack loads only for this action.
     from plugin.ppt_master.venv.runner import run_turn
 
@@ -148,7 +149,7 @@ def _action_ppt_master_turn(request: dict[str, Any]) -> dict[str, Any] | None:
         return error_result(message=str(exc), with_traceback=True)
 
 
-def _action_execute(request: dict[str, Any]) -> dict[str, Any] | None:
+def _action_execute(request: dict[str, Any]) -> dict[str, Any]:
     # Lazy (weight): venv_sandbox loads the smolagents executor; importing this harness as a library
     # or serving only trusted actions must not
     # (test_harness_library_import_does_not_claim_or_load_sandbox).
@@ -286,9 +287,9 @@ def main() -> None:
         # exception is a terminal error frame with a traceback. Only a read
         # that desyncs the stream (exchange_tool_call reading a host reply)
         # ends the loop.
-        lpe = sys.modules.get(_LPE_MODULE)
+        lpe: Any = sys.modules.get(_LPE_MODULE)
         if lpe is not None:
-            setattr(lpe, "abandoned_timeout", False)
+            lpe.abandoned_timeout = False
 
         try:
             defer_token = DEFER_TIMEOUT_FINALIZE.set(True)
@@ -344,8 +345,8 @@ def main() -> None:
         if lpe is not None:
             # Process backstop: sets abandoned_timeout before os._exit when a pool future outlives the frame.
             lpe.finalize_thread_pool_timeout()
-            if getattr(lpe, "abandoned_timeout", False):
-                setattr(lpe, "abandoned_timeout", False)
+            if lpe.abandoned_timeout:
+                lpe.abandoned_timeout = False
                 os._exit(1)
 
 

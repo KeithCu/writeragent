@@ -76,19 +76,14 @@ _TD64_US_PER_COUNT: dict[str, fractions.Fraction] = {
 
 
 def _timedelta64_to_stdlib(value: Any) -> datetime.timedelta | None:
-    """Convert numpy.timedelta64 to datetime.timedelta or None.
-
-    Converts numpy timedelta64 to datetime.timedelta via the microsecond table when pandas is absent or rejects the unit, so wire values are durations rather than raw integer counts.
-    """
-    item_fn = getattr(value, "item", None)
-    item = item_fn() if callable(item_fn) else None
+    """numpy.timedelta64 as datetime.timedelta (None for NaT), through the microsecond table, so wire values are durations and not raw integer counts."""
+    item = value.item()
     if str(value) == "NaT" or item is None:
         return None
     if isinstance(item, datetime.timedelta):
         return item
 
-    dtype = getattr(value, "dtype", None)
-    dtype_name = getattr(dtype, "name", "")
+    dtype_name = getattr(value.dtype, "name", "")
     if dtype_name == "timedelta64":
         unit = "ns"
     elif dtype_name.startswith("timedelta64[") and dtype_name.endswith("]"):
@@ -330,7 +325,7 @@ def to_wire(
         # 7. Series
         if pd_mod is not None and isinstance(val, pd_mod.Series):
             s_packed = [] if len(val) == 0 else _frame_body(val, depth)
-            name = getattr(val, "name", None)
+            name = val.name
             return pack_dataframe_envelope([flat_label(name)], s_packed) if name is not None else s_packed
 
         # 8. Containers

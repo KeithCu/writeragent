@@ -75,7 +75,6 @@ def _sentiment_pipeline(model: str) -> Any:
     The worker is warm and handles one text call at a time; store only
     the last successful pipeline; do not store failures.
     """
-    # Cache pipeline for model string across calls within warm worker.
     from transformers import pipeline
 
     return pipeline("sentiment-analysis", model=model)
@@ -127,25 +126,12 @@ def _load_nlp(lang: str | None = None) -> Any:
     ) from last_err
 
 
-def _get_lang_from_context(context: dict[str, Any] | None) -> str | None:
-    if not context:
-        return None
-    # Common places we might receive language info from the host.
-    for key in ("lang", "language", "locale", "doc_lang"):
-        val = context.get(key)
-        if isinstance(val, str) and val.strip():
-            return val.strip()
-    return None
-
-
 # ---------------------------------------------------------------------------
 # Core high-quality analyses
 # ---------------------------------------------------------------------------
 
-def _nlp_result(text: str, lang: str | None, context: dict[str, Any] | None, extract: Any) -> dict[str, Any]:
+def _nlp_result(text: str, lang: str | None, extract: Any) -> dict[str, Any]:
     """Run spaCy once and attach meta. Narrow helpers share this so they do not call nlp(text) themselves."""
-    if lang is None:
-        lang = _get_lang_from_context(context)
     nlp = _load_nlp(lang)
     # Cap input at _MAX_ANALYZED_CHARS to bound work and stay below spaCy's max_length.
     truncated: dict[str, Any] | None = None
@@ -165,10 +151,9 @@ def _nlp_result(text: str, lang: str | None, context: dict[str, Any] | None, ext
 
 
 def _extract_meta(nlp: Any, doc: Any, lang: str | None) -> dict[str, Any]:
-    # Prefer doc.lang_ before falling back to requested lang or 'unknown'.
     return {
         "model": nlp.meta.get("name") or getattr(nlp, "path", None) or "unknown",
-        "lang": getattr(doc, "lang_", None) or (lang or "unknown"),
+        "lang": doc.lang_ or (lang or "unknown"),
         "has_textdescriptives": any(p.startswith("textdescriptives/") for p in nlp.pipe_names),
     }
 
@@ -186,7 +171,6 @@ def _extract_readability(doc: Any) -> tuple[dict[str, Any], dict[str, Any]]:
     textdescriptives >=2 returns a flat dict (after the components have run on the doc).
     We split it into the groups the rest of the code expects.
     """
-    # Share _READABILITY_KEYS and _DESCRIPTIVE_KEYS across helpers.
     try:
         import textdescriptives as td
 
@@ -195,7 +179,6 @@ def _extract_readability(doc: Any) -> tuple[dict[str, Any], dict[str, Any]]:
             m = m[0]
         rd = {k: v for k, v in m.items() if k in _READABILITY_KEYS}
         ds = {k: v for k, v in m.items() if k in _DESCRIPTIVE_KEYS or k.startswith("n_")}
-        # Return (readability_dict, descriptive_stats_dict) without unused empty extra groups.
         return rd, ds
     except Exception:
         # textdescriptives not available or failed to extract — fall back to basic spaCy stats.
@@ -225,7 +208,7 @@ def _extract_key_phrases(doc: Any) -> list[dict[str, Any]]:
         key = lemma.lower().strip()
         if key and key not in seen and len(key) > 1:
             seen.add(key)
-            key_phrases.append({"text": chunk.text, "lemma": lemma, "root": chunk.root.text if chunk.root else None})
+            key_phrases.append({"text": chunk.text, "lemma": lemma, "root": chunk.root.text})
     return key_phrases[:25]
 
 
@@ -233,10 +216,14 @@ def _as_sections(text: str | list[str]) -> tuple[list[str], bool]:
     """Normalize a string or list of section texts to (non-empty sections, is_multi)."""
     if isinstance(text, list):
         return [str(t).strip() for t in text if str(t).strip()], True
-    return ([str(text).strip()] if str(text or "").strip() else []), False
+    stripped = str(text or "").strip()
+    return ([stripped] if stripped else []), False
 
 
-def _extract_topics(text: str | list[str], n_topics: Any = 4) -> dict[str, Any]:
+_DEFAULT_N_TOPICS = 4
+
+
+def _extract_topics(text: str | list[str], n_topics: Any = _DEFAULT_N_TOPICS) -> dict[str, Any]:
     """Topic modeling via TF-IDF + NMF (from scikit-learn).
 
     Accepts either a single string (whole document) or list[str] of section texts.
@@ -269,7 +256,7 @@ def _extract_topics(text: str | list[str], n_topics: Any = 4) -> dict[str, Any]:
 
     try:
         # Route n_topics coercion errors into the topic_model_failed envelope.
-        n_topics = max(1, min(int(n_topics or 4), len(filtered), 8))
+        n_topics = max(1, min(int(n_topics or _DEFAULT_N_TOPICS), len(filtered), 8))
 
         # Multilingual-friendly: no hardcoded English stop_words (users can have mixed docs).
         # ngram up to 2 helps with short technical phrases.
@@ -371,7 +358,6 @@ def _extract_sentiment(text: str | list[str], params: dict[str, Any] | None = No
     """Sentiment analysis using transformers + a strong multilingual model (XLM-RoBERTa based).
 
     Default model provides good cross-lingual performance across many languages.
-    This replaced the previous spacytextblob implementation (which had limited multilingual support).
 
     Returns overall score/label + per-section results when a list of sections is passed
     (reusing the same section extraction as topics for "by section" analysis on Writer docs).
@@ -395,7 +381,7 @@ def _extract_sentiment(text: str | list[str], params: dict[str, Any] | None = No
             "error": "MISSING_PACKAGE",
             "install_hint": "transformers (with CPU torch) for multilingual sentiment",
             "install": "uv pip install transformers torch --index-url https://download.pytorch.org/whl/cpu",
-            "detail": f"Could not import transformers: {str(exc)}",
+            "detail": f"Could not import transformers: {exc}",
         }
 
     try:
@@ -430,7 +416,7 @@ def _extract_sentiment(text: str | list[str], params: dict[str, Any] | None = No
             "label": label,
         })
 
-    if is_multi and scores:
+    if is_multi:
         avg_score = sum(scores) / len(scores)
         # Derive overall label from avg.
         if avg_score > 0.15:
@@ -447,14 +433,14 @@ def _extract_sentiment(text: str | list[str], params: dict[str, Any] | None = No
         # Single-string sentiment puts section_index only in per_section, not overall.
         overall = {"score": per_section[0]["score"], "label": per_section[0]["label"]}
 
-    res: dict[str, Any] = {"overall": overall}
+    out: dict[str, Any] = {"overall": overall}
     if is_multi:
-        res["per_section"] = per_section
-        res["n_sections"] = len(per_section)
-    return res
+        out["per_section"] = per_section
+        out["n_sections"] = len(per_section)
+    return out
 
 
-def analyze_text(text: str, *, lang: str | None = None, context: dict[str, Any] | None = None) -> dict[str, Any]:
+def analyze_text(text: str, *, lang: str | None = None) -> dict[str, Any]:
     """Run a rich multilingual analysis on a single text using spaCy + textdescriptives.
 
     Returns a dict with:
@@ -490,7 +476,7 @@ def analyze_text(text: str, *, lang: str | None = None, context: dict[str, Any] 
             },
         }
 
-    return _nlp_result(text, lang, context, _full)
+    return _nlp_result(text, lang, _full)
 
 
 def _probe_package(package: str) -> tuple[bool, str | None]:
@@ -515,7 +501,6 @@ def check_diagnostics(lang: Any = None) -> dict[str, Any]:
 
     The output includes the python executable being used and the exact install command.
     """
-    # Always capture the python the worker is actually using.
     python_exe = sys.executable
 
     # _lang_prefix treats non-string lang as None to avoid AttributeError.
@@ -533,9 +518,7 @@ def check_diagnostics(lang: Any = None) -> dict[str, Any]:
         has_td = importlib.util.find_spec("textdescriptives") is not None
         models = list(spacy.util.get_installed_models())
 
-        # Transformers + torch (for Sentiment). Probed independently: torch used
-        # to sit inside the transformers import, so a missing transformers
-        # reported torch missing too.
+        # Transformers and torch (for Sentiment) are probed independently, so a missing transformers does not report torch as missing.
         has_transformers, transformers_version = _probe_package("transformers")
         has_torch, torch_version = _probe_package("torch")
 
@@ -595,7 +578,7 @@ def dispatch_text_analytics(
 
     # For the minimal dialog we mainly use "full" or specific helpers.
     if helper == "full":
-        return analyze_text(flat, lang=lang, context=context)
+        return analyze_text(flat, lang=lang)
 
     # Narrow helpers: run nlp(text) once and extract only the requested subset,
     # skipping the unneeded NER / noun-chunk / textdescriptives work.
@@ -603,21 +586,20 @@ def dispatch_text_analytics(
         def _readability_body(doc: Any) -> dict[str, Any]:
             rd, ds = _extract_readability(doc)
             return {"readability": rd, "descriptive_stats": ds}
-        return _nlp_result(flat, lang, context, _readability_body)
+        return _nlp_result(flat, lang, _readability_body)
 
     if helper == "entities":
-        return _nlp_result(flat, lang, context, lambda doc: {"entities": _extract_entities(doc)})
+        return _nlp_result(flat, lang, lambda doc: {"entities": _extract_entities(doc)})
 
     if helper == "key_phrases":
-        return _nlp_result(flat, lang, context, lambda doc: {"key_phrases": _extract_key_phrases(doc)})
+        return _nlp_result(flat, lang, lambda doc: {"key_phrases": _extract_key_phrases(doc)})
 
     if helper == "topics":
         # Use preserved original (may still be list) for per-section support.
-        topic_data = _extract_topics(text, n_topics=params.get("n_topics", 4))
+        topic_data = _extract_topics(text, n_topics=params.get("n_topics", _DEFAULT_N_TOPICS))
         # Normalize into the same result envelope the rest of the system expects.
         if topic_data.get("error") == "MISSING_PACKAGE":
             return _text_analytics_error(helper, "install scikit-learn for topics", topic_data)
-        # Report actual topic count in meta["n_topics"] and section count in meta["n_sections"].
         topics = topic_data.get("topics", [])
         meta: dict[str, Any] = {"n_topics": len(topics)}
         if isinstance(topic_data.get("n_sections"), int):
@@ -636,10 +618,10 @@ def dispatch_text_analytics(
     # Pass params so model can be overridden via JSON config (see WriterAgentConfig).
     sent_data = _extract_sentiment(text, params=params)
     if sent_data.get("error"):
-        # A missing model must not be status ok, so the runner reported success.
+        # An error from the sentiment step (missing package, model load failure) is a status error, not an ok result.
         return _text_analytics_error(helper, str(sent_data.get("error")), sent_data)
     res = {
-        "sentiment": sent_data.get("overall", {}),
+        "sentiment": sent_data["overall"],
         "meta": {"n_sections": sent_data.get("n_sections")}
     }
     if "per_section" in sent_data:

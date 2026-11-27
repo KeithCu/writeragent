@@ -609,7 +609,7 @@ def test_init_result_lambda_is_not_seeded(fresh_sandbox_sessions) -> None:
     assert r1["result"] == 4
 
     exe = _new_executor(build_sandbox_policy())
-    CellNamespace(exe).seed(init_sid, copy=True)
+    CellNamespace(exe).seed(init_sid, copy_values=True)
     assert cast("Any", exe.state["helper"])() == 4
     assert "result" not in exe.state
     assert "result" not in exe.custom_tools
