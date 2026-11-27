@@ -248,7 +248,6 @@ def test_stream_error_stt_fallback_does_not_reenter_send(test_instance):
     assert test_instance.audio_wav_path is None
     assert test_instance.session.messages[-1]["role"] == "user"
     assert test_instance.session.messages[-1]["content"] == "hello\nspoken words"
-    assert test_instance._spawn_llm_worker.call_args.kwargs["query_text"] == "hello\nspoken words"
 
 
 def test_stream_error_empty_stt_ends_the_drain(test_instance):

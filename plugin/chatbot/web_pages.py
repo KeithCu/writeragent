@@ -115,6 +115,7 @@ def _domain_turn(domain: str, give_up: threading.Event) -> Generator[bool]:
             if turn.users == 0:
                 del _DOMAIN_TURNS[domain]
 
+
 VISIT_WEBPAGE_DESCRIPTION = (
     "Fetches one to five web pages at once and returns their text. A long page is split into "
     "numbered parts; its result then holds part 1 and the number of parts, and read_page / find_in_page read the rest."
@@ -150,12 +151,12 @@ def visit_webpage_inputs() -> dict[str, dict[str, Any]]:
 
 def url_key(url: str) -> str:
     """Normalize a URL for page-store and visit-dedup lookups."""
-    return str(url or "").strip().rstrip("/")
+    return url.strip().rstrip("/")
 
 
 def is_page_text(text: str) -> bool:
     """Return True when fetched text is non-empty and not an error or failure message."""
-    body = str(text or "").strip()
+    body = text.strip()
     return bool(body) and not body.startswith(("Error", "Failed"))
 
 

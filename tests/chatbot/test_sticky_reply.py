@@ -19,10 +19,8 @@ from plugin.chatbot.chat_sidebar_mode import (
     require_sidebar_mode,
 )
 from plugin.chatbot.sticky_reply import (
-    STATUS_FINISHED,
     STATUS_INCOMPLETE,
     STATUS_OK,
-    STATUS_SWITCH_MODE,
     StickyReplyToUserTool,
     interpret_sticky_final_answer,
 )
@@ -55,7 +53,7 @@ def test_librarian_leave_flag_coercion(flag_value, expect_leave):
     out = adapter.forward(**kwargs)
     if expect_leave:
         assert isinstance(out, dict)
-        assert out["status"] == STATUS_SWITCH_MODE
+        assert out["status"] == require_sidebar_mode(CHAT_MODE_LIBRARIAN).leave_status
         assert out["result"] == "Bye"
         assert "spec_saved" not in out
     else:
@@ -96,7 +94,7 @@ def test_brainstorming_spec_saved_observed_not_claimed():
         brainstorming_finished=True,
         spec_saved=True,
     )
-    assert leave["status"] == STATUS_FINISHED
+    assert leave["status"] == require_sidebar_mode(CHAT_MODE_BRAINSTORMING).leave_status
     assert leave["spec_saved"] is False
     assert leave["result"] == "<p>Done</p>"
 
@@ -122,7 +120,7 @@ def test_writing_plan_leave_drops_unused_plan_completed():
         writing_plan_finished="yes",
         plan_completed=1,
     )
-    assert leave["status"] == STATUS_FINISHED
+    assert leave["status"] == require_sidebar_mode(CHAT_MODE_BRAINSTORMING).leave_status
     assert leave["result"] == "<p>All sections</p>"
     assert "plan_completed" not in leave
 

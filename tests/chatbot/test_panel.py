@@ -2888,6 +2888,7 @@ def _make_do_send_listener() -> SimpleNamespace:
         _restore_query_text=MagicMock(),
         _send_handlers=send_handlers,
         _tool_calling=tool_calling,
+        _orphan_send_outcome=None,
     )
     listener._require_send_document = types.MethodType(SendButtonListener._require_send_document, listener)
     listener._fail_send = types.MethodType(SendButtonListener._fail_send, listener)
