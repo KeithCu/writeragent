@@ -147,12 +147,10 @@ def resolve_auth_for_config(api_config: dict[str, Any]) -> dict[str, Any]:
     else:
         # Match provider by hostname equality, not substring.
         provider_id = get_provider_from_endpoint(endpoint) or "custom"
-    provider_cfg = PROVIDERS.get(provider_id, PROVIDERS["custom"])
+    provider_cfg = PROVIDERS[provider_id]
 
     # For well-known hosted providers (OpenRouter, OpenAI, etc.), an API key
     # is required and missing keys are treated as configuration errors.
-    # Check uses provider_requires_api_key with provider_cfg.id so fallback to
-    # custom correctly permits an empty key.
     if not api_key and provider_requires_api_key(provider_cfg.id):
         from plugin.framework.config import api_key_locked_for_endpoint
 
@@ -174,8 +172,7 @@ def build_auth_headers(auth_info: dict[str, Any]) -> dict[str, str]:
     """
     # crosshair: off
     headers: dict[str, str] = {}
-    # Coerce: callers/CrossHair may pass non-str header_style (e.g. int 2).
-    style = str(auth_info.get("header_style") or "bearer").lower().strip()
+    style = (auth_info.get("header_style") or "bearer").lower().strip()
     api_key = str(auth_info.get("api_key") or "").strip()
     if api_key:
         # API key must consist of printable ASCII characters (33 to 126).

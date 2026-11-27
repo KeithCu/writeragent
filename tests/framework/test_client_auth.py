@@ -1,11 +1,12 @@
 import pytest
 
 from plugin.framework.client.auth import (
+    PROVIDERS,
     AuthError,
     resolve_auth_for_config,
     build_auth_headers,
 )
-from plugin.framework.client.provider_detection import get_provider_from_endpoint
+from plugin.framework.client.provider_detection import _PROVIDER_HOSTS, get_provider_from_endpoint
 
 
 @pytest.mark.parametrize(
@@ -143,11 +144,16 @@ def test_build_auth_headers_empty_key():
     assert "Authorization" not in headers
 
 
-def test_build_auth_headers_non_str_style_coerced():
-    """Non-str header_style must not AttributeError (CrossHair int case)."""
-    headers_empty = build_auth_headers({"header_style": 2, "api_key": ""})
+def test_detected_providers_all_have_auth_config():
+    """resolve_auth_for_config indexes PROVIDERS with every id detection can return."""
+    detected = {provider for provider, _hosts in _PROVIDER_HOSTS} | {"openrouter", "ollama", "lmstudio", "custom"}
+    assert detected <= set(PROVIDERS)
+
+
+def test_build_auth_headers_unknown_style_falls_back_to_bearer():
+    headers_empty = build_auth_headers({"header_style": "unknown", "api_key": ""})
     assert "Authorization" not in headers_empty
-    headers = build_auth_headers({"header_style": 2, "api_key": "k"})
+    headers = build_auth_headers({"header_style": "unknown", "api_key": "k"})
     assert headers["Authorization"] == "Bearer k"  # unknown style falls back to Bearer when key is present
     headers_bearer = build_auth_headers({"header_style": "BEARER", "api_key": "k"})
     assert headers_bearer["Authorization"] == "Bearer k"

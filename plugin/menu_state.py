@@ -154,15 +154,12 @@ class MenuStatusPublisher:
                 )
         if failed:
             # Prune failed listeners on the main thread; uno_same is main-thread-only.
-            if main.is_current():
-                self._prune_failed_status_listeners(failed)
-            else:
-                try:
-                    # Listener prune uses bound_scope=None so Stop does not cancel UI maintenance.
-                    main.post(self._prune_failed_status_listeners, list(failed), bound_scope=None)
-                except Exception:
-                    # UNO boundary: publish post to main thread
-                    log.exception("publish: failed to post listener prune")
+            # bound_scope=None so Stop does not cancel UI maintenance.
+            try:
+                main.post(self._prune_failed_status_listeners, failed, bound_scope=None)
+            except Exception:
+                # UNO boundary: publish post to main thread
+                log.exception("publish: failed to post listener prune")
         if main.policy is Policy.production:
             from plugin.framework.worker_pool import run_in_background
 
@@ -215,9 +212,6 @@ class MenuIcons:
             # A bootstrap-less uno.getComponentContext() is a different context
             # (no VCL, wrong package). get_ctx() is the context bootstrap stored.
             ctx = get_ctx()
-            if ctx is None:
-                log.warning("MenuIcons.apply: get_ctx() returned None")
-                return
 
             icon_cmds = self._collect_icon_commands()
             if not icon_cmds:
@@ -263,10 +257,6 @@ class MenuIcons:
                 return
 
             smgr = get_service_manager(ctx)
-            if smgr is None:
-                log.warning("MenuIcons.apply: get_service_manager returned None")
-                return
-
             supplier = cast("Any", smgr).createInstanceWithContext("com.sun.star.ui.ModuleUIConfigurationManagerSupplier", ctx)
             for mod_id in _IMAGE_MANAGER_MODULES:
                 try:
