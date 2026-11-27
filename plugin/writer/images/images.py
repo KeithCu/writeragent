@@ -29,8 +29,7 @@ import logging
 import os
 import tempfile
 import time
-import typing
-from typing import Any
+from typing import Any, cast
 import urllib.parse
 
 from plugin.framework.errors import (
@@ -48,9 +47,6 @@ from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 from plugin.framework.tool_schema import page_index_param
 from ..specialized_base import ToolWriterImageBase, enum_param
 
-# Queue pickup bound for document mutations when bytes are already in hand.
-# Independent of the HTTP read budget so a short network timeout doesn't drop an insert.
-_DOCUMENT_MARSHAL_TIMEOUT_SEC = 120.0
 from .image_utils import (
     IMAGE_DOWNLOAD_MAX_BYTES,
     ImageService,
@@ -79,6 +75,10 @@ from .image_tools import (
     insert_image_into_header_footer,
     replace_graphic_source,
 )
+
+# Queue pickup bound for document mutations when bytes are already in hand.
+# Independent of the HTTP read budget so a short network timeout doesn't drop an insert.
+_DOCUMENT_MARSHAL_TIMEOUT_SEC = 120.0
 
 log = logging.getLogger("writeragent.writer")
 
@@ -263,7 +263,7 @@ def _read_edit_source(ctx: Any) -> _EditSource | None:
     if graphic is not None:
         try:
             px = visual_helpers.safe_get_property(graphic, "SizePixel")
-            if px is not None and getattr(px, "Width", 0) > 0 and getattr(px, "Height", 0) > 0:
+            if px is not None and px.Width > 0 and px.Height > 0:
                 nw, nh = int(px.Width), int(px.Height)
         except Exception as ex:
             reraise_if_disposed(ex)
@@ -273,7 +273,7 @@ def _read_edit_source(ctx: Any) -> _EditSource | None:
     frame_w, frame_h = None, None
     try:
         size = obj.getSize()
-        if size is not None and getattr(size, "Width", 0) > 0 and getattr(size, "Height", 0) > 0:
+        if size.Width > 0 and size.Height > 0:
             frame_w, frame_h = int(size.Width), int(size.Height)
     except Exception as ex:
         reraise_if_disposed(ex)
@@ -331,7 +331,7 @@ class ImageGenerate(ToolWriterImageBase):
         """HTTP generation runs on the tool worker; UNO is marshalled in execute()."""
         return True
 
-    def execute(self, ctx: typing.Any, **args: typing.Any) -> typing.Any:
+    def execute(self, ctx: Any, **args: Any) -> Any:
         prompt = args.get("prompt", "")
 
         dim_err = _validate_dimensions(self, args, ("base_size", "width", "height"))
@@ -413,7 +413,7 @@ class ImageGenerate(ToolWriterImageBase):
                 **gen_kwargs,
             )
         except ToolExecutionError as exc:
-            if getattr(exc, "code", None) == "USER_STOPPED":
+            if exc.code == "USER_STOPPED":
                 return self._tool_error(str(exc), code="USER_STOPPED")
             raise
 
@@ -445,6 +445,7 @@ class ImageGenerate(ToolWriterImageBase):
                     reraise_if_disposed(ex)
                     log.debug("replace_graphic_source failed: %s", ex)
 
+                res = {"status": "ok", "message": "Image edited and inserted from endpoint."}
                 if not replaced:
                     size_units = (source.frame_w, source.frame_h)
                     _res, recorded = record_write(
@@ -464,11 +465,9 @@ class ImageGenerate(ToolWriterImageBase):
                             text_cursor=insert_cursor,
                         ),
                     )
-                    res = {"status": "ok", "message": "Image edited and inserted from endpoint."}
                     if recorded:
                         flag_tracked(res)
                     return res
-                res = {"status": "ok", "message": "Image edited and inserted from endpoint."}
                 _flag_untracked_replace(res, ctx.doc)
                 return res
             _res, recorded = record_write(
@@ -492,9 +491,9 @@ class ImageGenerate(ToolWriterImageBase):
                 flag_tracked(res)
             return res
 
-        # main.call defaults bound_scope to the current send scope, so Stop would
-        # cancel the queued insert after the bytes are downloaded. Insert unscoped.
-        # Stop after the download must not turn a finished insert into an error.
+        # main.run defaults bound_scope to the current send scope, so Stop would
+        # cancel the queued insert after the bytes are downloaded. bound_scope=None
+        # keeps a finished download from turning into an error.
         try:
             result = main.run(_insert_or_replace, timeout=_DOCUMENT_MARSHAL_TIMEOUT_SEC, bound_scope=None)
         finally:
@@ -570,10 +569,10 @@ class ImageListNearbyFiles(ToolWriterImageBase):
     def is_async(self) -> bool:
         return True
 
-    def execute(self, ctx: typing.Any, **kwargs: typing.Any) -> typing.Any:
+    def execute(self, ctx: Any, **kwargs: Any) -> Any:
         filt = kwargs.get("filter")
 
-        def _run() -> dict[str, typing.Any]:
+        def _run() -> dict[str, Any]:
             return list_nearby_files(ctx.ctx, ctx.doc, filter=filt, file_kind="images")
 
         return main.run(_run, timeout=60.0)
@@ -586,14 +585,7 @@ class ImageListNearbyFiles(ToolWriterImageBase):
 
 def _is_at_page(graphic: Any) -> bool:
     """True when graphic is anchored AT_PAGE."""
-    try:
-        from com.sun.star.text.TextContentAnchorType import AT_PAGE
-
-        anchor_type = graphic.getPropertyValue("AnchorType")
-        return bool(anchor_type == AT_PAGE or (isinstance(anchor_type, int) and anchor_type == 2))
-    except Exception as e:
-        reraise_if_disposed(e)
-        return False
+    return visual_helpers.anchor_type_index(visual_helpers.safe_get_property(graphic, "AnchorType")) == 2
 
 
 def _paragraph_index_for(
@@ -620,20 +612,18 @@ class ImageList(ToolWriterImageBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
 
 
-    def execute(self, ctx: typing.Any, **kwargs: typing.Any) -> dict[str, Any]:
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         doc_type = visual_helpers.get_visual_doc_type(doc)
         is_draw = doc_type in ("draw", "impress")
         is_writer = visual_helpers.is_writer_like(doc_type)
-        if is_writer and not hasattr(doc, "getGraphicObjects"):
-            return self._tool_error("Document does not support graphic objects.")
         graphics_names = visual_helpers.list_graphic_objects(doc, doc_type=doc_type)
 
-        doc_svc = getattr(ctx.services, "document", None)
+        doc_svc = ctx.services.document
         para_ranges = None
         text_obj = None
         entries = None
-        if is_writer and doc_svc:
+        if is_writer:
             para_ranges = doc_svc.get_paragraph_ranges(doc)
             entries = paragraph_entries(para_ranges)
             text_obj = doc.getText()
@@ -699,7 +689,8 @@ class ImageList(ToolWriterImageBase):
                                     vc = ctrl.getViewCursor() if ctrl is not None else None
                                     if vc is not None:
                                         _unused_cursor, saved_vc = cursor_for_writer_view(vc)
-                                except Exception:
+                                except Exception as exc:
+                                    reraise_if_disposed(exc)
                                     saved_vc = None
                             try:
                                 if saved_vc is not None and anchor is not None:
@@ -754,9 +745,9 @@ def _image_not_found(tool: Any, image_name: str) -> dict[str, Any]:
 def _resolve_graphic(tool: Any, ctx: Any, image_name: str, sheet_index: int | None = None) -> tuple[Any, dict[str, Any] | None]:
     try:
         graphic = visual_helpers.get_graphic_object_by_name(ctx.doc, image_name, sheet_index=sheet_index)
-    except ValueError as exc:
-        sheets = getattr(exc, "sheet_indices", None)
-        shapes = getattr(exc, "shape_indices", None)
+    except visual_helpers.AmbiguousGraphicNameError as exc:
+        sheets = exc.sheet_indices
+        shapes = exc.shape_indices
         extra: dict[str, Any] = {"image_name": image_name, "sheet_indices": sheets, "sheets": sheets}
         if shapes:
             extra["shape_indices"] = shapes
@@ -791,7 +782,7 @@ class ImageGetInfo(ToolWriterImageBase):
     }
 
 
-    def execute(self, ctx: typing.Any, **kwargs: typing.Any) -> dict[str, Any]:
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         image_name = kwargs["name"]
         sheet_index = kwargs.get("sheet_index")
 
@@ -801,19 +792,16 @@ class ImageGetInfo(ToolWriterImageBase):
 
         size = graphic.getSize()
 
-        # GraphicObjectFillBitmap is an XGraphic, not a URL. str() of it was a pyuno repr.
-        # Keep GraphicURL only when it is already a string.
+        # GraphicObjectFillBitmap is an XGraphic, not a URL, and str() of it is a pyuno repr.
+        # Keep GraphicURL only when it is a string.
         raw_url = visual_helpers.safe_get_property(graphic, "GraphicURL", "")
         graphic_url = raw_url if isinstance(raw_url, str) else ""
 
-        # Anchor type
         anchor_type = visual_helpers.anchor_type_index(visual_helpers.safe_get_property(graphic, "AnchorType", None))
 
-        # Orientation
         hori_orient = _orient_number(visual_helpers.safe_get_property(graphic, "HoriOrient", None))
         vert_orient = _orient_number(visual_helpers.safe_get_property(graphic, "VertOrient", None))
 
-        # Title / description
         title = visual_helpers.safe_get_property(graphic, "Title", "")
         description = visual_helpers.safe_get_property(graphic, "Description", "")
 
@@ -885,7 +873,7 @@ _HORI_ORIENT_NAMES = ("left", "center", "right")
 _VERT_ORIENT_NAMES = ("top", "center", "bottom")
 
 
-def _resolve_orient(value: typing.Any, axis: str) -> tuple[Any | None, str | None]:
+def _resolve_orient(value: Any, axis: str) -> tuple[Any | None, str | None]:
     """Map a friendly position to a UNO orientation constant. *axis* is 'hori' or 'vert'.
 
     Accepts a name ('left'/'center'/'right' for hori; 'top'/'center'/'bottom' for vert; 'centre' ok)
@@ -912,15 +900,15 @@ def _resolve_orient(value: typing.Any, axis: str) -> tuple[Any | None, str | Non
 _CROP_KEYS = ("crop_top_mm", "crop_bottom_mm", "crop_left_mm", "crop_right_mm")
 
 
-def _resolve_crop_edges(kwargs: typing.Any, current: typing.Any) -> tuple[int, int, int, int]:
+def _resolve_crop_edges(kwargs: Any, current: Any) -> tuple[int, int, int, int]:
     """Return (top, bottom, left, right) in 1/100 mm for the GraphicCrop struct. Each crop_*_mm
     given (in mm) overrides that edge; edges not passed keep their current value. `current` is the
     existing crop as a 4-tuple (top, bottom, left, right) in 1/100 mm. Pure — unit-testable."""
-    def _edge(key: str, cur: typing.Any) -> int:
+    def _edge(key: str, cur: Any) -> int:
         mm = kwargs.get(key)
         return int(round(mm * 100)) if mm is not None else int(cur)
 
-    return typing.cast(
+    return cast(
         "tuple[int, int, int, int]",
         tuple(_edge(k, c) for k, c in zip(_CROP_KEYS, current)),
     )
@@ -957,7 +945,7 @@ class ImageSetProperties(ToolWriterImageBase):
 
     is_mutation: bool | None = True
 
-    def execute(self, ctx: typing.Any, **kwargs: typing.Any) -> dict[str, Any]:
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         image_name = kwargs["name"]
         if not image_name:
             return self._tool_error("name is required.", code="MISSING_PARAMETER", parameter="name")
@@ -1025,14 +1013,12 @@ class ImageSetProperties(ToolWriterImageBase):
 
         def _mutate() -> dict[str, Any] | None:
             try:
-                # Size
                 if new_size is not None:
                     if visual_helpers.safe_set_property(graphic, "Size", new_size) or visual_helpers.safe_try_method(graphic, "setSize", new_size):
                         updated.append("size")
                     else:
                         return self._tool_error("Failed to set image size.", code="SET_SIZE_FAILED")
 
-                # Title
                 title = kwargs.get("title")
                 if title is not None:
                     graphic.setPropertyValue("Title", title)
@@ -1044,12 +1030,10 @@ class ImageSetProperties(ToolWriterImageBase):
                     graphic.setPropertyValue("Description", description)
                     updated.append("description")
 
-                # Anchor type
                 if anchor_type is not None:
                     graphic.setPropertyValue("AnchorType", text_content_anchor(anchor_type))
                     updated.append("anchor_type")
 
-                # Orientation
                 if "HoriOrient" in resolved_orient:
                     graphic.setPropertyValue("HoriOrient", resolved_orient["HoriOrient"])
                     updated.append("hori_orient")
@@ -1149,9 +1133,8 @@ class ImageCropAndHighlight(ToolWriterImageBase):
 
     is_mutation: bool | None = True
 
-    def execute(self, ctx: typing.Any, **kwargs: typing.Any) -> dict[str, Any]:
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         image_name = kwargs["name"]
-        assert isinstance(image_name, str)
         sheet_index = kwargs.get("sheet_index")
         obj, err = _resolve_graphic(self, ctx, image_name, sheet_index=sheet_index)
         if err is not None:
@@ -1192,9 +1175,9 @@ class ImageCropAndHighlight(ToolWriterImageBase):
         size = obj.getSize()
         width_mm = kwargs.get("width_mm")
         if width_mm is not None:
-            if int(round(width_mm * 100)) < 1:
-                return self._tool_error("width_mm must be greater than 0.", code="INVALID_PARAM", parameter="width_mm")
             width_100mm = int(round(width_mm * 100))
+            if width_100mm < 1:
+                return self._tool_error("width_mm must be greater than 0.", code="INVALID_PARAM", parameter="width_mm")
         else:
             width_100mm = int(size.Width)
         region_w, region_h = region[2], region[3]
@@ -1261,7 +1244,7 @@ class ImageDownload(ToolWriterImageBase):
         """HTTP runs on the tool worker. This tool does not touch the document."""
         return True
 
-    def execute(self, ctx: typing.Any, **kwargs: typing.Any) -> dict[str, Any]:
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         url = kwargs["url"]
         force = kwargs["force"]
         cancel = ctx.send_cancellation
@@ -1354,7 +1337,7 @@ class ImageInsert(ToolWriterImageBase):
         """URL fetch runs on the tool worker. The insert is marshalled to the main thread."""
         return True
 
-    def execute(self, ctx: typing.Any, **kwargs: typing.Any) -> dict[str, Any]:
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         image_path = kwargs["path"]
 
         width_mm_val = kwargs.get("width_mm")
@@ -1410,7 +1393,6 @@ class ImageInsert(ToolWriterImageBase):
                         code="UNSUPPORTED_DOC_TYPE",
                     )
                 # Insert failures propagate. execute_safe reports them, including disposal.
-                # A None graphic is a failed insert that did not raise.
                 placed, recorded = record_write(
                     doc,
                     ctx.ctx,
@@ -1426,8 +1408,6 @@ class ImageInsert(ToolWriterImageBase):
                     ),
                 )
                 graphic = placed["graphic"]
-                if graphic is None:
-                    return self._tool_error("Failed to insert image.", code="INSERT_FAILED", path=image_path)
                 image_name = graphic.getName()
                 result: dict[str, Any] = {
                     "status": "ok",
@@ -1451,12 +1431,12 @@ class ImageInsert(ToolWriterImageBase):
                 )
 
             text_cursor = None
-            doc_svc = getattr(ctx.services, "document", None)
-            if locator is not None and paragraph_index is None and doc_svc:
+            doc_svc = ctx.services.document
+            if locator is not None and paragraph_index is None:
                 resolved = doc_svc.resolve_locator(doc, locator)
                 paragraph_index = resolved.get("para_index")
 
-            if paragraph_index is not None and doc_svc:
+            if paragraph_index is not None:
                 target_para = doc_svc.find_paragraph_element(doc, paragraph_index)
                 if target_para is None:
                     return self._tool_error(f"Paragraph {paragraph_index} not found.", code="PARAGRAPH_NOT_FOUND", paragraph_index=paragraph_index)
@@ -1482,8 +1462,6 @@ class ImageInsert(ToolWriterImageBase):
                 )
             except IndexError as exc:
                 return self._tool_error(str(exc), code="INVALID_PARAM", parameter="page")
-            if graphic is None:
-                return self._tool_error("Failed to insert image.", code="INSERT_FAILED", path=image_path)
 
             image_name = graphic.getName()
             result = {"status": "ok", "image_name": image_name, "width_mm": width_mm, "height_mm": height_mm}
@@ -1519,7 +1497,7 @@ class ImageDelete(ToolWriterImageBase):
 
     is_mutation: bool | None = True
 
-    def execute(self, ctx: typing.Any, **kwargs: typing.Any) -> dict[str, Any]:
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         image_name = kwargs["name"]
         sheet_index = kwargs.get("sheet_index")
 
@@ -1528,6 +1506,7 @@ class ImageDelete(ToolWriterImageBase):
             return err
 
         try:
+            # delete_graphic reports whether the delete was tracked; the session's own flag is not used for deletes.
             tracked, _recording = record_write(
                 ctx.doc,
                 ctx.ctx,
@@ -1573,7 +1552,7 @@ class ImageReplace(ToolWriterImageBase):
         """URL fetch runs on the tool worker. Document reads and the replace run on the main thread."""
         return True
 
-    def execute(self, ctx: typing.Any, **kwargs: typing.Any) -> dict[str, Any]:
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         image_name = kwargs["name"]
         new_image_path = kwargs["path"]
         sheet_index = kwargs.get("sheet_index")
@@ -1622,7 +1601,7 @@ class ImageReplace(ToolWriterImageBase):
 
 
 # ------------------------------------------------------------------
-# Helpers
+# Download cache
 # ------------------------------------------------------------------
 
 
@@ -1632,7 +1611,7 @@ IMAGE_CACHE_MAX_BYTES = 256 * 1024 * 1024
 
 def _unlink_stale_partials(cache_dir: str) -> None:
     now = time.time()
-    cutoff_age = max(600, int(get_config("request_timeout") or 0) + 30)
+    cutoff_age = max(600, int(float(get_config("request_timeout"))) + 30)
     try:
         for entry in os.scandir(cache_dir):
             if entry.is_file() and entry.name.endswith(".partial"):
@@ -1650,6 +1629,7 @@ def _prune_image_cache(cache_dir: str, keep_path: str) -> None:
     _unlink_stale_partials(cache_dir)
     now = time.time()
     keep_real = os.path.realpath(keep_path)
+    keep_base = os.path.basename(keep_path).split(".")[0]
     entries: list[tuple[float, int, str]] = []
     total_size = 0
     try:
@@ -1659,7 +1639,7 @@ def _prune_image_cache(cache_dir: str, keep_path: str) -> None:
             real = os.path.realpath(entry.path)
             if real == keep_real:
                 continue
-            if entry.name.split(".")[0] == os.path.basename(keep_path).split(".")[0]:
+            if entry.name.split(".")[0] == keep_base:
                 try:
                     os.unlink(entry.path)
                 except OSError:
@@ -1716,7 +1696,6 @@ def _download_image_to_cache(
     os.makedirs(cache_dir, exist_ok=True)
     _unlink_stale_partials(cache_dir)
 
-    # Derive a stable filename from the URL
     url_hash = hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
 
     if not force:

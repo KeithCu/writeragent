@@ -258,8 +258,16 @@ def test_set_new_uses_lo_defaults() -> None:
     ],
 )
 def test_set_rejects_out_of_range_without_dispatch(kwargs: dict[str, Any]) -> None:
+    from types import SimpleNamespace
+    from plugin.framework.tool import prepare_tool_call
+
     tool_ctx, helper, _, _, _ = _make_env()
-    res = PageSetWatermark().execute(tool_ctx, **kwargs)
+    tool = PageSetWatermark()
+    prep = prepare_tool_call(tool, SimpleNamespace(doc_type="writer", caller="test"), "page_set_watermark", kwargs)
+    if prep.error is not None:
+        res = prep.error
+    else:
+        res = tool.execute(tool_ctx, **prep.kwargs)
     assert res["status"] == "error"
     assert helper.calls == []
 

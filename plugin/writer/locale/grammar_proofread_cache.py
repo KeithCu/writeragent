@@ -14,13 +14,12 @@ from dataclasses import asdict
 import logging
 from typing import Any, Iterable
 
-log = logging.getLogger("writeragent.grammar")
-
 from plugin.framework.grammar_rule_ids import grammar_bcp47_tags_match
 from plugin.framework.uno_context import get_active_document
 from plugin.writer.locale import grammar_settings
 from .grammar_ignore_rules import IgnoreSet
 from .grammar_persistence import (
+    DocumentPersistence,
     SentenceCacheEntry,
     get_persistence,
     grammar_registry,
@@ -36,20 +35,21 @@ from .grammar_proofread_locale import (
 )
 from .grammar_proofread_text import normalize_errors_for_text
 
+log = logging.getLogger("writeragent.grammar")
+
 
 def _sanitize_checker_identity(identity: str) -> str:
     """Pipe is the L1 key delimiter; model ids must not split the key."""
     return identity.replace("|", "/")
 
 
-def sentence_cache_key_prefix(locale_key: str, checker_identity: str | None = None) -> str:
+def sentence_cache_key_prefix(locale_key: str, checker_identity: str) -> str:
     """Prefix for every sentence-cache OrderedDict key: ``sent|<locale>|<identity>|``."""
-    ident_raw = grammar_settings.checker_identity() if checker_identity is None else checker_identity
-    ident = _sanitize_checker_identity(ident_raw)
+    ident = _sanitize_checker_identity(checker_identity)
     return f"sent|{locale_key}|{ident}|"
 
 
-def _sentence_l1_key(locale_key: str, checker_identity: str | None, fp: str) -> str:
+def _sentence_l1_key(locale_key: str, checker_identity: str, fp: str) -> str:
     """Format an in-memory L1 sentence cache key (locale + checker identity + fingerprint)."""
     return f"{sentence_cache_key_prefix(locale_key, checker_identity)}{fp}"
 
@@ -57,14 +57,11 @@ def _sentence_l1_key(locale_key: str, checker_identity: str | None, fp: str) -> 
 def _clip_errors_to_canonical_length(errors: list[dict[str, Any]], canonical_len: int) -> list[dict[str, Any]]:
     """Clip or drop errors that reference positions beyond the canonical sentence length.
 
-    ``effective_len <= 0`` must not drop Harper inserts
-    (``n_error_length == 0``), and ``start >= canonical_len`` must
-    not drop an insert at the canonical end. ``cache_put_sentence``
-    would then store the sentence with no errors. A zero-width
-    point with ``0 <= start <= canonical_len`` stays, including its
-    suggestions and rule id. Positive lengths still clip, and still
-    drop when they start at or past that end. Negative starts,
-    non-ints, and bools are dropped.
+    A zero-width insert (explicit ``n_error_length == 0``) at
+    ``0 <= start <= canonical_len`` is kept with its suggestions and rule id,
+    so a Harper insert at the sentence end is not lost. Positive lengths are
+    clipped to the canonical end and dropped when they start at or past it.
+    Negative values, non-ints and bools are dropped.
     """
     clipped: list[dict[str, Any]] = []
     for e in errors:
@@ -81,8 +78,7 @@ def _clip_errors_to_canonical_length(errors: list[dict[str, Any]], canonical_len
         ):
             continue
         if length == 0:
-            # Only an explicit zero n_error_length counts as an insert; omitted
-            # length must not be clipped by the effective_len <= 0 path.
+            # Only an explicit zero n_error_length is an insert; an entry with no length is dropped.
             if "n_error_length" in e:
                 clipped.append(e)
             continue
@@ -111,15 +107,14 @@ def recheck_active_document_grammar(ctx: Any) -> None:
         if p is not None:
             p.clear_and_persist()
 
-    for pr in list(grammar_registry.live_proofreaders):
-        pr.broadcast_proofread_again()
+    grammar_registry.broadcast_proofread_again()
 
 
 def _populate_memory_cache_only(
     locale_key: str,
     sentence: str,
     errors: list[dict[str, Any]],
-    checker_identity: str | None = None,
+    checker_identity: str,
 ) -> SentenceCacheEntry:
     """Internal: populate memory cache only, no persistence, no compaction.
 
@@ -145,7 +140,7 @@ def _populate_memory_cache_only(
     return entry
 
 
-def _align_persistence_identity(p: Any, ident: str) -> None:
+def _align_persistence_identity(p: DocumentPersistence, ident: str) -> None:
     """Apply checker identity to L2; evict L1 for a mid-session switch."""
     switched = p.ensure_identity(ident)
     if switched:
@@ -211,11 +206,12 @@ def cache_put_sentence(
 
     if doc_id:
         p = get_persistence(doc_id)
-        if p:
+        # get_persistence returns None only for an empty id; narrows the type.
+        if p is not None:
             _align_persistence_identity(p, ident)
             p.put(entry.fingerprint, locale_key, entry.errors)
-        # Note: document mode skips incomplete-sentence prefix compaction logic (scans grammar_registry.sentence_cache only)
-        # but we still performed _populate_memory_cache_only above.
+        # With a doc_id, the incomplete-prefix compaction below is skipped;
+        # L1 is already warm from _populate_memory_cache_only.
         return
 
     if not entry.complete:
@@ -264,5 +260,5 @@ def store_sentence_result(
         log.debug("[grammar] Double caching for %s (detected %s)", alt_locale, locale)
         cache_put_sentence(alt_locale, text, payload, doc_id=doc_id, checker_identity=checker_identity)
 
-    active_payload = [d for d in payload if ignore_set.allows(str(d.get("rule_identifier", "")))]
+    active_payload = [d for d in payload if ignore_set.allows(d["rule_identifier"])]
     return active_payload

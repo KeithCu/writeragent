@@ -17,6 +17,20 @@ from plugin.writer.specialized.mail_merge import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _fill_mail_merge_defaults(monkeypatch):
+    """Inject schema defaults for direct tool.execute() calls in unit tests."""
+    for cls in (ListDataSources, RegisterDataSource, InsertField, RunMerge):
+        orig = cls.execute
+        props = (cls.parameters or {}).get("properties", {})
+        defaults = {k: v["default"] for k, v in props.items() if "default" in v}
+
+        def _wrapped(self, ctx, _orig=orig, _defaults=defaults, **kwargs):
+            return _orig(self, ctx, **{**_defaults, **kwargs})
+
+        monkeypatch.setattr(cls, "execute", _wrapped)
+
+
 def _create_mock_ctx():
     ctx = MagicMock()
     doc = MagicMock()

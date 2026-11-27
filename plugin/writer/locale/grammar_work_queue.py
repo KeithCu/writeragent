@@ -56,13 +56,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from plugin.framework.quit_hooks import register_quit_hook
-from . import (
-    grammar_proofread_locale,
-)
+from . import grammar_proofread_locale
 from .grammar_obs import get_grammar_status, grammar_obs, slice_preview_debug
-from .grammar_proofread_locale import (
-    looks_complete_sentence,
-)
+from .grammar_proofread_locale import looks_complete_sentence
 
 
 log = logging.getLogger("writeragent.grammar")
@@ -313,6 +309,9 @@ class GrammarWorkQueue:
         def _dispatch(batch: list[GrammarWorkItem]) -> None:
             if not batch or self._stopping:
                 return
+            # Cycle: grammar_worker imports GrammarWorkItem and GrammarWorkQueue from this module at its top.
+            import plugin.writer.locale.grammar_worker as grammar_worker
+
             grammar_obs(
                 "queue_drain_batch",
                 batch_size=len(batch),
@@ -327,9 +326,6 @@ class GrammarWorkQueue:
                     locale=locale,
                     item_count=len(group_items),
                 )
-                # grammar_worker imports this module at its top (grammar_worker.py:39); a module-level import here is a cycle.
-                import plugin.writer.locale.grammar_worker as grammar_worker
-
                 grammar_worker.run_llm_and_cache_batch(group_items, grammar_queue_instance=self)
 
         def _slurp(deadline: float) -> bool:

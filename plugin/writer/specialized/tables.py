@@ -12,7 +12,9 @@ mode is on.
 """
 import itertools
 import logging
-from typing import Any, Callable
+from typing import Any, Callable, TypeVar
+
+_T = TypeVar("_T")
 
 from plugin.doc.compound_undo import UndoStepOrRollback, rollback_failed_error
 from plugin.doc.text_helpers import (
@@ -34,14 +36,14 @@ from plugin.writer.html_import import non_text_portion_type, replace_preserving_
 from plugin.writer.record_changes import is_recording_changes
 from plugin.writer.review_scan import scan_redlines
 
-from ..range_copy import cells_all_tracked_deleted, writer_cell_position  # LibrePy-shipped; do not invert
+from ..range_copy import cells_all_tracked_deleted, writer_cell_position  # range_copy/table_nesting also ship in LibrePy and must not import this module.
 from ..specialized_base import ToolWriterTableBase, enum_param
 from ..table_helpers import check_grid, check_table_band, edit_table_band, fill_table_cells, table_dims
 from ..table_nesting import (
     cell_hosted_table_names,
     cell_plain_siblings,
     set_host_paragraphs,
-)  # LibrePy-shipped; do not invert
+)  # range_copy/table_nesting also ship in LibrePy and must not import this module.
 from ..target_resolver import request_selection_range
 
 log = logging.getLogger("writeragent.writer.specialized.tables")
@@ -77,18 +79,32 @@ def _cursor_refused(name: str) -> ToolExecutionError:
     )
 
 
+def _no_open_view_error() -> ToolExecutionError:
+    return ToolExecutionError(
+        "The document has no open view, so the deletion cannot be recorded and nothing was deleted. "
+        "Ask the user to open the document in a window, then retry.",
+        code="TABLE_DELETE_NOT_TRACKABLE",
+    )
+
+
+def _unscanned_redlines_error(subject: str) -> ToolExecutionError:
+    return ToolExecutionError(
+        "Could not scan tracked changes before deleting %s, so it was left in place. "
+        "Retry once; if it fails again, ask the user to delete it." % subject,
+        code="TABLE_DELETE_NOT_TRACKABLE",
+    )
+
+
 def _tables(doc: Any) -> Any:
     """The document's text-table collection (XNameAccess)."""
-    if not hasattr(doc, "getTextTables"):
-        raise ValueError("This document has no text tables.")
     return doc.getTextTables()
 
 
 def _get_table(doc: Any, name: str) -> Any:
     """Table by name, or a ValueError listing the available names."""
     tables = _tables(doc)
-    names = list(tables.getElementNames())
-    if not name or not tables.hasByName(name):
+    if not tables.hasByName(name):
+        names = list(tables.getElementNames())
         listing = ", ".join(names) if names else "none"
         raise ValueError("No table named '%s'. Open tables (call table_list): %s." % (name, listing))
     return tables.getByName(name)
@@ -111,7 +127,7 @@ def _draw_ok(entry: dict[str, Any], name: str, **extra: Any) -> dict[str, Any]:
     }
 
 
-def _raise_draw_result(result: dict[str, Any], default_message: str) -> dict[str, Any]:
+def _draw_result_or_error(result: dict[str, Any], default_message: str) -> dict[str, Any]:
     if result.get("status") != "ok":
         return make_tool_error(
             str(result.get("message") or default_message),
@@ -142,7 +158,7 @@ def _writer_named_cells(table: Any) -> list[str]:
     empty list itself for a table without a format and does not throw. Any other
     failure is raised so a delete guard does not treat it as "no nested tables".
     """
-    return list(table.getCellNames() or ())
+    return list(table.getCellNames())
 
 
 def _writer_grid_ok(table: Any, name: str, **extra: Any) -> dict[str, Any]:
@@ -345,12 +361,8 @@ def _delete_writer_table_tracked(
     """
     controller = doc.getCurrentController()
     if controller is None:
-        raise ToolExecutionError(
-            "The document has no open view, so the deletion cannot be recorded and nothing was deleted. "
-            "Ask the user to open the document in a window, then retry.",
-            code="TABLE_DELETE_NOT_TRACKABLE",
-        )
-    cell_names = list(table.getCellNames() or ())
+        raise _no_open_view_error()
+    cell_names = _writer_named_cells(table)
     cells = [table.getCellByName(n) for n in cell_names]
     empty_cells = [n for n, c in zip(cell_names, cells) if not c.getString()]
     target_cell = next(
@@ -365,11 +377,7 @@ def _delete_writer_table_tracked(
         )
     before = _delete_redline_count(doc)
     if before is None:
-        raise ToolExecutionError(
-            "Could not scan tracked changes before deleting table '%s', so it was left in place. "
-            "Retry once; if it fails again, ask the user to delete it." % name,
-            code="TABLE_DELETE_NOT_TRACKABLE",
-        )
+        raise _unscanned_redlines_error("table '%s'" % name)
     # Leave the user's cursor where it was around the table selection and dispatch.
     with KeepViewSelection(controller):
         if not _place_caret_in_cell(controller, table, name, target_cell):
@@ -713,11 +721,14 @@ def delete_leading_tables(session: Any, doc: Any, uno_ctx: Any) -> None:
 
 def _delete_band_tracked(doc: Any, uno_ctx: Any, table: Any, name: str, axis: str, idx: int) -> None:
     """Delete one Writer row or column as a tracked change via ``.uno:DeleteRows`` / ``.uno:DeleteColumns``."""
+    def _band_locate_error() -> ValueError:
+        return ValueError("Cannot locate %s %d in table '%s'." % (axis, idx, name))
+
     band = table.getRows() if axis == "row" else table.getColumns()
     check_table_band(band, "delete", idx, axis)
     band_names = _band_cell_names(table, axis, idx)
     if not band_names:
-        raise ValueError("Cannot locate %s %d in table '%s'." % (axis, idx, name))
+        raise _band_locate_error()
     if axis == "row":
         target_cell = band_names[0]
         # SwFEShell::DeleteRow (sw/source/core/frmedt/fetab.cxx) selects from the row's first box
@@ -738,25 +749,17 @@ def _delete_band_tracked(doc: Any, uno_ctx: Any, table: Any, name: str, axis: st
     else:
         col_target = next((n for n in band_names if writer_cell_position(n) == (idx, 0)), None)
         if col_target is None:
-            raise ValueError("Cannot locate %s %d in table '%s'." % (axis, idx, name))
+            raise _band_locate_error()
         target_cell = col_target
 
     controller = doc.getCurrentController()
     if controller is None:
-        raise ToolExecutionError(
-            "The document has no open view, so the deletion cannot be recorded and nothing was deleted. "
-            "Ask the user to open the document in a window, then retry.",
-            code="TABLE_DELETE_NOT_TRACKABLE",
-        )
+        raise _no_open_view_error()
 
     band_cells = [table.getCellByName(n) for n in band_names]
     before = _delete_redline_count(doc)
     if before is None:
-        raise ToolExecutionError(
-            "Could not scan tracked changes before deleting this %s of table '%s', so it was left in place. "
-            "Retry once; if it fails again, ask the user to delete it." % (axis, name),
-            code="TABLE_DELETE_NOT_TRACKABLE",
-        )
+        raise _unscanned_redlines_error("this %s of table '%s'" % (axis, name))
     cmd = ".uno:DeleteRows" if axis == "row" else ".uno:DeleteColumns"
     with KeepViewSelection(controller):
         if not _place_caret_in_cell(controller, table, name, target_cell):
@@ -773,7 +776,7 @@ def _delete_band_tracked(doc: Any, uno_ctx: Any, table: Any, name: str, axis: st
         )
 
 
-def _mutate_or_rollback(doc: Any, uno_ctx: Any, title: str, apply: Callable[[], Any]) -> Any:
+def _mutate_or_rollback(doc: Any, uno_ctx: Any, title: str, apply: Callable[[], _T]) -> _T:
     """Run a Writer table mutation with optional review inside an undo rollback guard.
 
     A failed rollback is reported as ROLLBACK_FAILED because the band, table or cell edit may
@@ -873,9 +876,9 @@ def _remove_writer_table(doc: Any, table: Any, name: str, nesting: dict[str, Any
         if is_disposal(exc):
             raise
         log.debug("table.getAnchor() remove failed for '%s'; using nesting fallback", name, exc_info=True)
-    if nesting.get("is_nested"):
-        parent = _get_table(doc, str(nesting.get("parent_table") or ""))
-        host = parent.getCellByName(str(nesting.get("parent_cell") or ""))
+    if nesting["is_nested"]:
+        parent = _get_table(doc, nesting["parent_table"])
+        host = parent.getCellByName(nesting["parent_cell"])
         host.removeTextContent(table)
         return
     doc.getText().removeTextContent(table)
@@ -889,10 +892,7 @@ def _hosted_in_band(table: Any, axis_arg: str, idx: int) -> list[str]:
     """
     hosted: list[str] = []
     for cell_name in _band_cell_names(table, axis_arg, idx):
-        def _read_cell(c: str = cell_name) -> Any:
-            return table.getCellByName(c)
-
-        cell = uno_read(_read_cell, FAILED)
+        cell = uno_read(lambda: table.getCellByName(cell_name), FAILED)
         if cell is not FAILED:
             hosted.extend(cell_hosted_table_names(cell))
     return list(dict.fromkeys(hosted))
@@ -937,7 +937,7 @@ class TableList(ToolWriterTableBase):
                 "rows": rows,
                 "cols": cols,
                 "cell_count": cell_count,
-                "nesting": nesting_by_name.get(name, _not_nested()),
+                "nesting": nesting_by_name[name],
                 "nested_in_cells": hosted.get(name, {}),
             })
         return {"status": "ok", "count": len(out), "tables": out}
@@ -1020,13 +1020,10 @@ class TableGetCells(ToolWriterTableBase):
                         nested_in_cells[cell_name] = hosted
                     cells[cell_name] = _cell_text(deletions, c, hosted)
                 except Exception as exc:
-                    # Per-cell read errors must not disappear into a bare continue.
-                    # That also swallows document disposal. Re-raise disposal and log
-                    # the cell read failure.
+                    # One unreadable cell is logged and left out of the result; disposal re-raises.
                     if is_disposal(exc):
                         raise
                     log.warning("table_get_cells: could not read cell '%s' in table '%s': %s", cell_name, name, exc)
-                    continue
             if resolved and resolved not in cells:
                 return self._tool_error(
                     "Could not read cell '%s' in table '%s'." % (cell_raw, name)
@@ -1036,7 +1033,7 @@ class TableGetCells(ToolWriterTableBase):
                 "table_name": name,
                 "rows": rows,
                 "cols": cols,
-                "cell_names": list(cells.keys()),
+                "cell_names": list(cells),
                 "cells": cells,
                 "nesting": _nesting_for(ctx.doc, table, name),
                 "nested_in_cells": nested_in_cells,
@@ -1081,7 +1078,7 @@ class TableSetCell(ToolWriterTableBase):
         try:
             if is_draw(ctx.doc):
                 entry = draw_tables.resolve_draw_table(ctx.doc, name=name, page=kwargs.get("page"), index=kwargs.get("index"))
-                old, new = draw_tables.set_draw_cell(entry, cell_raw, str(text))
+                old, new = draw_tables.set_draw_cell(entry, cell_raw, text)
                 return _draw_ok(
                     entry,
                     name,
@@ -1099,7 +1096,7 @@ class TableSetCell(ToolWriterTableBase):
             cell = table.getCellByName(cell_name)
             nested = cell_hosted_table_names(cell)
             deletions = TrackedDeletions(ctx.doc)
-            new = str(text)
+            new = text
             result: dict[str, Any] = {
                 "status": "ok",
                 "table_name": name,
@@ -1164,7 +1161,7 @@ class TableSetCell(ToolWriterTableBase):
 
 
 class ManageTableStructure(ToolWriterTableBase):
-    """Insert or delete one row/column. The four former skinny tools shared table_name + index."""
+    """Insert or delete one row or column of a Writer or Draw/Impress table."""
 
     name: str | None = "table_manage_structure"
     description: str = (
@@ -1202,12 +1199,9 @@ class ManageTableStructure(ToolWriterTableBase):
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         action = kwargs["action"]
         axis_arg = kwargs["axis"]
-        assert action in ("insert", "delete")
-        assert axis_arg in ("row", "column")
         name = str(kwargs.get("name") or "").strip()
         # type/required checks are done by the tool schema in ToolRegistry
         idx = kwargs["index"]
-        assert isinstance(idx, int) and not isinstance(idx, bool)
         if idx < 0:
             return self._tool_error("index must be non-negative.")
         insert = action == "insert"
@@ -1279,7 +1273,7 @@ class ManageTableStructure(ToolWriterTableBase):
                         )
                     return False
 
-                tracked = bool(_mutate_or_rollback(ctx.doc, uno_ctx, "WriterAgent: Delete %s" % axis_arg, _apply))
+                tracked = _mutate_or_rollback(ctx.doc, uno_ctx, "WriterAgent: Delete %s" % axis_arg, _apply)
             rows, cols = table_dims(table)
             result: dict[str, Any] = {"status": "ok", "table_name": name, "rows": rows, "cols": cols}
             if tracked:
@@ -1449,17 +1443,14 @@ class TableInsert(ToolWriterTableBase):
         parent = str(kwargs.get("parent") or "").strip()
         cell_raw = str(kwargs.get("cell") or "").strip()
         try:
-            # The Draw branch sits inside the try. Outside it,
-            # insert_draw_table raises past the tool error. The Writer path
-            # already catches; this matches it.
+            # Inside the try so a ValueError from insert_draw_table becomes a tool error like the Writer path's.
             if is_draw(ctx.doc):
                 if parent or cell_raw:
                     return self._tool_error("parent and cell are Writer-only (Draw has no nested text tables).")
                 try:
-                    result = draw_tables.insert_draw_table(ctx, **kwargs)
+                    return draw_tables.insert_draw_table(ctx, **kwargs)
                 except ToolExecutionError as exc:
                     return format_error_payload(exc)
-                return result
 
             if parent and not cell_raw:
                 return self._tool_error("cell is required when parent is set.")
@@ -1472,7 +1463,6 @@ class TableInsert(ToolWriterTableBase):
                 return self._tool_error("rows and columns must be at least 1.")
 
             data = kwargs.get("data")
-            assert data is None or isinstance(data, (list, tuple)), type(data)
             if data:
                 check_grid(data, rows, columns, reject_non_list=False)
 
@@ -1569,7 +1559,7 @@ class TableDelete(ToolWriterTableBase):
                 result = draw_tables.delete_draw_table(
                     ctx.doc, name=name, page=kwargs.get("page"), index=kwargs.get("index")
                 )
-                return _raise_draw_result(result, "Delete failed")
+                return _draw_result_or_error(result, "Delete failed")
             table = _require_table(ctx.doc, name)
             nesting = _nesting_for(ctx.doc, table, name)
             uno_ctx = resolve_uno_context(ctx)
@@ -1578,9 +1568,9 @@ class TableDelete(ToolWriterTableBase):
                 # In review mode the wrapper below has just turned change tracking on; a user
                 # who tracks changes by hand has it on already. Either way the deletion must
                 # be recorded, not silently applied.
-                return bool(delete_writer_table(ctx.doc, uno_ctx, table, name, nesting))
+                return delete_writer_table(ctx.doc, uno_ctx, table, name, nesting)
 
-            tracked = bool(_mutate_or_rollback(ctx.doc, uno_ctx, "WriterAgent: Delete table", _apply))
+            tracked = _mutate_or_rollback(ctx.doc, uno_ctx, "WriterAgent: Delete table", _apply)
             result = {
                 "status": "ok",
                 "message": "Table deleted",

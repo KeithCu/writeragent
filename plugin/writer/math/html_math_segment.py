@@ -268,7 +268,7 @@ def segment_html_with_mixed_math(fragment: str) -> list[MathSegment]:
     out: list[MathSegment] = []
     no_close: set[TexDelim] = set()
     pos = 0
-    # Cache the next TeX region: recomputing it per loop iteration rescanned the whole
+    # Cache the next TeX region: recomputing it per loop iteration would rescan the whole
     # tail for every <math> segment (quadratic). ``no_more_tex`` is final because pos
     # only moves forward, and a cached region whose start is still at/after pos is
     # exactly what a fresh scan from pos would return.

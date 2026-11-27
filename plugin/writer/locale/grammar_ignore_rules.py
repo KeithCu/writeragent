@@ -40,7 +40,7 @@ def ignore_rules_clear() -> None:
 
 def ignore_rule_add(rule_id: str) -> None:
     with grammar_registry.lock:
-        grammar_registry.ignored_rules.add(str(rule_id))
+        grammar_registry.ignored_rules.add(rule_id)
 
 
 def ignored_rules_snapshot() -> set[str]:
@@ -58,7 +58,6 @@ def normalize_reason(reason: str) -> str:
     - Collapses spaces into a single-space separated canonical string.
     """
     s = reason.lower().strip()
-    # Strip non-alphanumeric characters (keeping word contents)
     s = GRAMMAR_NORMALIZE_REASON_RE.sub("", s).replace("_", "")
     return " ".join(s.split())
 

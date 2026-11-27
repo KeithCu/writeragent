@@ -27,7 +27,7 @@ def detect_languages(ctx: Any, texts: list[str]) -> list[str | None]:
         # The worker's ImportError text already contains this install line;
         # appending it again would repeat it. Other venv failures still need the line once.
         if EMBEDDINGS_VENV_PIP_INSTALL not in message and ("venv" in message.lower() or "langdetect" in message.lower()):
-            raise ToolExecutionError(f"{message} Install with: {EMBEDDINGS_VENV_PIP_INSTALL}", code="LANGDETECT_ERROR", details=getattr(exc, "details", None)) from exc
+            raise ToolExecutionError(f"{message} Install with: {EMBEDDINGS_VENV_PIP_INSTALL}", code="LANGDETECT_ERROR", details=exc.details) from exc
         raise
     languages = result.get("languages")
     if not isinstance(languages, list):
