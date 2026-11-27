@@ -83,7 +83,7 @@ def _copy_math_or_text(
     if math_records is not None:
         emb = portion_math_embed(portion)
         if emb is not None:
-            raw = parent_el.getString() if hasattr(parent_el, "getString") else ""
+            raw = parent_el.getString()
             stripped = raw.replace(OBJECT_REPLACEMENT, "").strip()
             ph = record_math_placeholder(math_records, emb, display_block=stripped == "")
             dest_text.insertString(dest_cursor, ph, False)
@@ -92,7 +92,6 @@ def _copy_math_or_text(
     if chunk:
         dest_text.insertString(dest_cursor, chunk, False)
     return chunk
-
 
 
 # Direct formatting the range copy carries into the temp document. Whitelists rather than "every
@@ -137,7 +136,6 @@ _PARA_LEVEL_CHAR_PROPERTIES: tuple[str, ...] = (
 _RUN_ONLY_CHAR_PROPERTIES: tuple[str, ...] = tuple(
     n for n in _COPIED_CHAR_PROPERTIES if n not in _PARA_LEVEL_CHAR_PROPERTIES
 )
-
 
 
 def _copy_properties(src: Any, dst: Any, names: tuple[str, ...], style: Any = None) -> None:
@@ -243,11 +241,10 @@ def _clone_missing_paragraph_style(
     parent = ""
     try:
         raw_parent = source.getParentStyle()
-        if isinstance(raw_parent, str) and raw_parent != name:
+        if raw_parent != name:
             parent = raw_parent
     except Exception as exc:
         reraise_if_disposed(exc)
-        parent = ""
 
     if parent:
         try:
@@ -263,8 +260,6 @@ def _clone_missing_paragraph_style(
         clone = dest_doc.createInstance("com.sun.star.style.ParagraphStyle")
     except Exception as exc:
         reraise_if_disposed(exc)
-        return False
-    if clone is None:
         return False
 
     if parent:
@@ -293,12 +288,9 @@ def _clone_missing_paragraph_style(
     # requires the current style and its inherited ancestors.
     follow = ""
     try:
-        raw_follow = source.getPropertyValue("FollowStyle")
-        if isinstance(raw_follow, str):
-            follow = raw_follow
+        follow = source.getPropertyValue("FollowStyle")
     except Exception as exc:
         reraise_if_disposed(exc)
-        follow = ""
 
     if follow:
         try:
@@ -410,8 +402,6 @@ def paint_direct_formatting(
             _copy_properties(portion, run, _PARA_LEVEL_CHAR_PROPERTIES, char_base)
         except Exception:
             log.debug("paint_direct_formatting: portion skipped", exc_info=True)
-            continue
-
 
 
 def _copy_field_into(dest_doc: Any, dest_text: Any, dest_cursor: Any, src_field: Any) -> bool:
@@ -438,6 +428,7 @@ def _copy_field_into(dest_doc: Any, dest_text: Any, dest_cursor: Any, src_field:
             new_field.setPropertyValue(prop, src_field.getPropertyValue(prop))
         except Exception as e:
             log.debug("_copy_field_into failed to set property %r: %s", prop, e)
+
     def insert() -> bool:
         dest_text.insertTextContent(dest_cursor, new_field, False)
         return True
@@ -675,10 +666,8 @@ def writer_cell_position(name: str) -> tuple[int, int] | None:
     n_digits_end = n_row_pos
     while n_digits_end < n_len and "0" <= name[n_digits_end] <= "9":
         n_digits_end += 1
-    if n_digits_end == n_row_pos:
-        return None
     n_row = int(name[n_row_pos:n_digits_end]) - 1
-    if n_row < 0 or n_col_idx < 0:
+    if n_row < 0:
         return None
     return n_col_idx, n_row
 
@@ -692,7 +681,7 @@ def _writer_table_copy_layout(table: Any) -> tuple[int, int, list[str]]:
     read-path matrix.
     """
     rows, cols = uno_read(lambda: (int(table.getRows().getCount()), int(table.getColumns().getCount())), (0, 0))
-    names: list[str] = uno_read(lambda: list(table.getCellNames() or []), [])
+    names: list[str] = uno_read(lambda: list(table.getCellNames()), [])
     max_row = max(rows - 1, 0)
     max_col = max(cols - 1, 0)
     for cell_name in names:
@@ -729,10 +718,7 @@ def copy_table(
     first-row box count and can be 1) still copies D2. Dest is sized to the
     max Writer name coordinate so those names exist; merges are not recreated.
     """
-    # _writer_table_copy_layout already returns a size when a metric read fails.
     dest_rows, dest_cols, names = _writer_table_copy_layout(src_table)
-    if dest_rows < 1 or dest_cols < 1:
-        return
     dest_table = dest_doc.createInstance("com.sun.star.text.TextTable")
     dest_table.initialize(dest_rows, dest_cols)
     dest_text.insertTextContent(dest_cursor, dest_table, False)
@@ -752,7 +738,7 @@ def copy_table(
                 src_doc, src_cell, dest_doc, dest_cell, deletions, math_records=math_records, mark_struck=mark_struck
             )
     else:
-        # No name list: last-resort position walk (same first-row bound as before).
+        # No name list: walk by position, bounded by the first row's column count.
         for row in range(dest_rows):
             for col in range(dest_cols):
                 try:
@@ -827,16 +813,19 @@ def _accepted_blocks(doc: Any, text: Any, deletions: TrackedDeletions) -> list[_
     return blocks
 
 
-def _copy_xtext_by_portions(
+def copy_xtext_into_doc(
     src_doc: Any,
     src_text: Any,
     dest_doc: Any,
     math_records: list[tuple[str, str, bool]] | None = None,
 ) -> None:
-    """Copy paragraphs/fields without the view transferable, leaving out tracked deletions.
+    """Copy *src_text* (body, header, footer, cell) into *dest_doc*'s body without
+    using a view transferable, leaving out tracked deletions.
 
-    Needed when ``select()`` on ``HeaderText`` pastes nothing because the
-    view is on the first page (``FirstIsShared=False``).
+    Does not select the live document or use a transferable, because that pattern
+    corrupts the heap on the XHTML export that follows, and ``select()`` on
+    ``HeaderText`` pastes nothing when the view is on the first page
+    (``FirstIsShared=False``).
 
     Each copy gets its source paragraph style, and only values that differ from
     that style are copied. The style object used for the direct-formatting
@@ -954,7 +943,7 @@ def cells_all_tracked_deleted(cells: list[Any], doc: Any) -> bool:
 
 def table_is_all_deleted(doc: Any, table: Any) -> bool:
     """True when every cell of *table* has lost all visible text (with something struck in it)."""
-    names: list[str] = uno_read(lambda: list(table.getCellNames() or ()), list[str]())
+    names: list[str] = uno_read(lambda: list(table.getCellNames()), [])
     if not names:
         return False
     return cells_all_tracked_deleted([table.getCellByName(n) for n in names], doc)
@@ -993,17 +982,3 @@ ANCHORED_GRAPHIC_PROPS = (
     "AnchorType", "Graphic", "Width", "Height",
     "HyperLinkURL", "HyperLinkName", "HyperLinkTarget",
 ) + GRAPHIC_LAYOUT_PROPS
-
-
-def copy_xtext_into_doc(
-    src_doc: Any,
-    src_text: Any,
-    dest_doc: Any,
-    math_records: list[tuple[str, str, bool]] | None = None,
-) -> None:
-    """Copy *src_text* (body, header, footer, cell) into *dest_doc*'s body.
-
-    Does not select the live document or use a transferable, because that pattern
-    corrupts the heap on the XHTML export that follows.
-    """
-    _copy_xtext_by_portions(src_doc, src_text, dest_doc, math_records=math_records)

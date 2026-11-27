@@ -264,9 +264,9 @@ def test_search_misses_generated_list_labels_uno(ctx, doc):
     """
     tool_ctx = _apply_list_fixture(doc, ctx)
     search = SearchInDocument()
-    generated = search.execute(tool_ctx, pattern="1.")
-    hierarchical = search.execute(tool_ctx, pattern="1.2")
-    item_text = search.execute(tool_ctx, pattern="Outer one")
+    generated = search.execute(tool_ctx, pattern="1.", max_results=20, regex=False, return_offsets=False)
+    hierarchical = search.execute(tool_ctx, pattern="1.2", max_results=20, regex=False, return_offsets=False)
+    item_text = search.execute(tool_ctx, pattern="Outer one", max_results=20, regex=False, return_offsets=False)
     assert generated.get("status") == "ok", generated
     assert generated.get("count") == 0, generated
     assert hierarchical.get("status") == "ok", hierarchical

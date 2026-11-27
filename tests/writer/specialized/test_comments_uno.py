@@ -27,7 +27,7 @@ def test_comment_location_and_paragraph_index_uno(ctx, doc):
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
 
     # Add a body comment via AddComment
-    body_res = AddComment().execute(tool_ctx, content="Body comment", search="Second paragraph")
+    body_res = AddComment().execute(tool_ctx, content="Body comment", search="Second paragraph", author="WriterAgent", occurrence=0)
     assert body_res.get("status") == "ok", body_res
 
     # Enable footer and insert an annotation into the footer
@@ -67,7 +67,7 @@ def test_comment_resolve_reply_appears_with_name_uno(ctx, doc):
     set_body_text(doc, "Some reviewable sentence here.")
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
 
-    add_res = AddComment().execute(tool_ctx, content="Needs fix", search="reviewable")
+    add_res = AddComment().execute(tool_ctx, content="Needs fix", search="reviewable", author="WriterAgent", occurrence=0)
     assert add_res.get("status") == "ok", add_res
     parent_name = add_res["name"]
     assert parent_name, "Parent comment should have a name"
@@ -94,7 +94,7 @@ def test_add_comment_search_hits_nbsp_uno(ctx, doc):
     set_body_text(doc, "Prefix text\u00a0with\u00a0nbsp and suffix.")
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
 
-    res = AddComment().execute(tool_ctx, content="Note on nbsp phrase", search="text with nbsp")
+    res = AddComment().execute(tool_ctx, content="Note on nbsp phrase", search="text with nbsp", author="WriterAgent", occurrence=0)
     assert res.get("status") == "ok", res
     assert res.get("matched") is True
     assert res.get("comment_added") is True
@@ -106,7 +106,7 @@ def test_add_comment_search_hits_nbsp_uno(ctx, doc):
 def test_comment_edit_preserves_metadata_uno(ctx, doc):
     set_body_text(doc, "Sentence for comment edit probe.")
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
-    add_res = AddComment().execute(tool_ctx, content="Original note", search="Sentence")
+    add_res = AddComment().execute(tool_ctx, content="Original note", search="Sentence", author="WriterAgent", occurrence=0)
     assert add_res.get("status") == "ok", add_res
     name = add_res["name"]
     assert name
@@ -144,7 +144,7 @@ def test_comment_reads_hide_tracked_deletion_uno(ctx, doc):
         doc.setPropertyValue("RecordChanges", False)
 
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
-    added = AddComment().execute(tool_ctx, content="Note", search="Body nova")
+    added = AddComment().execute(tool_ctx, content="Note", search="Body nova", author="WriterAgent", occurrence=0)
     assert added.get("status") == "ok", added
     assert added.get("anchor_text") == "Body nova"
 

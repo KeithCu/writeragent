@@ -27,8 +27,10 @@ def test_read_annotation_falls_back_to_paragraph_context():
     }.get(p, "")
     doc_svc = MagicMock()
     doc_svc.find_paragraph_for_range.return_value = 7
+    labeler = MagicMock()
+    labeler.describe.return_value = "body"
     with patch("plugin.writer.specialized.comments.enclosing_paragraph_text", return_value="  the clause the comment covers  "):
-        entry = _read_annotation(field, [], MagicMock(), doc_svc, TrackedDeletions(MagicMock()))
+        entry = _read_annotation(field, [], MagicMock(), doc_svc, TrackedDeletions(MagicMock()), MagicMock(), [], labeler)
     assert entry["anchor_preview"] == "the clause the comment covers"
     assert entry["anchor_is_paragraph_context"] is True
 
@@ -126,7 +128,7 @@ def test_add_comment_reply_unknown_parent():
 
     doc = MagicMock()
     doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FakeUnoEnum([])
-    res = AddComment().execute(MagicMock(doc=doc), content="a reply", parent_name="no-such-comment")
+    res = AddComment().execute(MagicMock(doc=doc), content="a reply", parent_name="no-such-comment", author="WriterAgent")
     assert res["status"] == "error"
     assert res.get("comment_added") is False
     assert "no-such-comment" in res["message"]
@@ -174,6 +176,7 @@ def test_add_comment_reply_via_parent_name_skips_search():
             content="approved",
             parent_name="B",
             search="should-be-ignored",
+            author="WriterAgent",
         )
     assert res["status"] == "ok", res
     assert res["name"] == "C"
@@ -250,7 +253,7 @@ def test_add_comment_errors_when_annotation_does_not_register():
     empty = MagicMock()
     empty.createEnumeration.side_effect = lambda: FakeUnoEnum([])
     doc.getTextFields.return_value = empty
-    res = AddComment().execute(SimpleNamespace(doc=doc), content="note", search="hit")
+    res = AddComment().execute(SimpleNamespace(doc=doc), content="note", search="hit", author="WriterAgent", occurrence=0)
     assert res["status"] == "error" and res["comment_added"] is False and res["matched"] is True
     assert res["code"] == "TOOL_EXECUTION_ERROR"
 
@@ -261,7 +264,7 @@ def test_add_comment_not_found_at_occurrence():
     doc = MagicMock()
     doc.findFirst.return_value = MagicMock()
     doc.findNext.return_value = None
-    res = AddComment().execute(SimpleNamespace(doc=doc), content="n", search="x", occurrence=3)
+    res = AddComment().execute(SimpleNamespace(doc=doc), content="n", search="x", occurrence=3, author="WriterAgent")
     assert res["status"] == "error" and res["comment_added"] is False
 
 
@@ -457,7 +460,7 @@ def test_add_comment_search_uses_find_occurrence_range():
     with patch("plugin.writer.search.find_occurrence_range", return_value=(match_range, MatchMode(True, False))) as mock_find, \
          patch("plugin.writer.search.find_all_ranges") as mock_find_all, \
          patch("plugin.writer.specialized.comments._set_annotation_date"):
-        res = AddComment().execute(ctx, content="test note", search="find me", occurrence=1)
+        res = AddComment().execute(ctx, content="test note", search="find me", occurrence=1, author="WriterAgent")
 
     assert res["status"] == "ok"
     mock_find.assert_called_once_with(doc, "find me", occurrence=1, case_sensitive=None)
@@ -489,26 +492,26 @@ def test_add_comment_case_sensitive_distinguishes_cased_occurrences():
     with patch("plugin.writer.search.find_occurrence_range", side_effect=fake_find), \
          patch("plugin.writer.specialized.comments._set_annotation_date"):
         doc.getTextFields.return_value = _fields_that_grow()
-        res_default = AddComment().execute(ctx, content="note", search="the board approved")
+        res_default = AddComment().execute(ctx, content="note", search="the board approved", author="WriterAgent", occurrence=0)
         assert res_default["status"] == "ok"
         assert res_default["anchor_text"] == "the board approved"
 
         doc.getTextFields.return_value = _fields_that_grow()
-        res_insensitive = AddComment().execute(ctx, content="note", search="the board approved", case_sensitive=False)
+        res_insensitive = AddComment().execute(ctx, content="note", search="the board approved", case_sensitive=False, author="WriterAgent", occurrence=0)
         assert res_insensitive["status"] == "ok"
         assert res_insensitive["anchor_text"] == "The board approved"
 
 
 def test_add_comment_search_index_error_and_none_return_not_found():
-    from plugin.writer.search import MatchMode
+    from plugin.writer.search import MatchMode, OccurrenceOutOfRange
     from plugin.writer.specialized.comments import AddComment
 
     doc = MagicMock()
     doc.getDrawPage.return_value = None
     ctx = SimpleNamespace(doc=doc)
 
-    with patch("plugin.writer.search.find_occurrence_range", side_effect=IndexError("out of range")):
-        res_idx = AddComment().execute(ctx, content="note", search="hit", occurrence=3)
+    with patch("plugin.writer.search.find_occurrence_range", side_effect=OccurrenceOutOfRange("out of range", MatchMode(False, False))):
+        res_idx = AddComment().execute(ctx, content="note", search="hit", occurrence=3, author="WriterAgent")
     assert res_idx["status"] == "error"
     assert res_idx["code"] == "OCCURRENCE_OUT_OF_RANGE"
     assert res_idx["message"] == "out of range"
@@ -516,7 +519,7 @@ def test_add_comment_search_index_error_and_none_return_not_found():
     assert res_idx["comment_added"] is False
 
     with patch("plugin.writer.search.find_occurrence_range", return_value=(None, MatchMode(False, False))):
-        res_none = AddComment().execute(ctx, content="note", search="missing", occurrence=0)
+        res_none = AddComment().execute(ctx, content="note", search="missing", occurrence=0, author="WriterAgent")
     assert res_none["status"] == "error"
     assert res_none["code"] == "OLD_CONTENT_NOT_FOUND"
     assert res_none["message"].startswith("search not found in document")
@@ -661,9 +664,10 @@ def test_read_annotation_unconfirmed_zero_omits_paragraph_index():
     doc_svc = MagicMock()
     doc_svc.find_paragraph_for_range.return_value = None
 
-    with patch("plugin.writer.specialized.comments.describe_match_location", return_value="body"), \
-         patch("plugin.writer.specialized.comments.uno_same", return_value=True):
-        entry = _read_annotation(field, [], text_obj, doc_svc, MagicMock())
+    labeler = MagicMock()
+    labeler.describe.return_value = "body"
+    with patch("plugin.writer.specialized.comments.uno_same", return_value=True):
+        entry = _read_annotation(field, [], text_obj, doc_svc, MagicMock(), MagicMock(), [], labeler)
 
     assert "paragraph_index" not in entry
 
@@ -755,7 +759,7 @@ def test_read_annotation_disposal_propagates():
     field = MagicMock()
     field.getPropertyValue.side_effect = DocumentDisposedError("doc closed")
     with pytest.raises(DocumentDisposedError):
-        _read_annotation(field, [], MagicMock(), MagicMock(), MagicMock())
+        _read_annotation(field, [], MagicMock(), MagicMock(), MagicMock(), MagicMock(), [], MagicMock())
 
 
 def test_add_comment_empty_content_errors_without_search(monkeypatch):
@@ -792,7 +796,7 @@ def test_reply_and_resolve_call_shared_helper(monkeypatch):
 
     # 1. AddComment reply path
     target = MagicMock()
-    monkeypatch.setattr(comments, "_iter_annotations", lambda doc: [target])
+    monkeypatch.setattr(comments, "iter_annotations", lambda doc: [target])
     target.getPropertyValue.side_effect = lambda p: "c1" if p == "Name" else None
     ctx = MagicMock()
     _setup_mock_undo_manager(ctx.doc)
@@ -810,7 +814,7 @@ def test_reply_and_resolve_call_shared_helper(monkeypatch):
 
     # 2. CommentResolve failure does not set Resolved
     target.reset_mock()
-    monkeypatch.setattr(comments, "_iter_annotations", lambda doc: [target])
+    monkeypatch.setattr(comments, "iter_annotations", lambda doc: [target])
     target.getPropertyValue.side_effect = lambda p: "c1" if p == "Name" else None
     resolve_fail = comments.CommentResolve().execute(ctx, name="c1", resolution="fail", author="AI")
     assert resolve_fail["status"] == "error"
@@ -819,7 +823,7 @@ def test_reply_and_resolve_call_shared_helper(monkeypatch):
 
     # 3. CommentResolve success sets Resolved
     target.reset_mock()
-    monkeypatch.setattr(comments, "_iter_annotations", lambda doc: [target])
+    monkeypatch.setattr(comments, "iter_annotations", lambda doc: [target])
     target.getPropertyValue.side_effect = lambda p: "c1" if p == "Name" else None
     resolve_ok = comments.CommentResolve().execute(ctx, name="c1", resolution="resolved it", author="AI")
     assert resolve_ok["status"] == "ok"
@@ -992,7 +996,7 @@ def test_add_comment_reads_document_assigned_name():
     doc.getTextFields.return_value.createEnumeration.side_effect = _enum
     doc.createInstance.return_value.getPropertyValue.return_value = ""
     with patch("plugin.writer.specialized.comments._set_annotation_date"):
-        res = AddComment().execute(SimpleNamespace(doc=doc), content="note", search="hit")
+        res = AddComment().execute(SimpleNamespace(doc=doc), content="note", search="hit", author="WriterAgent", occurrence=0)
     assert res["status"] == "ok", res
     assert res["name"] == "LO_NAME"
 
@@ -1017,7 +1021,7 @@ def test_add_comment_reply_reads_assigned_name():
 
     doc.getTextFields.return_value.createEnumeration.side_effect = _enum
     with patch("plugin.writer.specialized.comments._set_annotation_date"):
-        res = AddComment().execute(MagicMock(doc=doc), content="r", parent_name="P")
+        res = AddComment().execute(MagicMock(doc=doc), content="r", parent_name="P", author="WriterAgent")
     assert res["status"] == "ok", res
     assert res["name"] == "R"
 
@@ -1059,9 +1063,8 @@ def test_comment_list_paging_and_author_filter_order():
         clamped = CommentList().execute(ctx, start_index=-5, max_comments=0)
         assert clamped["count"] == 1
 
-        bad_page = CommentList().execute(ctx, start_index=0, max_comments="nope")
-        assert bad_page["status"] == "error"
-        assert bad_page["code"] == "INVALID_PARAM"
+        clamped_neg = CommentList().execute(ctx, start_index=0, max_comments=-5)
+        assert clamped_neg["count"] == 1
 
 
 def test_comment_edit_sets_content_only():
@@ -1112,6 +1115,7 @@ def test_comment_list_start_index_type_stops_at_validator():
 
     ctx = MagicMock()
     ctx.doc_type = "writer"
-    prep = prepare_tool_call(CommentList(), ctx, "comment_list", {"start_index": "abc"})
-    assert prep.error is not None
-    assert prep.error["code"] == "VALIDATION_ERROR"
+    for bad_args in ({"start_index": "abc"}, {"max_comments": "nope"}):
+        prep = prepare_tool_call(CommentList(), ctx, "comment_list", bad_args)
+        assert prep.error is not None
+        assert prep.error["code"] == "VALIDATION_ERROR"

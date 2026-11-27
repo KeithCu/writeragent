@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from plugin.doc.temp_files import with_temp_buffer
+from plugin.framework.errors import best_effort
 from plugin.framework.scratch_writer import close_scratch_document, load_scratch_document
 from plugin.framework.uno_context import get_desktop
 from plugin.writer.record_changes import insert_recorded_content
@@ -19,7 +20,7 @@ from plugin.writer.record_changes import insert_recorded_content
 log = logging.getLogger("writeragent.writer")
 
 
-# Same CLSID as documented in LibreOffice programming guides (FormulaDocument).
+# SO3_SM_CLASSID_60 (include/comphelper/classids.hxx).
 MATH_CLSID = "078B7ABA-54FC-457F-8551-6147e776a997"
 
 # com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK
@@ -105,7 +106,6 @@ def collapse_starmath_newline_tokens_for_writer_embed(starmath: str) -> str:
 
 def convert_latex_to_starmath(ctx: Any, latex: str, *, display_block: bool = False) -> MathConversionResult:
     """Convert LaTeX to StarMath via ``latex2mathml`` then :func:`convert_mathml_to_starmath`."""
-    assert isinstance(latex, str), type(latex)
     trimmed = latex.strip()
     if not trimmed:
         return MathConversionResult(False, None, "empty_latex")
@@ -121,7 +121,6 @@ def convert_latex_to_starmath(ctx: Any, latex: str, *, display_block: bool = Fal
     except Exception as exc:
         log.debug("latex2mathml convert failed: %s", exc, exc_info=True)
         return MathConversionResult(False, None, exception_message(exc))
-    assert isinstance(mathml, str)
     mathml_stripped = mathml.strip()
     if not mathml_stripped:
         return MathConversionResult(False, None, "latex2mathml_empty_output")
@@ -134,7 +133,7 @@ def convert_mathml_to_starmath(ctx: Any, mathml_fragment: str) -> MathConversion
     *mathml_fragment* should be a well-formed ``<math>...</math>`` subtree (may
     include an XML declaration — not required).
     """
-    if not mathml_fragment or not isinstance(mathml_fragment, str):
+    if not mathml_fragment:
         return MathConversionResult(False, None, "empty_mathml")
     root = math_root(mathml_fragment)
     if not root:
@@ -148,9 +147,7 @@ def convert_mathml_to_starmath(ctx: Any, mathml_fragment: str) -> MathConversion
             if doc is None:
                 return MathConversionResult(False, None, "load_returned_none")
             try:
-                formula = doc.getPropertyValue("Formula")
-                assert isinstance(formula, str)
-                formula = formula.strip()
+                formula = doc.getPropertyValue("Formula").strip()
                 if not formula:
                     return MathConversionResult(
                         False,
@@ -163,14 +160,10 @@ def convert_mathml_to_starmath(ctx: Any, mathml_fragment: str) -> MathConversion
                     None,
                 )
             finally:
-                try:
-                    close_scratch_document(doc)
-                except Exception as exc:
-                    log.debug("math doc close: %s", exc)
+                best_effort(lambda: close_scratch_document(doc), "math doc close")
     except Exception as exc:
         log.debug("convert_mathml_to_starmath failed: %s", exc, exc_info=True)
         return MathConversionResult(False, None, exception_message(exc))
-
 
 
 def insert_writer_math_formula(model: Any, cursor: Any, starmath: str, *, display_block: bool) -> None:
@@ -206,7 +199,7 @@ def insert_writer_math_formula(model: Any, cursor: Any, starmath: str, *, displa
 
 
 def _math_inner(embed: Any) -> Any:
-    return embed.getEmbeddedObject() if hasattr(embed, "getEmbeddedObject") else embed
+    return embed.getEmbeddedObject()
 
 
 def replace_writer_math_formula(embed: Any, starmath: str) -> None:

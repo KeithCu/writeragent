@@ -64,8 +64,7 @@ class GetDocumentTree(ToolBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         tree_svc = ctx.services.writer_tree
-        strategy = kwargs.get("strategy", "first_lines")
-        result = tree_svc.get_document_tree(ctx.doc, content_strategy=strategy, depth=kwargs.get("depth", 1))
+        result = tree_svc.get_document_tree(ctx.doc, content_strategy=kwargs["strategy"], depth=kwargs["depth"])
         heading_tree = tree_svc.build_heading_tree(ctx.doc)
         stats = collect_document_stats(
             ctx.doc,
@@ -89,14 +88,12 @@ def collect_document_stats(
     cursor.gotoStart(False)
     cursor.gotoEnd(True)
     full_text = visible_range_text(doc, cursor)
-    char_count = len(full_text)
-    word_count = len(full_text.split())
 
     heading_count = sum(1 for _unused in iter_heading_nodes(heading_tree))
 
     return {
-        "character_count": char_count,
-        "word_count": word_count,
+        "character_count": len(full_text),
+        "word_count": len(full_text.split()),
         "paragraph_count": paragraph_count,
         "page_count": page_count,
         "heading_count": heading_count,

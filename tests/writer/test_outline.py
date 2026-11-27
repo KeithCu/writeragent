@@ -29,7 +29,7 @@ class TestGetDocumentTreeMergedStats:
         ctx.services.document = MagicMock()
 
         with patch("plugin.writer.outline.visible_range_text", return_value="one two three four!"):
-            result = GetDocumentTree().execute(ctx)
+            result = GetDocumentTree().execute(ctx, strategy="first_lines", depth=1)
 
         assert result["stats"] == {
             "character_count": 19,
@@ -54,7 +54,7 @@ def test_get_document_tree_disposal_propagates():
         "closed", object_type="Document"
     )
     with pytest.raises(DocumentDisposedError):
-        GetDocumentTree().execute(ctx)
+        GetDocumentTree().execute(ctx, strategy="first_lines", depth=1)
 
 
 def test_collect_document_stats_counts_chars_words_and_headings():

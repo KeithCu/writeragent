@@ -184,8 +184,16 @@ def test_set_selection_shape_match_returns_shape_message():
 
 
 def test_set_selection_occurrence_out_of_range():
+    from plugin.writer.search import MatchMode, OccurrenceOutOfRange
+
     ctx, doc, controller = _selection_ctx()
-    with patch("plugin.writer.search.find_occurrence_range", side_effect=IndexError("occurrence 3 out of range (found 2 match(es), use 0..1).")):
+    with patch(
+        "plugin.writer.search.find_occurrence_range",
+        side_effect=OccurrenceOutOfRange(
+            "occurrence 3 out of range (found 2 match(es), use 0..1).",
+            MatchMode(False, False),
+        ),
+    ):
         res = SetSelection().execute(ctx, search_text="hit", occurrence=3)
     assert res["status"] == "error"
     assert res["code"] == "OCCURRENCE_OUT_OF_RANGE"

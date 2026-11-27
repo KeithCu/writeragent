@@ -1,6 +1,6 @@
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
-from plugin.writer.search import SearchInDocument
+from plugin.writer.search import DEFAULT_SEARCH_RESULTS, SearchInDocument
 from tests.writer.doc_builders import build_chain_deletion_doc, reject_all_changes, strike_substring
 
 
@@ -38,15 +38,20 @@ class MockServices:
         self.document = DocumentService()
 
 
+def _run_search(ctx, **kwargs):
+    defaults = {"max_results": DEFAULT_SEARCH_RESULTS, "regex": False, "return_offsets": False}
+    defaults.update(kwargs)
+    return SearchInDocument().execute(ctx, **defaults)
+
+
 @native_test
 @with_native_doc("writer")
 def test_search_in_document_basic(ctx, doc):
     _populate_search_doc(doc)
-    tool = SearchInDocument()
     mock_ctx = MockContext(doc, ctx)
 
     # Simple search
-    res = tool.execute(mock_ctx, pattern="needle")
+    res = _run_search(mock_ctx, pattern="needle")
     assert res["status"] == "ok"
     assert res["count"] == 2
     assert len(res["matches"]) == 2
@@ -66,10 +71,9 @@ def test_search_in_document_basic(ctx, doc):
 @with_native_doc("writer")
 def test_search_in_document_case_sensitive(ctx, doc):
     _populate_search_doc(doc)
-    tool = SearchInDocument()
     mock_ctx = MockContext(doc, ctx)
 
-    res = tool.execute(mock_ctx, pattern="Needle", case_sensitive=True)
+    res = _run_search(mock_ctx, pattern="Needle", case_sensitive=True)
     assert res["status"] == "ok"
     assert res["count"] == 1
     assert res["matches"][0]["location"] == "body"
@@ -80,10 +84,9 @@ def test_search_in_document_case_sensitive(ctx, doc):
 @with_native_doc("writer")
 def test_search_in_document_regex(ctx, doc):
     _populate_search_doc(doc)
-    tool = SearchInDocument()
     mock_ctx = MockContext(doc, ctx)
 
-    res = tool.execute(mock_ctx, pattern=r"Needles? are \w+", regex=True)
+    res = _run_search(mock_ctx, pattern=r"Needles? are \w+", regex=True)
     assert res["status"] == "ok"
     assert res["count"] == 1
     assert res["matches"][0]["text"] == "Needles are sharp"
@@ -121,7 +124,6 @@ def test_search_in_document_zero_width_regex_finds_nothing_uno(ctx, doc):
     text = doc.getText()
     cursor = text.createTextCursor()
     cursor.setString("Hello")
-    tool = SearchInDocument()
     mock_ctx = MockContext(doc, ctx)
 
     # In this LibreOffice environment, ICU findFirst for "^" returns None (0 hits)
@@ -133,7 +135,7 @@ def test_search_in_document_zero_width_regex_finds_nothing_uno(ctx, doc):
     found = doc.findFirst(sd)
     assert found is None
 
-    res = tool.execute(mock_ctx, pattern="^", regex=True)
+    res = _run_search(mock_ctx, pattern="^", regex=True)
     assert res["status"] == "ok"
     assert res["count"] == 0
     assert res["matches"] == []
@@ -143,9 +145,8 @@ def test_search_in_document_zero_width_regex_finds_nothing_uno(ctx, doc):
 @with_native_doc("writer")
 def test_search_in_document_icu_only_regex_uno(ctx, doc):
     _populate_search_doc(doc)
-    tool = SearchInDocument()
     mock_ctx = MockContext(doc, ctx)
-    res = tool.execute(mock_ctx, pattern=r"\p{Lu}\w+", regex=True)
+    res = _run_search(mock_ctx, pattern=r"\p{Lu}\w+", regex=True)
     assert res["status"] == "ok"
     assert res["count"] >= 2
     assert res["matches"][0]["text"].startswith("Introduction")
@@ -155,9 +156,8 @@ def test_search_in_document_icu_only_regex_uno(ctx, doc):
 @with_native_doc("writer")
 def test_search_in_document_python_only_regex_is_invalid_regex_uno(ctx, doc):
     _populate_search_doc(doc)
-    tool = SearchInDocument()
     mock_ctx = MockContext(doc, ctx)
-    res = tool.execute(mock_ctx, pattern=r"(?P<w>Needles)", regex=True)
+    res = _run_search(mock_ctx, pattern=r"(?P<w>Needles)", regex=True)
     assert res["status"] == "error"
     assert res["code"] == "INVALID_REGEX"
     assert "(?<name>...)" in res["message"]
@@ -168,9 +168,8 @@ def test_search_in_document_python_only_regex_is_invalid_regex_uno(ctx, doc):
 @with_native_doc("writer")
 def test_search_in_document_plain_bad_regex_is_invalid_regex_uno(ctx, doc):
     _populate_search_doc(doc)
-    tool = SearchInDocument()
     mock_ctx = MockContext(doc, ctx)
-    res = tool.execute(mock_ctx, pattern="([a-", regex=True)
+    res = _run_search(mock_ctx, pattern="([a-", regex=True)
     assert res["status"] == "error"
     assert res["code"] == "INVALID_REGEX"
 
@@ -338,15 +337,15 @@ def test_search_skips_tracked_deleted_text_and_table_cell_uno(ctx, doc):
     strike_across_paragraphs(doc, text)
 
     tctx = native_writer_tool_context(doc, ctx)
-    assert SearchInDocument().execute(tctx, pattern="gone")["count"] == 0
-    tail_res = SearchInDocument().execute(tctx, pattern="Tail")
+    assert _run_search(tctx, pattern="gone")["count"] == 0
+    tail_res = _run_search(tctx, pattern="Tail")
     assert tail_res["count"] == 1
     assert "gone" not in tail_res["matches"][0]["context"]
 
     # Table struck by a body redline: hit in its cell is skipped.
     strike_across_table(doc, text)
-    assert SearchInDocument().execute(tctx, pattern="CellGone")["count"] == 0
-    assert SearchInDocument().execute(tctx, pattern="Before")["count"] == 1
+    assert _run_search(tctx, pattern="CellGone")["count"] == 0
+    assert _run_search(tctx, pattern="Before")["count"] == 1
 
 
 @native_test
@@ -565,38 +564,37 @@ def test_search_match_text_hides_struck_text_uno(ctx, doc):
     finally:
         doc.setPropertyValue("RecordChanges", False)
 
-    tool = SearchInDocument()
     mock_ctx = MockContext(doc, ctx)
 
-    res = tool.execute(mock_ctx, pattern="D here", case_sensitive=True)
+    res = _run_search(mock_ctx, pattern="D here", case_sensitive=True)
     assert res["status"] == "ok", res
     assert res["count"] == 1
     assert res["matches"][0]["text"] == "here"
 
     # Case-insensitive "D here" hits both the crossing "d here" in "Word here" and the native "D here" (shown as "here").
-    default_res = tool.execute(mock_ctx, pattern="D here")
+    default_res = _run_search(mock_ctx, pattern="D here")
     assert default_res["status"] == "ok", default_res
     assert default_res["count"] == 2, default_res
     assert [m["text"] for m in default_res["matches"]] == ["d here", "here"]
 
-    crossing = tool.execute(mock_ctx, pattern="Word here")
+    crossing = _run_search(mock_ctx, pattern="Word here")
     assert crossing["status"] == "ok", crossing
     assert crossing["count"] == 1
     assert crossing["matches"][0]["text"] == "Word here"
     assert crossing["matches"][0]["context"] == "Word here"
     assert "note" not in crossing
 
-    crossing_offsets = tool.execute(mock_ctx, pattern="Word here", return_offsets=True)
+    crossing_offsets = _run_search(mock_ctx, pattern="Word here", return_offsets=True)
     assert crossing_offsets["status"] == "ok", crossing_offsets
     assert crossing_offsets["ranges"] == [{"start": 0, "end": 9, "text": "Word here"}]
     assert "note" not in crossing_offsets
 
-    miss = tool.execute(mock_ctx, pattern="missing phrase")
+    miss = _run_search(mock_ctx, pattern="missing phrase")
     assert miss["status"] == "ok", miss
     assert miss["count"] == 0
     assert "note" in miss
 
-    miss_offsets = tool.execute(mock_ctx, pattern="missing phrase", return_offsets=True)
+    miss_offsets = _run_search(mock_ctx, pattern="missing phrase", return_offsets=True)
     assert miss_offsets["status"] == "ok", miss_offsets
     assert miss_offsets["ranges"] == []
     assert "note" in miss_offsets
@@ -632,7 +630,7 @@ def test_search_skips_hit_struck_by_two_deletions_uno(ctx, doc):
     assert doc.getRedlines().getCount() == 2
 
     mock_ctx = MockContext(doc, ctx)
-    res = SearchInDocument().execute(mock_ctx, pattern="OLDOLD")
+    res = _run_search(mock_ctx, pattern="OLDOLD")
     assert res["status"] == "ok", res
     assert res["count"] == 1
     live_ranges = find_all_ranges(doc, "OLDOLD")
@@ -666,7 +664,7 @@ def test_search_reports_metadata_field_hit_uno(ctx, doc):
     finally:
         doc.setPropertyValue("RecordChanges", False)
 
-    res = SearchInDocument().execute(MockContext(doc, ctx), pattern="inner")
+    res = _run_search(MockContext(doc, ctx), pattern="inner")
     assert res["status"] == "ok", res
     assert res["count"] == 1
     assert res["matches"][0]["text"] == "inner"
@@ -757,7 +755,7 @@ def test_search_crossing_deletion_containers_and_order_uno(ctx, doc):
     strike_substring(doc, header_text, "OLD3 ")
     strike_substring(doc, frame_text, "OLD4 ")
 
-    res = SearchInDocument().execute(MockContext(doc, ctx), pattern="Word here")
+    res = _run_search(MockContext(doc, ctx), pattern="Word here")
     assert res["status"] == "ok", res
     assert res["count"] == 6, res
     assert [m["text"] for m in res["matches"]] == ["Word here"] * 6
@@ -778,9 +776,8 @@ def test_search_crossing_adjacent_deletions_and_open_para_uno(ctx, doc):
     assert redlines.getCount() == 2
     assert len({redlines.getByIndex(i).RedlineAuthor for i in range(2)}) == 2
 
-    tool = SearchInDocument()
     mock_ctx = MockContext(doc, ctx)
-    r1 = tool.execute(mock_ctx, pattern="Alpha Beta")
+    r1 = _run_search(mock_ctx, pattern="Alpha Beta")
     assert r1["status"] == "ok" and r1["count"] == 1, r1
     assert r1["matches"][0]["text"] == "Alpha Beta"
 
@@ -789,7 +786,7 @@ def test_search_crossing_adjacent_deletions_and_open_para_uno(ctx, doc):
     strike_substring(doc, text, "GONE\ngone ")
     strike_substring(doc, text, "MID ")
     assert doc.getRedlines().getCount() == 2
-    r3 = tool.execute(mock_ctx, pattern="Lead Tail")
+    r3 = _run_search(mock_ctx, pattern="Lead Tail")
     assert r3["status"] == "ok" and r3["count"] == 1, r3
     assert r3["matches"][0]["text"] == "Lead Tail"
 
@@ -808,12 +805,11 @@ def test_search_crossing_skips_fields_and_finds_chained_and_anchor_uno(ctx, doc)
     text.insertString(cur, " OLD the fee", False)
     strike_substring(doc, text, "OLD ")
 
-    tool = SearchInDocument()
     mock_ctx = MockContext(doc, ctx)
-    miss = tool.execute(mock_ctx, pattern="Lee the fee")
+    miss = _run_search(mock_ctx, pattern="Lee the fee")
     assert miss["status"] == "ok" and miss["count"] == 0, miss
 
-    hit = tool.execute(mock_ctx, pattern="the fee")
+    hit = _run_search(mock_ctx, pattern="the fee")
     assert hit["status"] == "ok" and hit["count"] == 1, hit
     assert hit["matches"][0]["text"] == "the fee", hit
 
@@ -826,8 +822,8 @@ def test_search_crossing_skips_fields_and_finds_chained_and_anchor_uno(ctx, doc)
     fn.getText().setString("note")
     text.insertString(cur, " OLD the fee", False)
     strike_substring(doc, text, "OLD ")
-    assert tool.execute(mock_ctx, pattern="1 the fee")["count"] == 0
-    fn_hit = tool.execute(mock_ctx, pattern="the fee")
+    assert _run_search(mock_ctx, pattern="1 the fee")["count"] == 0
+    fn_hit = _run_search(mock_ctx, pattern="the fee")
     assert fn_hit["count"] == 1, fn_hit
     assert fn_hit["matches"][0]["text"] == "the fee", fn_hit
 

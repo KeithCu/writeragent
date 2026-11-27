@@ -27,7 +27,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from plugin.doc.paragraph_search import paragraph_entries
-from plugin.doc.text_helpers import iter_elements, live_paragraph_text, paragraph_deletion_flags
+from plugin.doc.text_helpers import iter_annotations, live_paragraph_text, paragraph_deletion_flags
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.framework.service import ServiceBase
 from plugin.framework.uno_context import uno_same
@@ -123,19 +123,12 @@ class ProximityService(ServiceBase):
         )
         return _flatten_tree(tree), bookmark_map
 
-    # ==================================================================
-    # navigate_heading
-    # ==================================================================
-
     def navigate_heading(self, doc: Any, locator: str, direction: str) -> dict[str, Any]:
         """Navigate from locator to a related heading.
 
         Failures raise ToolExecutionError, and the result always carries heading,
         from and direction.
         """
-        if direction not in ("next", "previous", "parent", "first_child", "next_sibling", "previous_sibling"):
-            raise ToolExecutionError("Unknown direction: %s. Use: next, previous, parent, first_child, next_sibling, previous_sibling" % direction)
-
         resolved = self._doc_svc.resolve_locator(doc, locator)
         para_index = resolved.get("para_index")
         if para_index is None:
@@ -202,7 +195,6 @@ class ProximityService(ServiceBase):
             if target_entry is None:
                 raise ToolExecutionError("No previous sibling heading")
 
-        # heading_ref already defaults missing body_paragraphs to 0.
         return {
             "heading": heading_ref(
                 target_entry["node"],
@@ -214,10 +206,6 @@ class ProximityService(ServiceBase):
             "direction": direction,
         }
 
-    # ==================================================================
-    # get_surroundings
-    # ==================================================================
-
     def get_surroundings(self, doc: Any, locator: str, radius: int = 10, include: list[str] | None = None) -> dict[str, Any]:
         """Discover objects within radius paragraphs of locator."""
         resolved = self._doc_svc.resolve_locator(doc, locator)
@@ -225,10 +213,6 @@ class ProximityService(ServiceBase):
         if center_idx is None:
             raise ToolExecutionError("Cannot resolve locator: %s" % locator)
 
-        try:
-            radius = int(radius)
-        except (TypeError, ValueError) as exc:
-            raise ToolExecutionError("radius must be an integer") from exc
         radius = max(0, min(50, radius))
         if include is None:
             include = ["paragraphs", *_ANCHORED_KINDS, "headings"]
@@ -323,12 +307,8 @@ class ProximityService(ServiceBase):
         if "comments" in include:
             comments = []
             try:
-                fields = doc.getTextFields()
-                enum = fields.createEnumeration()
-                for field in iter_elements(enum):
+                for field in iter_annotations(doc):
                     try:
-                        if not field.supportsService("com.sun.star.text.textfield.Annotation"):
-                            continue
                         pi = anchored(field.getAnchor())
                         if pi is None:
                             continue

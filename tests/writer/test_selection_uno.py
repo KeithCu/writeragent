@@ -97,7 +97,7 @@ def test_cross_tool_offsets_search_select_content_and_length_uno(ctx, doc):
     assert full["document_length"] == len(visible_range_text(doc, doc.getText()))
 
     for word in ("TargetOne", "TargetTwo"):
-        s_res = SearchInDocument().execute(tctx, pattern=word, return_offsets=True)
+        s_res = SearchInDocument().execute(tctx, pattern=word, return_offsets=True, max_results=20, regex=False)
         assert s_res["status"] == "ok" and len(s_res["ranges"]) == 1, s_res
         r = s_res["ranges"][0]
         assert r["text"] == word
