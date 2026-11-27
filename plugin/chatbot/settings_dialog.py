@@ -23,7 +23,7 @@ from plugin.framework.config import (
     migrate_secrets_to_keystore,
 )
 from plugin.framework.client.model_fetcher import (
-    _sanitize_stored_model_value,
+    sanitize_stored_model_value,
     get_image_model,
     get_text_model,
 )
@@ -311,7 +311,7 @@ def apply_settings_result(ctx: Any, result: dict[str, Any], field_specs: list[di
             # "(Enter API Key to load models)" or "(Connection failed)" as
             # image_model / audio.stt_model / audio.tts_model wipes the
             # configured model when the catalog cannot be listed.
-            sanitized = _sanitize_stored_model_value(val)
+            sanitized = sanitize_stored_model_value(val)
             if not sanitized:
                 continue
             val = sanitized

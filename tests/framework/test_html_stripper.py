@@ -19,7 +19,7 @@ from __future__ import annotations
 
 
 from plugin.framework.deal_shim import DEAL_MAX_HTML_CHUNK
-from plugin.framework.html_stripper import StreamingHTMLStripper, strip_html_tags
+from plugin.framework.html_stripper import StreamingHTMLStripper, strip_html_tags, text_has_real_html_tag
 
 
 def test_strip_html_tags_simple():
@@ -322,3 +322,23 @@ def test_escape_prose_angle_brackets():
     assert escape_prose_angle_brackets("2 < 3") == "2 &lt; 3"
     assert escape_prose_angle_brackets("4 > 1") == "4 > 1"
     assert escape_prose_angle_brackets("") == ""
+
+
+class TestTextHasRealHtmlTag:
+    """Real tags, not every ``<Letter…>`` token."""
+
+    def test_generic_url_and_email_are_not_tags(self):
+        assert text_has_real_html_tag("Use List<String> here") is False
+        assert text_has_real_html_tag("Write <user@example.com> today") is False
+        assert text_has_real_html_tag("See <https://example.com/a>") is False
+        assert text_has_real_html_tag("3 < 5") is False
+        assert text_has_real_html_tag("<prevent>") is False
+
+    def test_formatting_script_and_declarations_are_tags(self):
+        assert text_has_real_html_tag("<b>bold</b>") is True
+        assert text_has_real_html_tag("<i>italic</i>") is True
+        assert text_has_real_html_tag("<script>alert(1)</script>") is True
+        assert text_has_real_html_tag("<p>Hi</p>") is True
+        assert text_has_real_html_tag("<!-- note -->") is True
+        assert text_has_real_html_tag("<br/>") is True
+        assert text_has_real_html_tag("<widget/>") is True

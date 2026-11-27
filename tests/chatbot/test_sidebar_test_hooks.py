@@ -106,7 +106,7 @@ class _FakeListener:
     apply_sidebar_mode: Any
     _record_gesture: Any
     _auto_stop_path: Any
-    _last_compact_reason: Any
+    last_compact_reason: Any
     model_selector: Any
     clear_listener: Any
 
@@ -123,8 +123,8 @@ class _FakeListener:
         self.approval_finished: list[tuple] = []
         self._button_action = ButtonAction.RECORD
         self._stop_button_action = ButtonAction.IGNORE
-        self._voice = SimpleNamespace(_apply_record_gesture=lambda step: None, stop_during_take=lambda: False)
-        self._events = SimpleNamespace(_finish_inline_web_approval=self._finish_inline_web_approval)
+        self._voice = SimpleNamespace(apply_record_gesture=lambda step: None, stop_during_take=lambda: False)
+        self._events = SimpleNamespace(finish_inline_web_approval=self.finish_inline_web_approval)
         self.sidebar_state = SidebarCompositeState(
             send=SendButtonState(
                 mode=SendMode.BUSY if busy else SendMode.IDLE,
@@ -149,7 +149,7 @@ class _FakeListener:
     def on_action_performed(self, rEvent) -> None:
         self.events.append(("action", rEvent, self.send_control.getModel().Label))
 
-    def _finish_inline_web_approval(self, approved, query_override=None) -> None:
+    def finish_inline_web_approval(self, approved, query_override=None) -> None:
         self.approval_finished.append((approved, query_override))
         self._approval_event = None
 
@@ -385,7 +385,7 @@ def test_press_record_and_stop_rec_follow_the_button(fake_listener: _FakeListene
         if step.dispatch_record:
             fake_listener.dispatch(SendEvent(SendEventKind.RECORD_CLICKED))
 
-    fake_listener._voice = SimpleNamespace(_apply_record_gesture=_apply)
+    fake_listener._voice = SimpleNamespace(apply_record_gesture=_apply)
     fake_listener._button_action = ButtonAction.SEND
     fake_listener.send_control.getModel().Label = _("Send")
     press_record(listener=fake_listener)
@@ -430,7 +430,7 @@ def test_handle_debug_sidebar_inflate_history(fake_listener: _FakeListener, monk
             self.compaction = None
 
     fake_listener.session = _Session()
-    fake_listener._last_compact_reason = None
+    fake_listener.last_compact_reason = None
     monkeypatch.setattr("plugin.chatbot.sidebar_test_hooks.adopt_runtime_send_listeners", lambda: 0)
     monkeypatch.setattr("plugin.chatbot.sidebar_test_hooks._listener_for_current_doc", lambda: fake_listener)
     monkeypatch.setattr("plugin.chatbot.sidebar_test_hooks.send_listener", lambda frame=None: fake_listener)
@@ -640,7 +640,7 @@ def test_inflate_history_pads_current_doc_not_leftover_calc(
     writer_sl = fake_listener
     writer_sl.session = writer_session
     writer_sl.model_selector = None
-    writer_sl._last_compact_reason = None
+    writer_sl.last_compact_reason = None
     calc_sl = _FakeListener()
     calc_sl.session = calc_session
     calc_sl.slash_popup = "leftover"
@@ -709,7 +709,7 @@ def test_inflate_history_uid_pads_writer_when_soffice_current_is_calc(
     writer_sl = fake_listener
     writer_sl.session = writer_session
     writer_sl.model_selector = None
-    writer_sl._last_compact_reason = None
+    writer_sl.last_compact_reason = None
     calc_sl = _FakeListener()
     calc_sl.session = calc_session
     calc_sl.slash_popup = "leftover"

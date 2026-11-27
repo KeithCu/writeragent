@@ -94,7 +94,7 @@ def test_error_flow():
 def test_error_after_stop_rec_clears_has_audio():
     """G28: STT/chat errors dispatch ERROR_OCCURRED while has_audio is still True.
 
-    The WAV is already gone (_transcribe_audio finally / stream error cleanup).
+    The WAV is already gone (transcribe_audio finally / stream error cleanup).
     Keeping has_audio left a dead Send button; SEND_COMPLETED already clears it.
     """
     state = SendButtonState(SendMode.IDLE, False, False, True)

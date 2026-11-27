@@ -1512,7 +1512,7 @@ class TestMalformedArchitectureHandling:
                 mf._catalog_memos.pop(k, None)
 
     def test_parse_v1_models_response_handles_string_architecture(self):
-        from plugin.framework.client.model_fetcher import _parse_v1_models_response
+        from plugin.framework.client.model_fetcher import parse_v1_models_response
         body = {
             "data": [
                 {"id": "good", "architecture": {"input_modalities": ["image"]}},
@@ -1520,7 +1520,7 @@ class TestMalformedArchitectureHandling:
                 {"id": "text-only", "input_modalities": ["text"]},
             ]
         }
-        parsed = _parse_v1_models_response(body)
+        parsed = parse_v1_models_response(body)
         assert parsed is not None
         models, image_models, vision_declared = parsed
         assert models == ["good", "bad-arch", "text-only"]

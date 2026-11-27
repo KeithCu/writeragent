@@ -49,7 +49,7 @@ Do not break these:
 ```mermaid
 flowchart TD
   send["_do_send / _do_send_chat_with_tools"] --> refresh["refresh_document_context<br/>stores excerpt on session"]
-  refresh --> worker["_spawn_llm_worker / _spawn_final_stream<br/>sends messages_for_request<br/>dedicated thread"]
+  refresh --> worker["spawn_llm_worker / spawn_final_stream<br/>sends messages_for_request<br/>dedicated thread"]
   worker --> lane["with llm_request_lane — one hold"]
   lane --> estimate["prompt_tokens = estimate_tokens(view) + tool_schema_tokens"]
   estimate --> window["resolve_context_window (model_fetcher)"]
@@ -73,7 +73,7 @@ sequenceDiagram
   participant C as compaction.py
   participant LLM as LlmClient
   UI->>UI: refresh_document_context
-  UI->>W: run_in_background(_spawn_llm_worker)
+  UI->>W: run_in_background(spawn_llm_worker)
   Note over W: with llm_request_lane() (non-reentrant Lock)
   W->>C: compact_session(session, client, tools, force=...)
   alt should_compact or force (remainder at least MIN_TAIL)
@@ -92,7 +92,7 @@ sequenceDiagram
   LLM-->>UI: CHUNK / STREAM_DONE / ERROR via Queue
   alt prompt overflow (attempts under 3, after < 0.95 * before)
     UI->>UI: _set_status Compacting (drain thread OK)
-    UI->>W: _spawn_llm_worker(..., force_compact=True)
+    UI->>W: spawn_llm_worker(..., force_compact=True)
     Note over UI: host does NOT _set_status Thinking when force_compact
     Note over UI: compact_session is NOT called on the drain thread
   end
@@ -431,7 +431,7 @@ Hermes avoided `tiktoken` in favor of `estimate_tokens_rough`: ASCII at 4 chars/
 ### 6. PR Rollout History (Archive)
 
 - **PR 1 (Commit `ba83bce2`):** Added pure `plugin/chatbot/compaction.py` module with estimator, tiered thresholds, remaining-budget ceiling walk, tool-pair cut logic, tail pressure stubs, and unit tests (`test_compaction.py`).
-- **PR 2 (Commit `a4baec01`):** Wired compaction into `plugin/chatbot/tool_loop.py` (`_spawn_llm_worker`, `_spawn_final_stream`, `_handle_stream_error`) inside `llm_request_lane` with status updates, overflow retry loop, and config kill switch.
+- **PR 2 (Commit `a4baec01`):** Wired compaction into `plugin/chatbot/tool_loop.py` (`spawn_llm_worker`, `spawn_final_stream`, `_handle_stream_error`) inside `llm_request_lane` with status updates, overflow retry loop, and config kill switch.
 - **PR 3 (Commit `fe86daa4`):** Added mock-LLM integration test Packet K for full sidebar compaction smoke verification.
 
 ## Open

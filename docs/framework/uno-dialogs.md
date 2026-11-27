@@ -64,6 +64,7 @@ LibreOffice controls often differ in method vs model property names across OS bu
 | `set_checkbox_state(ctrl, value)` | `plugin.chatbot.dialogs` | Sets `1` or `0` on checkbox control / model. |
 | `set_control_enabled(ctrl, enabled)` | `plugin.chatbot.dialogs` | Safely enables/disables control via `setEnable()` or `model.Enabled`. |
 | `set_control_visible(ctrl, visible)` | `plugin.chatbot.dialogs` | Safely shows/hides control via `setVisible()` or `model.Visible`. |
+| `set_model_enabled(control, enabled, why)` | `plugin.chatbot.dialogs` | Sets only `model.Enabled` (skips a control with no model); a disposed control is logged under `why`. Used for the sidebar Send/Stop buttons. |
 | `copy_to_clipboard(ctx, text)` | `plugin.chatbot.dialogs` | Sets system clipboard text via `com.sun.star.datatransfer.clipboard.SystemClipboard`. |
 
 ### 3.3 Pre-Built Dialog Helpers
@@ -74,6 +75,9 @@ LibreOffice controls often differ in method vs model property names across OS bu
 | `msgbox_with_report(ctx, title, message, ...)` | `plugin.chatbot.dialogs` | Error message box with a "Report Issue" button opening GitHub. |
 | `input_box(ctx, message, title="", default="")` | `plugin.chatbot.dialog_views` | Multi-line text input dialog (`EditInputDialog.xdl`) with prompt/model LRU comboboxes. The model combo fills from LRU plus provider defaults so Edit/Extend Selection does not block the UI thread on `/v1/models`. |
 | `show_text_input_dialog(ctx, message, title="", default="")` | `plugin.chatbot.dialogs` | Simple single-line text input dialog (`ShortTextInputDialog.xdl`). |
+| `ask_save_discard_cancel(ctx, *, title, message, log_label)` | `plugin.chatbot.dialogs` | Yes / No / Cancel query box for unsaved editor buffers; returns `save`, `discard`, or `cancel` (no frame window or a failure is `cancel`). |
+
+These helpers show *title* and *message* as given. Callers translate catalog strings with `_()` first; runtime text (exception text, file names) and brand titles such as `"WriterAgent"` or `product_display_name(ctx)` are passed without `_()`.
 
 ### 3.4 Combobox & Dropdown Populators
 

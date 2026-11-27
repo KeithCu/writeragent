@@ -698,3 +698,43 @@ class TestSetProp:
         model = _Model()
         set_prop(model, "PositionX", 42)
         assert model.last == ("PositionX", 42)
+
+
+def _translate_sentinel(_msgid):
+    return "TRANSLATED-AGAIN"
+
+
+@patch("plugin.chatbot.dialogs._", side_effect=_translate_sentinel)
+def test_dialog_helpers_show_caller_title_as_given(_mock_gettext):
+    """Callers translate titles; a second ``_()`` lookup inside the helpers would look a translated string up as a msgid."""
+    from plugin.chatbot.dialogs import msgbox, msgbox_with_report
+
+    ctx = MagicMock()
+    toolkit = MagicMock()
+    ctx.getServiceManager().createInstanceWithContext.return_value = toolkit
+    with patch("plugin.chatbot.dialogs.get_desktop"):
+        msgbox(ctx, "Fehler", "nope")
+    assert toolkit.createMessageBox.call_args[0][3] == "Fehler"
+
+    ctx, desktop, dlg, ok_listeners, _cancel_listeners, _text_edit = _mock_text_input_dialog_uno("name")
+    with patch("plugin.chatbot.dialogs.get_desktop", return_value=desktop):
+        show_text_input_dialog(ctx, "Name:", "Speichern unter", "")
+    assert dlg.getModel().Title == "Speichern unter"
+
+    report_dlg = MagicMock()
+    with (
+        patch("plugin.chatbot.dialogs.load_writeragent_dialog", return_value=report_dlg),
+        patch("plugin.chatbot.bug_report.build_github_issue_url", return_value="https://github.com/issue"),
+    ):
+        msgbox_with_report(MagicMock(), "Fehler", "details", reportable=True)
+    assert report_dlg.getModel().Title == "Fehler"
+
+
+def test_ask_save_discard_cancel_without_frame_window_cancels():
+    from plugin.chatbot.dialogs import ask_save_discard_cancel
+
+    ctx = MagicMock()
+    with patch("plugin.chatbot.dialogs.get_desktop") as mock_desktop:
+        mock_desktop.return_value.getCurrentFrame.return_value = None
+        assert ask_save_discard_cancel(ctx, title="T", message="M", log_label="probe") == "cancel"
+    ctx.getServiceManager.assert_not_called()

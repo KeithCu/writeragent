@@ -260,8 +260,8 @@ def test_run_stop_during_inline_approval_opens_change_dialog_and_clears_ask():
 
     stop_model = SimpleNamespace(Label=_("Change"), Enabled=True)
     events_mock = SimpleNamespace(
-        _open_web_search_change_dialog=MagicMock(),
-        _finish_inline_web_approval=MagicMock(),
+        open_web_search_change_dialog=MagicMock(),
+        finish_inline_web_approval=MagicMock(),
     )
     host = SimpleNamespace(
         slash_popup=None,
@@ -271,8 +271,8 @@ def test_run_stop_during_inline_approval_opens_change_dialog_and_clears_ask():
         stop_control=SimpleNamespace(getModel=lambda: stop_model),
         _stop_button_action=ButtonAction.CHANGE,
         _events=events_mock,
-        _finish_inline_web_approval=events_mock._finish_inline_web_approval,
-        _open_web_search_change_dialog=events_mock._open_web_search_change_dialog,
+        finish_inline_web_approval=events_mock.finish_inline_web_approval,
+        open_web_search_change_dialog=events_mock.open_web_search_change_dialog,
         hide_popup=MagicMock(),
         clear_ask=MagicMock(),
         stop_in_flight=lambda: StopButtonListener(host).on_action_performed(None),
@@ -282,8 +282,8 @@ def test_run_stop_during_inline_approval_opens_change_dialog_and_clears_ask():
             run_slash_command(_cmd("stop"), host)
     set_text.assert_not_called()
     host.clear_ask.assert_called_once()
-    events_mock._open_web_search_change_dialog.assert_called_once_with()
-    events_mock._finish_inline_web_approval.assert_not_called()
+    events_mock.open_web_search_change_dialog.assert_called_once_with()
+    events_mock.finish_inline_web_approval.assert_not_called()
     host.dispatch.assert_not_called()
 
 

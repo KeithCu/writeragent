@@ -10,7 +10,7 @@ from typing import Any
 
 from plugin.chatbot.dialogs import get_optional, load_writeragent_dialog
 from plugin.chatbot.panel_resize import (
-    _PanelResizeListener,
+    PanelResizeListener,
     compute_chat_panel_layout,
 )
 from plugin.testing_runner import native_test
@@ -51,7 +51,7 @@ def test_chat_panel_resize_native(ctx: Any) -> None:
         if ctrl is not None:
             controls[name] = ctrl
 
-    listener = _PanelResizeListener(controls)
+    listener = PanelResizeListener(controls)
     listener.set_windows(dialog, None)
 
     initial_pos = dialog.getPosSize()

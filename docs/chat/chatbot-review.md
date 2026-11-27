@@ -49,7 +49,7 @@ Related, same area:
 
 Point TTS, refresh, and domain updates at `session_for_turn`. Call `bind_turn_session` once at the start of `_do_send_chat_with_tools`, before the `pump_ui_idle`, not after refresh. Leave `apply_mode` itself alone, because the librarian handoff calls it while the send is still busy. Skip refresh when `_turn_accepts_write` is false.
 
-`set_session` has one production caller, `_apply_sidebar_mode`. `session_for_turn` is already what `_spawn_llm_worker` and `persist_assistant_on_turn` use.
+`set_session` has one production caller, `_apply_sidebar_mode`. `session_for_turn` is already what `spawn_llm_worker` and `persist_assistant_on_turn` use.
 
 ### 3. Deep Research Reject and query override (Shipped)
 
@@ -117,7 +117,7 @@ The image-model combo is editable (`dlg:dropdown="true"`) and only has an item l
 
 get_control_text_length returns `None` on exception or missing model (`plugin/chatbot/rich_text_control.py`). Unknown length skips the formatted copy and plain-appends once.
 
-`_plain_append_messages` writes bold `You:` / `Assistant:` prefixes, theme-appropriate role colors, and blank-line gaps between turns.
+`plain_append_messages` writes bold `You:` / `Assistant:` prefixes, theme-appropriate role colors, and blank-line gaps between turns.
 
 `build_message_html` is removed. `append_formatted_row` and `append_formatted_rows` use direct hidden-doc copy without clipboard transfer.
 

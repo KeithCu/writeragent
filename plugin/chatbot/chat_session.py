@@ -11,6 +11,11 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
+# Stop stores this banner as its own assistant message (tool_loop_actions.STOP_LINE
+# wraps it in newlines). The rich-text renderer matches it to paint the banner as
+# the last paragraph of the answer it stopped.
+STOP_BANNER = "[Stopped by user]"
+
 
 def strip_legacy_document_suffix(content: str) -> str:
     """Drop the document excerpt that older histories stored at the end of the system message."""

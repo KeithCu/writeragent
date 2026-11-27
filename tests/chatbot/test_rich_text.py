@@ -6,7 +6,7 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 
-"""Unit tests for plugin.chatbot.rich_text (_append_rich_text_with_span, theme colors, HTML detection)."""
+"""Unit tests for plugin.chatbot.rich_text (append_rich_text_with_span, theme colors, HTML detection)."""
 
 import sys
 from unittest.mock import MagicMock, patch
@@ -16,12 +16,11 @@ import pytest
 from plugin.chatbot.rich_text import (
     CHAT_FONT_NAME,
     ChatTheme,
-    _append_rich_text_with_span,
+    append_rich_text_with_span,
     _drop_list_sentinel,
     _tighten_list_indent,
     apply_chat_char_props,
     apply_rich_control_para_margins,
-    contains_html_tag,
     get_theme_colors,
     link_plain_cell_refs,
     normalize_portion_font,
@@ -32,7 +31,7 @@ from plugin.chatbot.rich_text import (
 
 
 class MockTextCursor:
-    """Minimal mock for XTextCursor used by _append_rich_text_with_span."""
+    """Minimal mock for XTextCursor used by append_rich_text_with_span."""
 
     def __init__(self):
         self._pos = 0
@@ -99,7 +98,7 @@ class MockText:
 
 
 class MockDoc:
-    """Minimal mock for a Writer document used by _append_rich_text_with_span."""
+    """Minimal mock for a Writer document used by append_rich_text_with_span."""
 
     def __init__(self):
         self._text = MockText()
@@ -117,11 +116,11 @@ class MockDoc:
 
 
 class TestAppendRichText:
-    """Tests for _append_rich_text_with_span formatting logic."""
+    """Tests for append_rich_text_with_span formatting logic."""
 
     def _call(self, text, role="assistant"):
         doc = MockDoc()
-        _append_rich_text_with_span(doc, text, role=role)
+        append_rich_text_with_span(doc, text, role=role)
         return doc
 
     @pytest.mark.parametrize(
@@ -162,7 +161,7 @@ class TestAppendRichText:
         """The body range starts one past the prefix's last character, not at a document-start count."""
 
         doc = MockDoc()
-        _append_rich_text_with_span(doc, "done", role="assistant")
+        append_rich_text_with_span(doc, "done", role="assistant")
 
         by_range = []
         original_by_range = doc.getText().createTextCursorByRange
@@ -174,7 +173,7 @@ class TestAppendRichText:
 
         doc.getText().createTextCursorByRange = patched_by_range
 
-        _append_rich_text_with_span(doc, "how are you?", role="user")
+        append_rich_text_with_span(doc, "how are you?", role="user")
 
         body_range = by_range[-1]
         assert body_range.go_right_calls == [(1, False)]
@@ -209,7 +208,7 @@ class TestAppendRichText:
         assert get_theme_colors(MockDoc()) == (0xE0E1E2, 0x2A6099, 0x1E293B)
 
     def test_append_rich_text_uses_dynamic_dark_colors(self):
-        """_append_rich_text_with_span formats role prefix using dynamic dark mode colors."""
+        """append_rich_text_with_span formats role prefix using dynamic dark mode colors."""
         doc = MockDoc()
         style_settings = MagicMock()
         style_settings.FieldColor = 0x1E1E1E  # Dark mode
@@ -222,7 +221,7 @@ class TestAppendRichText:
             return c
         doc.getText().createTextCursorByRange = track_cursor
 
-        _append_rich_text_with_span(doc, "hi", role="user")
+        append_rich_text_with_span(doc, "hi", role="user")
         prefix_cursor = created_cursors[0]
         assert prefix_cursor.CharColor == 0x60A5FA  # Dark-mode-optimized user blue
 
@@ -241,7 +240,7 @@ class TestAppendRichText:
         doc.getText().createTextCursorByRange = track_body_cursor
 
         with patch("plugin.writer.html_import.insert_html_fragment_at_cursor"):
-            _append_rich_text_with_span(doc, '<p><span style="color:#ff0000">red</span></p>', role="assistant")
+            append_rich_text_with_span(doc, '<p><span style="color:#ff0000">red</span></p>', role="assistant")
 
         assert len(body_cursors) >= 2
         assert body_cursors[-1].CharColor is None
@@ -259,7 +258,7 @@ class TestAppendRichText:
 
         # The body range is created from the prefix anchor, by range.
         doc.getText().createTextCursorByRange = track_body_cursor
-        _append_rich_text_with_span(doc, "plain answer", role="assistant")
+        append_rich_text_with_span(doc, "plain answer", role="assistant")
 
         assert len(body_cursors) >= 2
         assert body_cursors[-1].CharColor == 0x1E293B
@@ -290,7 +289,7 @@ class TestAppendRichText:
 
         full = "<html><head><script>alert(1)</script></head><body><p>Hi</p></body></html>"
         with patch("plugin.writer.html_import.insert_html_fragment_at_cursor", side_effect=_capture):
-            ok, _prev, _added = _append_rich_text_with_span(doc, full, role="assistant")
+            ok, _prev, _added = append_rich_text_with_span(doc, full, role="assistant")
 
         assert ok is True
         assert seen == ["<p>Hi</p>"]
@@ -343,7 +342,7 @@ class TestAppendRichText:
             target.getText().insertString(None, "NOT_IN_MESSAGES", False)
             return True, "", "NOT_IN_MESSAGES"
 
-        with patch("plugin.chatbot.rich_text_paste._append_rich_text_with_span", side_effect=_lie):
+        with patch("plugin.chatbot.rich_text_paste.append_rich_text_with_span", side_effect=_lie):
             render_messages_to_hidden_doc(doc, [("assistant", "hello")])
 
         content = doc.getText().getString()
@@ -365,7 +364,7 @@ class TestLeadingListImport:
             seen.append(fragment)
 
         with patch("plugin.writer.html_import.insert_html_fragment_at_cursor", side_effect=_capture):
-            ok, _previous, _added = _append_rich_text_with_span(MockDoc(), html, role="assistant")
+            ok, _previous, _added = append_rich_text_with_span(MockDoc(), html, role="assistant")
             assert ok
         return seen
 
@@ -540,26 +539,6 @@ class TestTightenListIndent:
         assert _mock_uno_helpers.invoke.call_count == 2
 
 
-class TestContainsHtmlTag:
-    """Real tags, not every ``<Letter…>`` token."""
-
-    def test_generic_url_and_email_are_not_tags(self):
-        assert contains_html_tag("Use List<String> here") is False
-        assert contains_html_tag("Write <user@example.com> today") is False
-        assert contains_html_tag("See <https://example.com/a>") is False
-        assert contains_html_tag("3 < 5") is False
-        assert contains_html_tag("<prevent>") is False
-
-    def test_formatting_script_and_declarations_are_tags(self):
-        assert contains_html_tag("<b>bold</b>") is True
-        assert contains_html_tag("<i>italic</i>") is True
-        assert contains_html_tag("<script>alert(1)</script>") is True
-        assert contains_html_tag("<p>Hi</p>") is True
-        assert contains_html_tag("<!-- note -->") is True
-        assert contains_html_tag("<br/>") is True
-        assert contains_html_tag("<widget/>") is True
-
-
 class TestGenericTokensStayInTheTranscript:
     def test_append_and_render_keep_tokens_and_still_import_formatting(self):
         from plugin.chatbot.rich_text_paste import render_messages_to_hidden_doc
@@ -567,7 +546,7 @@ class TestGenericTokensStayInTheTranscript:
         text = "Use List<String>, write <user@example.com>, see <https://example.com/a>."
         doc = MockDoc()
         with patch("plugin.writer.html_import.insert_html_fragment_at_cursor") as mock_insert:
-            ok, _prev, _added = _append_rich_text_with_span(doc, text, role="assistant")
+            ok, _prev, _added = append_rich_text_with_span(doc, text, role="assistant")
         assert ok is True
         mock_insert.assert_not_called()
         content = doc.getText().getString()
@@ -586,7 +565,7 @@ class TestGenericTokensStayInTheTranscript:
 
         doc = MockDoc()
         with patch("plugin.writer.html_import.insert_html_fragment_at_cursor") as mock_insert:
-            _append_rich_text_with_span(doc, "<b>bold</b> and <i>italic</i> <script>x</script>", role="assistant")
+            append_rich_text_with_span(doc, "<b>bold</b> and <i>italic</i> <script>x</script>", role="assistant")
         mock_insert.assert_called_once()
 
 

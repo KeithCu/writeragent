@@ -488,7 +488,7 @@ def _resolve_web_research_window(client: Any) -> int:
 WEB_SEARCH_STOPPED_MSG = "Web search stopped by user."
 
 
-def _user_stopped_payload() -> dict[str, Any]:
+def web_search_stopped_payload() -> dict[str, Any]:
     return user_stopped_payload(WEB_SEARCH_STOPPED_MSG)
 
 
@@ -573,7 +573,7 @@ def _run_web_agent(
     def tool_call_handler(step: ToolCall) -> Any:
         nonlocal web_search_step_index
         if stop_checker and stop_checker():
-            return _user_stopped_payload()
+            return web_search_stopped_payload()
         if params.append_thinking_callback:
             safe_args = redact_sensitive_payload_for_log(step.arguments)
             params.append_thinking_callback(f"Running tool: {step.name} with {safe_args}\n")
@@ -593,7 +593,7 @@ def _run_web_agent(
                 proceed, query_override = unpack_approval(approval_result)
 
                 if not proceed:
-                    return _user_stopped_payload()
+                    return web_search_stopped_payload()
                 if query_override is not None:
                     args["query"] = query_override
                     step.arguments = args
@@ -709,7 +709,7 @@ def _run_deep_web_research(
         if not proceed:
             # Reject at planning time returns the same stop payload as a rejected shallow search.
             return (
-                _user_stopped_payload(),
+                web_search_stopped_payload(),
                 query_str,
             )
         if query_override is not None:

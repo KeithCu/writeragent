@@ -522,7 +522,6 @@ def test_sidebar_text_combo_lists_warm_catalog_after_lru():
     with patch("plugin.chatbot.panel_factory.memo_text_models_or_fetch", return_value=["vendor/a", "vendor/b"]), \
          patch("plugin.chatbot.panel_factory.memo_image_models_or_fetch", return_value=["img"]), \
          patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru", wraps=populate_combobox_with_lru) as pop, \
-         patch("plugin.chatbot.config_ui_helpers.populate_image_model_selector", return_value="img") as image_pop, \
          patch("plugin.chatbot.config_ui_helpers.get_config", side_effect=get_cfg), \
          patch("plugin.chatbot.config_ui_helpers.has_api_key_for_endpoint", return_value=True), \
          patch("plugin.chatbot.config_ui_helpers.get_provider_defaults", return_value={}), \
@@ -537,10 +536,11 @@ def test_sidebar_text_combo_lists_warm_catalog_after_lru():
         el._refresh_controls_from_config()
 
     mock_sync.assert_not_called()
-    pop.assert_called()
-    image_pop.assert_called()
-    for call in pop.call_args_list:
-        assert "model_lru" in call.args
+    text_calls = [call for call in pop.call_args_list if call.args[0] is model_selector]
+    image_calls = [call for call in pop.call_args_list if call.args[0] is image_selector]
+    assert text_calls and image_calls
+    assert all("model_lru" in call.args for call in text_calls)
+    assert all("image_model_lru" in call.args for call in image_calls)
 
     items = list(model_selector.addItems.call_args.args[0])
     assert items.index("x/lru") < items.index("vendor/a")
@@ -649,8 +649,6 @@ def test_cold_image_catalog_repaints_after_background_fetch_and_keeps_typed_text
     """Cold background fetch repaints the image combo while preserving typed text and handling empty catalogs."""
     from unittest.mock import MagicMock, patch
 
-    from plugin.chatbot.config_ui_helpers import populate_image_model_selector
-
     endpoint = "https://api.anthropic.com"
     el = _thin_panel_element()
     el.ctx = MagicMock()
@@ -698,7 +696,6 @@ def test_cold_image_catalog_repaints_after_background_fetch_and_keeps_typed_text
         return None
 
     with patch("plugin.chatbot.panel_factory.memo_image_models_or_fetch", side_effect=fake_memo), \
-         patch("plugin.chatbot.config_ui_helpers.populate_image_model_selector", wraps=populate_image_model_selector), \
          patch("plugin.chatbot.config_ui_helpers.get_config", return_value=[]), \
          patch("plugin.chatbot.config_ui_helpers.has_api_key_for_endpoint", return_value=True), \
          patch("plugin.chatbot.config_ui_helpers.get_provider_defaults", return_value={}), \
@@ -834,9 +831,7 @@ def test_refresh_mode_selector_disposed_still_updates_backend_indicator():
     root.getControl.side_effect = get_control
     el.m_panelRootWindow = root
     el._update_backend_indicator = MagicMock()
-    with patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru"), patch(
-        "plugin.chatbot.config_ui_helpers.populate_image_model_selector"
-    ), patch("plugin.chatbot.panel_factory.get_text_model", return_value="m"), patch(
+    with patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru"), patch("plugin.chatbot.panel_factory.get_text_model", return_value="m"), patch(
         "plugin.chatbot.panel_factory.get_config", return_value=""
     ), patch(
         "plugin.chatbot.panel_factory.get_current_endpoint", return_value=""
@@ -844,7 +839,7 @@ def test_refresh_mode_selector_disposed_still_updates_backend_indicator():
         "plugin.chatbot.panel_factory.get_optional_control",
         side_effect=lambda _root, name: MagicMock() if name == "chat_mode_selector" else None,
     ), patch.object(
-        el, "_get_document_model", side_effect=DisposedException("model disposed")
+        el, "get_document_model", side_effect=DisposedException("model disposed")
     ):
         el._refresh_controls_from_config()
     el._update_backend_indicator.assert_called_once_with(root)
@@ -876,9 +871,7 @@ def test_refresh_controls_chk_voice_sync(initial_state, model_side_effect, expec
     def get_optional(_root, name):
         return chk if name == "chk_voice" else None
 
-    with patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru"), patch(
-        "plugin.chatbot.config_ui_helpers.populate_image_model_selector"
-    ), patch("plugin.chatbot.panel_factory.get_text_model", return_value="m", side_effect=model_side_effect), patch(
+    with patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru"), patch("plugin.chatbot.panel_factory.get_text_model", return_value="m", side_effect=model_side_effect), patch(
         "plugin.chatbot.panel_factory.get_config",
         side_effect=lambda key: True if key == "audio.tts_enabled" else "",
     ), patch("plugin.chatbot.panel_factory.get_current_endpoint", return_value=""), patch(
@@ -917,7 +910,7 @@ def test_refresh_restores_mode_captured_before_populate():
     el._in_refresh_controls = False
     el.m_panelRootWindow = MagicMock()
     el._update_backend_indicator = MagicMock()
-    el._get_document_model = MagicMock(return_value=MagicMock())
+    el.get_document_model = MagicMock(return_value=MagicMock())
     el.send_listener = MagicMock()
     el._doc_type_label = "writer"
     selector = MagicMock()
@@ -928,9 +921,7 @@ def test_refresh_restores_mode_captured_before_populate():
             return selector
         return None
 
-    with patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru"), patch(
-        "plugin.chatbot.config_ui_helpers.populate_image_model_selector"
-    ), patch("plugin.chatbot.panel_factory.get_text_model", return_value="m"), patch(
+    with patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru"), patch("plugin.chatbot.panel_factory.get_text_model", return_value="m"), patch(
         "plugin.chatbot.panel_factory.get_config", return_value=""
     ), patch(
         "plugin.chatbot.panel_factory.get_current_endpoint", return_value=""
@@ -971,7 +962,7 @@ def test_chat_mode_listener_ignores_refresh():
     send = MagicMock()
     send.sidebar_state.send.is_busy = False
     flags = SidebarModeFlags()
-    el._wire_chat_mode_listener(selector, MagicMock(), None, send, None, flags)
+    el._wire_chat_mode_listener(selector, MagicMock(), send, None, flags)
     listener = selector.addItemListener.call_args[0][0]
     listener.on_item_state_changed(None)
     el._apply_sidebar_mode.assert_not_called()
@@ -979,22 +970,6 @@ def test_chat_mode_listener_ignores_refresh():
     el._in_refresh_controls = False
     listener.on_item_state_changed(None)
     el._apply_sidebar_mode.assert_called_once()
-
-
-def test_render_session_history_logs_greeting_argument() -> None:
-    """The failure log must include the greeting, not a literal %s."""
-    from unittest.mock import MagicMock, patch
-
-    el = _thin_panel_element()
-    el.rich_text_widget = None
-    response = MagicMock()
-    response.getModel.side_effect = RuntimeError("render boom")
-
-    with patch("plugin.chatbot.panel_factory.log") as factory_log:
-        el._render_session_history(MagicMock(), response, greeting="Hello there")
-
-    factory_log.exception.assert_called_once()
-    assert factory_log.exception.call_args.args[1:] == ("Hello there",)
 
 
 def _wire_buttons_setup(**extra_controls):
@@ -1251,7 +1226,7 @@ def test_chat_mode_listener_reverts_selector_when_busy() -> None:
         patch("plugin.chatbot.chat_sidebar_mode.set_selector_mode_with_flags") as revert_mock,
     ):
             el._wire_chat_mode_listener(
-                selector, MagicMock(), MagicMock(), send_listener, MagicMock(), mode_flags
+                selector, MagicMock(), send_listener, MagicMock(), mode_flags
             )
             mode_listener = selector.addItemListener.call_args[0][0]
 
@@ -1703,27 +1678,22 @@ def test_refresh_controls_populates_model_combos_without_readding_listeners() ->
 
     with (
         patch("plugin.chatbot.panel_factory.get_optional_control", side_effect=lambda _r, n: controls.get(n)),
-        patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru") as mock_pop_text,
-        patch("plugin.chatbot.config_ui_helpers.populate_image_model_selector") as mock_pop_img,
+        patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru", return_value="gpt-4o") as mock_pop,
         patch("plugin.chatbot.panel_factory.set_text_model"),
         patch("plugin.chatbot.panel_factory.set_image_model"),
         patch("plugin.chatbot.panel_factory.memo_text_models_or_fetch", return_value=None),
         patch("plugin.chatbot.panel_factory.memo_image_models_or_fetch", return_value=None),
     ):
-        mock_pop_text.return_value = "gpt-4o"
-        mock_pop_img.return_value = "dall-e-3"
         el._wire_model_selectors(controls)
         assert model_sel.addItemListener.call_count == 1
         assert image_sel.addItemListener.call_count == 1
-        assert mock_pop_text.call_count == 1
-        assert mock_pop_img.call_count == 1
+        assert [call.args[0] for call in mock_pop.call_args_list] == [model_sel, image_sel]
 
         # Now config refresh: should populate again, but not add listeners
         el._refresh_controls_from_config()
         assert model_sel.addItemListener.call_count == 1
         assert image_sel.addItemListener.call_count == 1
-        assert mock_pop_text.call_count == 2
-        assert mock_pop_img.call_count == 2
+        assert [call.args[0] for call in mock_pop.call_args_list] == [model_sel, image_sel] * 2
 
 
 def test_refresh_controls_mode_selector_caching() -> None:
