@@ -84,6 +84,10 @@ def _name_taken_error(tool: ToolBase, name: str) -> dict[str, Any]:
     )
 
 
+def _wanted_name(kwargs: dict[str, Any]) -> str:
+    return str(kwargs.get("name") or "").strip()
+
+
 def _lookup_ref(
     tool: ToolBase,
     page: Any,
@@ -91,14 +95,13 @@ def _lookup_ref(
     *,
     by_name: bool = False,
 ) -> tuple[int | str | None, Any | None, Any | None, dict[str, Any] | None]:
+    wanted = str(ref).strip()
     if by_name:
-        wanted = str(ref).strip()
         addr, shape, parent, err = find_shape_on_page(page, name=wanted)
     else:
-        wanted = str(ref).strip() if isinstance(ref, str) else str(ref)
         addr, shape, parent, err = resolve_shape_ref(page, ref)
-    if err or shape is None:
-        if err and err.startswith("No shape named"):
+    if err:
+        if err.startswith("No shape named"):
             names = page_shape_names(page)
             capped = names[:40]
             return None, None, None, tool._tool_error(
@@ -106,7 +109,7 @@ def _lookup_ref(
                 available=capped,
                 **available_miss_details(wanted, capped),
             )
-        return None, None, None, tool._tool_error(err or "Shape not found.")
+        return None, None, None, tool._tool_error(err)
     return addr, shape, parent, None
 
 
@@ -136,78 +139,70 @@ class DrawError(WriterAgentException):
     code: str = "DRAW_ERROR"
 
 
-def _try_writer_anchor_shape_before_add(doc: Any, shape: Any) -> None:
+def _draw_error_result(tool: ToolBase, exc: DrawError) -> dict[str, Any]:
+    # Pass the DrawError code through (the _tool_error default is TOOL_EXECUTION_ERROR). e.details is left out because position and size are UNO structs.
+    return tool._tool_error(exc.message, code=exc.code)
+
+
+def _try_writer_anchor_shape_before_add(shape: Any) -> None:
     """Writer: set ``AnchorType`` before ``XDrawPage.add`` or shapes often do not display.
 
     Uses ``TextContentAnchorType.AT_PAGE`` when the property exists (``text.Shape``).
     """
     try:
-        if doc is None:
-            log.debug("create_shape writer_anchor: skip (doc is None)")
-            return
-        if not doc.supportsService("com.sun.star.text.TextDocument"):
-            log.debug("create_shape writer_anchor: skip (not TextDocument)")
-            return
         from com.sun.star.text.TextContentAnchorType import AT_PAGE
 
         shape.setPropertyValue("AnchorType", AT_PAGE)
     except Exception as ex:
         if is_disposal(ex):
             raise
-        log.warning("create_shape writer_anchor: set AnchorType failed: %s: %s", type(ex).__name__, ex)
+        log.warning("shape_upsert writer_anchor: set AnchorType failed: %s: %s", type(ex).__name__, ex)
 
 
-def _try_writer_at_page_shape_finalize(doc: Any, shape: Any, page_idx: Any = 0) -> None:
+def _try_writer_at_page_shape_finalize(shape: Any, page_idx: int = 0) -> None:
     """Writer: ``AT_PAGE`` shapes must set ``AnchorPageNo`` (1-based) and absolute orient or they may not paint.
 
     See ``com.sun.star.text.Shape`` — ``AnchorPageNo`` is only valid for ``AT_PAGE``.
     """
     try:
-        if doc is None or not doc.supportsService("com.sun.star.text.TextDocument"):
-            return
-        idx = int(page_idx)
-        anchor_no = idx + 1
+        anchor_no = page_idx + 1
         # IDL: com.sun.star.text.HoriOrientation/VertOrientation NONE = 0 (absolute position)
         shape.setPropertyValue("AnchorPageNo", anchor_no)
         shape.setPropertyValue("HoriOrient", 0)
         shape.setPropertyValue("VertOrient", 0)
         shape.setPropertyValue("HoriOrientRelation", 8)  # PAGE_PRINT_AREA
         shape.setPropertyValue("VertOrientRelation", 8)  # PAGE_PRINT_AREA
-        log.debug("create_shape writer_at_page_finalize: AnchorPageNo=%s draw_page_index=%s HoriOrient=0 VertOrient=0", anchor_no, idx)
+        log.debug("shape_upsert writer_at_page_finalize: AnchorPageNo=%s draw_page_index=%s HoriOrient=0 VertOrient=0", anchor_no, page_idx)
         try:
-            log.debug("create_shape writer_at_page_finalize: readback AnchorPageNo=%r HoriOrient=%r VertOrient=%r", shape.getPropertyValue("AnchorPageNo"), shape.getPropertyValue("HoriOrient"), shape.getPropertyValue("VertOrient"))
+            log.debug("shape_upsert writer_at_page_finalize: readback AnchorPageNo=%r HoriOrient=%r VertOrient=%r", shape.getPropertyValue("AnchorPageNo"), shape.getPropertyValue("HoriOrient"), shape.getPropertyValue("VertOrient"))
         except Exception as ex:
             if is_disposal(ex):
                 raise
-            log.debug("create_shape writer_at_page_finalize: readback failed: %s", ex)
+            log.debug("shape_upsert writer_at_page_finalize: readback failed: %s", ex)
     except Exception as ex:
         if is_disposal(ex):
             raise
-        log.warning("create_shape writer_at_page_finalize: failed %s: %s", type(ex).__name__, ex)
+        log.warning("shape_upsert writer_at_page_finalize: failed %s: %s", type(ex).__name__, ex)
 
 
-def _try_writer_reapply_position_after_anchor(doc: Any, shape: Any, position: Any, size: Any) -> None:
+def _try_writer_reapply_position_after_anchor(shape: Any, position: Any, size: Any) -> None:
     """Writer: setting ``AnchorPageNo`` / orient can reset placement; re-apply ``Position``/``Size``."""
     try:
-        if doc is None or not doc.supportsService("com.sun.star.text.TextDocument"):
-            return
         shape.setPosition(position)
         shape.setSize(size)
-        log.debug("create_shape writer_reapply_pos: pos=(%s,%s) size=(%sx%s)", position.X, position.Y, size.Width, size.Height)
+        log.debug("shape_upsert writer_reapply_pos: pos=(%s,%s) size=(%sx%s)", position.X, position.Y, size.Width, size.Height)
     except Exception as ex:
         if is_disposal(ex):
             raise
-        log.warning("create_shape writer_reapply_pos: %s: %s", type(ex).__name__, ex)
+        log.warning("shape_upsert writer_reapply_pos: %s: %s", type(ex).__name__, ex)
 
 
 def _try_writer_invalidate_and_pump(doc: Any) -> None:
     """Force a repaint after shape changes (Writer sometimes does not redraw the draw layer)."""
     try:
-        if doc is None or not doc.supportsService("com.sun.star.text.TextDocument"):
-            return
         ctrl = doc.getCurrentController()
         if ctrl is None:
-            log.debug("create_shape writer_invalidate: no controller")
+            log.debug("shape_upsert writer_invalidate: no controller")
             return
         frame = ctrl.getFrame()
         if frame is None:
@@ -216,11 +211,11 @@ def _try_writer_invalidate_and_pump(doc: Any) -> None:
         if win is None:
             return
         win.invalidate(0)
-        log.debug("create_shape writer_invalidate: invalidate(0)")
+        log.debug("shape_upsert writer_invalidate: invalidate(0)")
     except Exception as ex:
         if is_disposal(ex):
             raise
-        log.debug("create_shape writer_invalidate: %s", ex)
+        log.debug("shape_upsert writer_invalidate: %s", ex)
 
 
 def _apply_enhanced_custom_shape_type(
@@ -249,12 +244,12 @@ def _apply_enhanced_custom_shape_type(
         shape.setPropertyValue("CustomShapeEngine", _ENHANCED_CUSTOM_SHAPE_ENGINE)
         prop_seq = uno_any("[]com.sun.star.beans.PropertyValue", tuple(props))
         uno.invoke(shape, "setPropertyValue", cast("Any", ("CustomShapeGeometry", prop_seq)))
-        log.debug("create_shape enhanced_geometry: ok type=%r engine=%r", custom_shape_type, _ENHANCED_CUSTOM_SHAPE_ENGINE)
+        log.debug("shape_upsert enhanced_geometry: ok type=%r engine=%r", custom_shape_type, _ENHANCED_CUSTOM_SHAPE_ENGINE)
         return True, None
     except Exception as ex:
         if is_disposal(ex):
             raise
-        log.debug("create_shape enhanced_geometry: failed type=%r err=%s: %s", custom_shape_type, type(ex).__name__, ex)
+        log.debug("shape_upsert enhanced_geometry: failed type=%r err=%s: %s", custom_shape_type, type(ex).__name__, ex)
         return False, f"{type(ex).__name__}: {ex}"
 
 
@@ -377,10 +372,10 @@ class DrawShapes:
         """
         try:
             if doc is None:
-                raise DrawError("Document is None", code="DRAW_DOC_NULL", details={"operation": "create_shape", "shape_type": shape_type})
+                raise DrawError("Document is None", code="DRAW_DOC_NULL", details={"operation": "shape_upsert", "shape_type": shape_type})
             # UNO XDrawPage can be falsy when it has zero shapes — use `is None`.
             if page is None:
-                raise DrawError("Page is None", code="DRAW_PAGE_NULL", details={"operation": "create_shape", "shape_type": shape_type})
+                raise DrawError("Page is None", code="DRAW_PAGE_NULL", details={"operation": "shape_upsert", "shape_type": shape_type})
 
             if not self._is_valid_position(position):
                 raise DrawError(f"Invalid position: {position}", code="DRAW_INVALID_POSITION", details={"position": position})
@@ -388,7 +383,6 @@ class DrawShapes:
             if not self._is_valid_size(size, shape_type):
                 raise DrawError(f"Invalid size: {size}", code="DRAW_INVALID_SIZE", details={"size": size})
 
-            # Create shape (document MSF — same as DrawBridge.create_shape)
             if shape_type.startswith("com.sun.star."):
                 full_type = shape_type
             else:
@@ -406,26 +400,23 @@ class DrawShapes:
             if custom_shape_type:
                 geometry_applied, geometry_error = _apply_enhanced_custom_shape_type(shape, custom_shape_type)
                 if not geometry_applied:
-                    log.warning("create_shape safe_create: enhanced geometry failed before add type=%s err=%s", custom_shape_type, geometry_error)
+                    log.warning("shape_upsert safe_create: enhanced geometry failed before add type=%s err=%s", custom_shape_type, geometry_error)
 
-            _try_writer_anchor_shape_before_add(doc, shape)
+            if is_writer(doc):
+                _try_writer_anchor_shape_before_add(shape)
 
-            # Add to page
             page.add(shape)
 
             # getCount after a successful add does not fail on a live page.
             n_after = page.getCount()
-            log.debug("create_shape safe_create: added uno=%s page_shape_count=%s", full_type, n_after)
+            log.debug("shape_upsert safe_create: added uno=%s page_shape_count=%s", full_type, n_after)
 
             return shape, geometry_applied, geometry_error
 
         except DrawError:
-            # Re-raise our draw errors
             raise
         except Exception as e:
-            # A disposed document must reach execute_safe as DisposedException.
-            # Wrapping it in DrawError made a closed document look like a
-            # normal shape-creation failure.
+            # A disposed document must reach execute_safe as DisposedException, not as DRAW_SHAPE_CREATION_ERROR.
             if is_disposal(e):
                 raise
             raise DrawError(f"Failed to create shape: {str(e)}", code="DRAW_SHAPE_CREATION_ERROR", details={"shape_type": shape_type, "position": position, "size": size, "original_error": str(e), "error_type": type(e).__name__}) from e
@@ -545,7 +536,7 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
 
         _try(failed_props, "text", _apply_text)
 
-    stripped_name = str(kwargs.get("name") or "").strip()
+    stripped_name = _wanted_name(kwargs)
     if stripped_name and hasattr(shape, "Name"):
         _try(failed_props, "name", lambda: setattr(shape, "Name", stripped_name))
 
@@ -681,7 +672,7 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
 # (SdrModel::SdrModel sets SdrTextWordWrapItem(false), svx/source/svdraw/svdmodel.cxx:185).
 _CUSTOM_SHAPE_TEXT_DEFAULTS: dict[str, Any] = {"h_align": "center", "v_align": "center", "wrap_text": True}
 
-# CustomShape flowchart-* type strings (valid at runtime; omitted from create_shape schema description for brevity):
+# CustomShape flowchart-* type strings (valid at runtime; omitted from the shape_upsert shape_type description for brevity):
 # flowchart-alternate-process, flowchart-card, flowchart-collate, flowchart-connector, flowchart-data,
 # flowchart-decision, flowchart-delay, flowchart-direct-access-storage, flowchart-display, flowchart-document,
 # flowchart-extract, flowchart-internal-storage, flowchart-magnetic-disk, flowchart-manual-input,
@@ -805,10 +796,7 @@ class UpsertShape(_AnyDocumentShapeTool):
     is_mutation: bool | None = True
 
     def validate(self, *, doc_type: str | None = None, caller: str | None = None, **kwargs: Any) -> tuple[Literal[False], str] | tuple[Literal[True], None]:
-        # This override replaced ToolBase.validate, so shape_upsert had no
-        # type or enum check. x="10" reached Point(), rotation_angle="5"
-        # was string-repeated by `* 100`, and a fill_style outside the enum
-        # was ignored with status ok.
+        # Run ToolBase.validate first for the schema type and enum checks; this override only adds the per-action required parameters.
         ok, err = super().validate(doc_type=doc_type, caller=caller, **kwargs)
         if not ok:
             return False, err or "Invalid arguments"
@@ -820,7 +808,7 @@ class UpsertShape(_AnyDocumentShapeTool):
                 if r not in kwargs:
                     return False, f"Parameter '{r}' is required when action is 'create'"
         elif action == "edit":
-            if "index" not in kwargs and not str(kwargs.get("name") or "").strip():
+            if "index" not in kwargs and not _wanted_name(kwargs):
                 return False, "Parameter 'index' or 'name' is required when action is 'edit'"
 
         return True, None
@@ -839,17 +827,14 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
     if action == "create":
         # Without this check, an explicit duplicate name would undo the
         # page-unique Name guarantee that auto-naming relies on.
-        wanted_name = str(kwargs.get("name") or "").strip()
+        wanted_name = _wanted_name(kwargs)
         if wanted_name and wanted_name in page_shape_names(page):
             return _name_taken_error(tool, wanted_name)
 
         type_map = {"text": "TextShape", "line": "LineShape", "connector": "ConnectorShape"}
         shape_type_raw = kwargs["shape_type"]
 
-        is_custom_shape = False
-        custom_shape_type = ""
-
-        # Determine UNO type
+        custom_shape_type: str | None = None
         if shape_type_raw in type_map:
             uno_type = type_map[shape_type_raw]
         elif "." in shape_type_raw or shape_type_raw.endswith("Shape"):
@@ -857,7 +842,6 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
         else:
             # Fallback to CustomShape for presets like 'rectangle', 'ellipse', 'octagon', 'smiley', 'heart'
             uno_type = "CustomShape"
-            is_custom_shape = True
             custom_shape_type = shape_type_raw
 
         x, y, width, height = kwargs["x"], kwargs["y"], kwargs["width"], kwargs["height"]
@@ -869,43 +853,42 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
         position = Point(x, y)
         size = Size(width, height)
 
-        log.debug("shape_upsert (create) branch: raw=%r resolved_uno=%r is_custom_catalog=%s catalog_name=%r", shape_type_raw, uno_type, is_custom_shape, custom_shape_type if is_custom_shape else None)
+        log.debug("shape_upsert (create) branch: raw=%r resolved_uno=%r is_custom_catalog=%s catalog_name=%r", shape_type_raw, uno_type, custom_shape_type is not None, custom_shape_type)
 
         draw_shapes = DrawShapes()
 
         try:
             # Pre-add write sets Type before page.add so SdrObjCustomShape is created with
             # that Type instead of swapping a live SdrRectObj (avoids SfxItemPool::unregisterNameOrIndex abort).
-            shape, geometry_applied, geometry_error = draw_shapes.safe_create_shape(ctx.doc, page, uno_type, position, size, custom_shape_type=custom_shape_type if is_custom_shape else None)
+            shape, geometry_applied, geometry_error = draw_shapes.safe_create_shape(ctx.doc, page, uno_type, position, size, custom_shape_type=custom_shape_type)
         except DrawError as e:
-            # _tool_error(message) defaults to TOOL_EXECUTION_ERROR, so
-            # DRAW_INVALID_SIZE and DRAW_SHAPE_CREATION_ERROR were the
-            # same code. Do not pass e.details: position and size are
-            # UNO structs.
-            return tool._tool_error(e.message, code=e.code)
+            return _draw_error_result(tool, e)
 
+        writer = is_writer(ctx.doc)
         try:
-            _try_writer_at_page_shape_finalize(ctx.doc, shape, actual_idx)
-            _try_writer_reapply_position_after_anchor(ctx.doc, shape, position, size)
+            if writer:
+                _try_writer_at_page_shape_finalize(shape, actual_idx)
+                _try_writer_reapply_position_after_anchor(shape, position, size)
 
             # Post-add write triggers SvxCustomShape::setPropertyValue -> MergeDefaultAttributes()
             # (svx/source/unodraw/unoshap2.cxx:1733-1749) so ViewBox and Path are built and the shape paints.
-            if is_custom_shape and custom_shape_type:
+            if custom_shape_type:
                 geometry_applied, geometry_error = _apply_enhanced_custom_shape_type(shape, custom_shape_type)
 
-            if is_custom_shape:
                 # LibreOffice's own drawing tool turns this off (sd/source/ui/func/fuconcs.cxx: SetAttributes).
                 # Left on, the first text written later resizes the box to the text.
                 _clamp_shape_text_autogrow(shape, apply_autofit=False)
 
-            props = {**_CUSTOM_SHAPE_TEXT_DEFAULTS, **kwargs} if is_custom_shape else kwargs
+            props = {**_CUSTOM_SHAPE_TEXT_DEFAULTS, **kwargs} if custom_shape_type else kwargs
             failed_props = _apply_shape_properties(shape, props)
             shape_name = ensure_shape_name(page, shape)
-            # setString can still resize Writer AT_PAGE custom shapes (Arch: 4001x4001 → 2249x489).
-            _try_writer_reapply_position_after_anchor(ctx.doc, shape, position, size)
+            # setString can still resize Writer AT_PAGE custom shapes.
+            if writer:
+                _try_writer_reapply_position_after_anchor(shape, position, size)
             if _is_line_shape_type(uno_type) and (width < 0 or height < 0):
                 _set_line_endpoints(shape, x, y, width, height)
-            _try_writer_invalidate_and_pump(ctx.doc)
+            if writer:
+                _try_writer_invalidate_and_pump(ctx.doc)
         except Exception:
             # Remove the half-built shape; execute_safe reports the error (or disposal).
             try:
@@ -914,43 +897,43 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
                 log.debug("remove half-built shape failed", exc_info=True)
             raise
 
-        page_index = actual_idx
         shape_count_after = page.getCount()
         shape_index = shape_count_after - 1
 
-        log.debug("shape_upsert (create): page=%s shape=%s shape_type=%s is_custom=%s geometry_applied=%s", page_index, shape_index, shape_type_raw, is_custom_shape, geometry_applied)
+        log.debug("shape_upsert (create): page=%s shape=%s shape_type=%s is_custom=%s geometry_applied=%s", actual_idx, shape_index, shape_type_raw, custom_shape_type is not None, geometry_applied)
 
         result: dict[str, Any] = {
             "status": "ok",
             "action": "create",
             "message": f"Created {shape_type_raw}",
             "index": shape_index,
-            "page": page_index,
+            "page": actual_idx,
             "name": shape_name,
             "shape_count_after": shape_count_after,
         }
-        if is_custom_shape:
+        if custom_shape_type:
             result["custom_shape_engine"] = _ENHANCED_CUSTOM_SHAPE_ENGINE
             result["geometry_applied"] = bool(geometry_applied)
             if geometry_error:
                 result["geometry_error"] = geometry_error
                 result["warning"] = f"Custom shape geometry failed: {geometry_error}"
         if failed_props:
-            result["warnings"] = result.get("warnings", []) + [f"Failed to apply properties: {', '.join(failed_props)}"]
+            result["warnings"] = [f"Failed to apply properties: {', '.join(failed_props)}"]
         if _outside_page(page, shape):
             result["warnings"] = result.get("warnings", []) + [_OUTSIDE_PAGE_WARNING]
 
         flag_untracked(result, ctx.doc, _(_UNTRACKED_SHAPE_INSERT_WARNING))
         return result
 
-    elif action == "edit":
+    if action == "edit":
         # Index is fragile for peer "fill field X"; Name from shape_get_tree stays stable
         # when non-fields sit between boxes. Index wins when both are passed, and then
         # name is the new Name (a rename), not a lookup key.
         if "index" in kwargs:
             shape_idx, shape, _parent, find_err = find_shape_on_page(page, index=kwargs["index"])
-            if find_err or shape is None:
-                return tool._tool_error(find_err or "Shape not found.")
+            if find_err:
+                return tool._tool_error(find_err)
+            assert shape is not None
         else:
             # _lookup_ref is the shared not-found path (also used by shape_delete): an unknown
             # Name returns details.available (the page's shape Names, capped) plus similar, so
@@ -962,7 +945,7 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
 
         # Without this check, renaming by index to an existing name would
         # create a duplicate on the page.
-        new_name = str(kwargs.get("name") or "").strip()
+        new_name = _wanted_name(kwargs)
         if "index" in kwargs and new_name and new_name != str(shape.Name or "").strip() and new_name in page_shape_names(page):
             return _name_taken_error(tool, new_name)
 
@@ -1063,18 +1046,12 @@ def _execute_connect_shapes(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> 
         # position and size are technically ignored since it's a connector, but safe_create_shape expects them
         shape, _unused, _unused2 = draw_shapes.safe_create_shape(ctx.doc, page, "com.sun.star.drawing.ConnectorShape", Point(0, 0), Size(100, 100))
     except DrawError as e:
-        # _tool_error(message) defaults to TOOL_EXECUTION_ERROR, so
-        # DRAW_INVALID_SIZE and DRAW_SHAPE_CREATION_ERROR were the
-        # same code. Do not pass e.details: position and size are
-        # UNO structs.
-        return tool._tool_error(e.message, code=e.code)
+        return _draw_error_result(tool, e)
 
-    # Connect the shapes
     try:
         shape.setPropertyValue("StartShape", start_shape)
         shape.setPropertyValue("EndShape", end_shape)
 
-        # Additional properties
         failed_props = _apply_shape_properties(shape, kwargs)
         conn_name = ensure_shape_name(page, shape)
 
@@ -1145,8 +1122,7 @@ class GroupShapes(_AnyDocumentShapeTool):
         page, actual_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
 
         indices = kwargs["indices"]
-        assert isinstance(indices, list)
-        if not indices or len(indices) < 2:
+        if len(indices) < 2:
             return self._tool_error("At least two shape indices are required to group.")
 
         shape_collection = _create_shape_collection(ctx.ctx)
@@ -1288,7 +1264,6 @@ class AlignShapes(_AnyDocumentShapeTool):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         indices = kwargs["indices"]
-        assert isinstance(indices, list)
         # Schema requires alignment and rejects values outside the enum, including "".
         alignment = kwargs["alignment"]
         return _layout_on_page(self, ctx, indices, alignment, min_count=2, too_few="At least two shape indices are required to align.", moves_x=alignment in layout.HORIZONTAL_ALIGNMENTS, layout_fn=layout.align_boxes, ok_message="Shapes aligned", page_kwargs=kwargs)
@@ -1310,7 +1285,6 @@ class DistributeShapes(_AnyDocumentShapeTool):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         indices = kwargs["indices"]
-        assert isinstance(indices, list)
         # Schema requires axis and rejects values outside the enum, including "".
         axis = kwargs["axis"]
         return _layout_on_page(self, ctx, indices, axis, min_count=3, too_few="At least three shape indices are required to distribute.", moves_x=axis == "horizontal", layout_fn=layout.distribute_boxes, ok_message="Shapes distributed", page_kwargs=kwargs)
@@ -1361,7 +1335,6 @@ class CreateDiagram(_AnyDocumentShapeTool):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         nodes = kwargs["nodes"]
-        assert isinstance(nodes, list)
         if not nodes:
             return self._tool_error("nodes is required and must be non-empty.")
         raw_ids = [n.get("id") for n in nodes]
@@ -1396,18 +1369,11 @@ class CreateDiagram(_AnyDocumentShapeTool):
         id_to_index: dict[str, int] = {}
         created: list[dict[str, Any]] = []
         warnings: list[str] = []
-        # Objects in create order (nodes, then each connector that succeeded).
-        # page.remove(shape) does not use the index from create time. Deleting
-        # a node by that index shifts later connectors onto node slots, and
-        # connectors were not in `created`, so a failed connector left the
-        # earlier connectors on the page.
+        # Every created object in create order (nodes, then connectors). Cleanup removes by object because a create-time index shifts as soon as one shape is removed.
         tracked: list[Any] = []
 
         def cleanup_shapes() -> None:
-            # No outer try: reversed() and the list itself do not raise.
-            # The per-shape try is the cleanup. A closed document must not
-            # be swallowed as a failed cleanup, but a live-document
-            # RuntimeException must not strand the remaining shapes.
+            # Only disposal escapes; one failed removal must not strand the remaining shapes.
             for shape in reversed(tracked):
                 try:
                     page.remove(shape)
@@ -1421,14 +1387,11 @@ class CreateDiagram(_AnyDocumentShapeTool):
             if node.get("fill_color") not in (None, ""):
                 create_kwargs["fill_color"] = node["fill_color"]
             result = _execute_upsert_shape(self, ctx, **create_kwargs)
-            if isinstance(result, dict) and result.get("status") != "ok":
+            if result.get("status") != "ok":
                 cleanup_shapes()
                 return result
             warnings.extend(result.get("warnings", []))
-            idx = result.get("index")
-            if not isinstance(idx, int):
-                cleanup_shapes()
-                return self._tool_error("shape_upsert did not return a shape index.")
+            idx: int = result["index"]
             tracked.append(page.getByIndex(idx))
             id_to_index[str(node["id"])] = idx
             created.append({"id": node["id"], "index": idx, "name": result.get("name"), "x": x, "y": y, "width": w, "height": h})
@@ -1442,14 +1405,11 @@ class CreateDiagram(_AnyDocumentShapeTool):
                 if conn.get(key) is not None:
                     conn_kwargs[key] = conn[key]
             result = _execute_connect_shapes(self, ctx, **conn_kwargs)
-            if isinstance(result, dict) and result.get("status") != "ok":
+            if result.get("status") != "ok":
                 cleanup_shapes()
                 return result
             warnings.extend(result.get("warnings", []))
-            conn_index = result.get("index")
-            if not isinstance(conn_index, int):
-                cleanup_shapes()
-                return self._tool_error("shape_connect did not return a connector index.")
+            conn_index: int = result["index"]
             tracked.append(page.getByIndex(conn_index))
             connected.append({"from": conn.get("from"), "to": conn.get("to"), "index": conn_index})
 
@@ -1481,7 +1441,7 @@ class DeleteShape(_AnyDocumentShapeTool):
         ok, err = super().validate(doc_type=doc_type, caller=caller, **kwargs)
         if not ok:
             return False, err or "Invalid arguments"
-        if "index" not in kwargs and not str(kwargs.get("name") or "").strip():
+        if "index" not in kwargs and not _wanted_name(kwargs):
             return False, "Pass index or name to address the shape."
         return True, None
 
@@ -1494,9 +1454,10 @@ class DeleteShape(_AnyDocumentShapeTool):
         if err_res is not None:
             return err_res
         assert addr is not None and parent is not None and shape is not None
-        picture = is_writer(ctx.doc) and uno_read(lambda: shape.supportsService(WRITER_GRAPHIC_SERVICE), False)
+        writer = is_writer(ctx.doc)
+        picture = writer and uno_read(lambda: shape.supportsService(WRITER_GRAPHIC_SERVICE), False)
         boxes: list[Any] = []
-        if is_writer(ctx.doc) and not picture:
+        if writer and not picture:
             page_index = int(str(addr).split(".")[0])
             boxes = [frame for _a, _s, frame in shape_text_boxes(page_index, shape)]
             if boxes and isinstance(addr, str):
@@ -1511,16 +1472,16 @@ class DeleteShape(_AnyDocumentShapeTool):
                         ctx.doc, ctx.ctx, lambda: delete_graphic(ctx.ctx, ctx.doc, shape)
                     )[0]
                 )
-            else:
-                if boxes:
-                    # SwUndoFlyBase::DelFly clears the group's shared text-box node; collect and
-                    # dispose every hidden frame before removing the group in one undo step.
-                    with UndoStepOrRollback(ctx.doc, "WriterAgent: Delete shape"):
-                        for frame in boxes:
-                            frame.dispose()
-                        parent.remove(shape)
-                else:
+            elif boxes:
+                # SwUndoFlyBase::DelFly clears the group's shared text-box node; collect and
+                # dispose every hidden frame before removing the group in one undo step.
+                with UndoStepOrRollback(ctx.doc, "WriterAgent: Delete shape"):
+                    for frame in boxes:
+                        frame.dispose()
                     parent.remove(shape)
+                tracked = False
+            else:
+                parent.remove(shape)
                 tracked = False
         except ToolExecutionError as exc:
             return self._tool_error(str(exc), code=exc.code)

@@ -8,14 +8,17 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from plugin.draw.base import DRAW_REQUIRED_PAGE_PROPERTY, ToolDrawMathBase
 from plugin.draw.tree import ensure_shape_name
 from plugin.framework.errors import best_effort, is_disposal
 from plugin.writer.math.math_mml_convert import MATH_CLSID, convert_latex_to_starmath, convert_mathml_to_starmath
 
-log = logging.getLogger("writeragent.draw")
+if TYPE_CHECKING:
+    from plugin.framework.tool import ToolContext
+
+log = logging.getLogger(__name__)
 
 _MIN_W_HMM, _MIN_H_HMM = 500, 400
 _MAX_W_HMM, _MAX_H_HMM = 120_000, 80_000
@@ -131,7 +134,7 @@ class InsertMathDraw(ToolDrawMathBase):
     }
     is_mutation: bool | None = True
 
-    def execute(self, ctx: Any, **kwargs: Any) -> Any:
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge
         from com.sun.star.awt import Size, Point
 
@@ -140,8 +143,7 @@ class InsertMathDraw(ToolDrawMathBase):
         if not formula:
             return self._tool_error("formula must be a non-empty string.")
 
-        # None .ctx means "no inner context"; getattr(ctx, "ctx", ctx) would return None.
-        uno_ctx = getattr(ctx, "ctx", None) or ctx
+        uno_ctx = ctx.ctx
 
         if formula_type == "latex":
             res = convert_latex_to_starmath(uno_ctx, formula, display_block=bool(_DISPLAY_BLOCK_RE.search(formula)))
@@ -154,7 +156,7 @@ class InsertMathDraw(ToolDrawMathBase):
             detail = (res.error_message or "").strip() or "unknown_error"
             return self._tool_error(f"Failed to convert math expression: {detail}", conversion_detail=detail)
 
-        page, actual_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
+        page, actual_idx = DrawBridge(ctx.doc).resolve_page(kwargs["page"], active_page_index=ctx.active_page_index)
 
         shape = None
         added = False
@@ -172,10 +174,7 @@ class InsertMathDraw(ToolDrawMathBase):
                 raise RuntimeError("Math OLE model is not available on this build.")
             model.Formula = res.starmath
 
-            # A real formula can be narrower than the minimum box (a stacked
-            # fraction is ~499 x 2069 hmm). Discarding that pair because one
-            # side is under the floor replaced it with the length heuristic,
-            # which clips the height and overshoots the width. Clamp below.
+            # A real formula can be narrower than the minimum box (a stacked fraction is about 499 x 2069 hmm), so keep the measured pair and clamp each side below.
             w, h = _try_ole_shape_content_size_hmm(shape) or _heuristic_size_hmm(res.starmath or formula)
             w = max(_MIN_W_HMM, min(_MAX_W_HMM, w))
             h = max(_MIN_H_HMM, min(_MAX_H_HMM, h))

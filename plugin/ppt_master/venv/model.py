@@ -8,7 +8,13 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from plugin.contrib.smolagents.models import ChatMessage, Model, TokenUsage, remove_content_after_stop_sequences
+from plugin.contrib.smolagents.models import (
+    ChatMessage,
+    Model,
+    TokenUsage,
+    get_tool_json_schema,
+    remove_content_after_stop_sequences,
+)
 from plugin.ppt_master.venv.ipc import rpc_llm
 
 
@@ -53,9 +59,8 @@ class HostRpcModel(Model):
         if tools_to_call_from:
             tools = []
             for t in tools_to_call_from:
-                schema = getattr(t, "to_tool_calling_prompt_schema", None)
-                if callable(schema):
-                    tools.append(schema())
+                if hasattr(t, "inputs"):
+                    tools.append(get_tool_json_schema(t))
                 elif hasattr(t, "name"):
                     tools.append({"type": "function", "function": {"name": t.name, "description": getattr(t, "description", "")}})
 

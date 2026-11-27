@@ -12,7 +12,7 @@ import os
 import zipfile
 import zlib
 
-log = logging.getLogger("writeragent.draw.otp_zip")
+log = logging.getLogger(__name__)
 
 # Caps so a hostile/corrupt user .otp cannot inflate listing or cloning.
 MAX_MEMBER_BYTES = 2 * 1024 * 1024

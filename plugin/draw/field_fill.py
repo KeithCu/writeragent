@@ -143,6 +143,10 @@ def _write(fn: Any, ok: str, fail: str) -> tuple[bool, str]:
         return False, fail % exc
 
 
+def _text_value(value: Any) -> str:
+    return "" if value is None else str(value)
+
+
 def apply_fill_value(shape: Any, value: Any) -> tuple[bool, str]:
     """Write *value* onto a paper-form shape or ControlShape model."""
     shape_type = uno_read(lambda: shape.getShapeType(), "")
@@ -151,8 +155,7 @@ def apply_fill_value(shape: Any, value: Any) -> tuple[bool, str]:
         return _apply_control_value(shape, value)
 
     if hasattr(shape, "setString"):
-        val = "" if value is None else str(value)
-        return _write(lambda: set_shape_string(shape, val), "set text", "setString failed: %s")
+        return _write(lambda: set_shape_string(shape, _text_value(value)), "set text", "setString failed: %s")
     return False, "Shape cannot hold text."
 
 
@@ -173,12 +176,10 @@ def _apply_control_value(shape: Any, value: Any) -> tuple[bool, str]:
         return _write(lambda: setattr(model, "State", state), "set state", "Setting State failed: %s")
 
     if hasattr(model, "Text"):
-        val = "" if value is None else str(value)
-        return _write(lambda: setattr(model, "Text", val), "set text", "Setting Text failed: %s")
+        return _write(lambda: setattr(model, "Text", _text_value(value)), "set text", "Setting Text failed: %s")
 
     if hasattr(shape, "setString"):
-        val = "" if value is None else str(value)
-        return _write(lambda: shape.setString(val), "set text", "setString failed: %s")
+        return _write(lambda: shape.setString(_text_value(value)), "set text", "setString failed: %s")
     return False, "Control cannot accept a text or State value."
 
 
@@ -236,11 +237,10 @@ class FillDrawFields(ToolDrawShapeBase):
 
         fields = kwargs.get("fields")
         if not fields:
-            return self._tool_error("fields must be a non-empty list of {name|index|label_hint, value}.")
+            return self._tool_error("fields must be a non-empty list of {name|index|path_index|label_hint, value}.")
 
         page, actual_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
 
-        # getByIndex raises on a bad index; it does not return None.
         tree = build_shape_tree(page)
         results: list[dict[str, Any]] = []
         for i, raw in enumerate(fields):
@@ -257,25 +257,27 @@ class FillDrawFields(ToolDrawShapeBase):
                 path_index=raw.get("path_index"),
                 label_hint=raw.get("label_hint"),
             )
-            if err or node is None:
+            if err:
                 results.append({
                     "ok": False,
-                    "error": err or "Could not resolve field.",
+                    "error": err,
                     "name": raw.get("name"),
                     "index": raw.get("index"),
                     "path_index": raw.get("path_index"),
                     "label_hint": raw.get("label_hint"),
                 })
                 continue
+            assert node is not None
             shape, find_err = _locate_shape(page, node)
-            if find_err or shape is None:
+            if find_err:
                 results.append({
                     "ok": False,
-                    "error": find_err or "Resolved tree node but the shape is gone.",
+                    "error": find_err,
                     "name": node.get("name"),
                     "index": node.get("index"),
                 })
                 continue
+            assert shape is not None
             applied, detail = apply_fill_value(shape, raw["value"])
             entry: dict[str, Any] = {"ok": applied, "name": node.get("name") or "", "detail": detail}
             if node.get("index") is not None:

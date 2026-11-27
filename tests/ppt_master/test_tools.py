@@ -32,5 +32,5 @@ def test_export_execute_sets_data_root_env_and_exports(tmp_path: Path, monkeypat
     with patch("plugin.ppt_master.tools.export_project_to_doc", return_value={"status": "ok"}) as export_doc:
         out = ExportPresentationProject().execute(ctx, project_path="/proj")
     assert os.environ.get("PPT_MASTER_DATA_ROOT") == str(data_root)
-    export_doc.assert_called_once_with(ctx.doc, "/proj", ctx.ctx, cancel=ctx.send_cancellation)
+    export_doc.assert_called_once_with(ctx.doc, "/proj", ctx.ctx, data_root=data_root, cancel=ctx.send_cancellation)
     assert out == {"status": "ok"}

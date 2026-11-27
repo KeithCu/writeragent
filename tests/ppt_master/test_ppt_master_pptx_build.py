@@ -105,7 +105,7 @@ def test_build_project_pptx_success(mock_cfg, mock_resolve, tmp_path: Path):
         spawned.append(self)
 
     with patch.object(ManagedSubprocess, "start", spy_start):
-        path, err = build_project_pptx(None, tmp_path, data_root)
+        path, err = build_project_pptx(tmp_path, data_root)
 
     assert err is None
     assert path == pptx
@@ -140,7 +140,7 @@ def test_build_project_pptx_cancel_kills_child(mock_cfg, mock_resolve, tmp_path:
 
     def run_build() -> None:
         result_holder.append(
-            build_project_pptx(None, tmp_path, data_root, cancel=cancel, timeout_sec=30)
+            build_project_pptx(tmp_path, data_root, cancel=cancel, timeout_sec=30)
         )
 
     thread = threading.Thread(target=run_build, daemon=True)
@@ -198,7 +198,7 @@ def test_build_project_pptx_deadline_kills_child(mock_cfg, mock_resolve, tmp_pat
 
     try:
         with patch.object(ManagedSubprocess, "start", spy_start):
-            path, err = build_project_pptx(None, tmp_path, data_root, timeout_sec=0.5)
+            path, err = build_project_pptx(tmp_path, data_root, timeout_sec=0.5)
 
         assert path is None
         assert err == "PPTX build failed: timed out after 0.5 seconds"
@@ -242,7 +242,7 @@ def test_build_project_pptx_exception_in_poll_kills_child(mock_cfg, mock_resolve
     try:
         with patch.object(ManagedSubprocess, "start", spy_start), patch.object(subprocess.Popen, "wait", fake_wait):
             with pytest.raises(KeyboardInterrupt):
-                build_project_pptx(None, tmp_path, data_root, timeout_sec=30)
+                build_project_pptx(tmp_path, data_root, timeout_sec=30)
 
         assert spawned
         child = spawned[0]
@@ -267,7 +267,7 @@ def test_build_project_pptx_quit_kills_registered_child(mock_cfg, mock_resolve, 
 
     def run_build() -> None:
         result_holder.append(
-            build_project_pptx(None, tmp_path, data_root, timeout_sec=30)
+            build_project_pptx(tmp_path, data_root, timeout_sec=30)
         )
 
     thread = threading.Thread(target=run_build, daemon=True)
@@ -303,7 +303,7 @@ def test_build_project_pptx_nonzero_uses_stderr(mock_cfg, mock_resolve, tmp_path
     script_content = "import sys\nsys.stderr.write('boom')\nsys.exit(2)\n"
     (data_root / "scripts" / "svg_to_pptx.py").write_text(script_content, encoding="utf-8")
 
-    path, err = build_project_pptx(None, tmp_path, data_root)
+    path, err = build_project_pptx(tmp_path, data_root)
     assert path is None
     assert err is not None
     assert "exit 2" in err
@@ -313,7 +313,7 @@ def test_build_project_pptx_nonzero_uses_stderr(mock_cfg, mock_resolve, tmp_path
 @patch("plugin.ppt_master.pptx_build.get_config")
 def test_build_project_pptx_requires_venv(mock_cfg, tmp_path: Path):
     mock_cfg.return_value = ""
-    path, err = build_project_pptx(None, tmp_path, tmp_path)
+    path, err = build_project_pptx(tmp_path, tmp_path)
     assert path is None
     assert err is not None
     assert "venv" in err.lower()
@@ -325,7 +325,7 @@ def test_ensure_project_pptx_uses_existing(mock_build, tmp_path: Path):
     exports.mkdir()
     existing = exports / "deck.pptx"
     existing.write_bytes(b"x")
-    path, err = ensure_project_pptx(None, tmp_path, tmp_path)
+    path, err = ensure_project_pptx(tmp_path, tmp_path)
     assert path == existing
     assert err is None
     mock_build.assert_not_called()
@@ -336,10 +336,10 @@ def test_ensure_project_pptx_builds_when_missing(mock_build, tmp_path: Path):
     built = tmp_path / "exports" / "built.pptx"
     mock_build.return_value = (built, None)
     cancel = MagicMock()
-    path, err = ensure_project_pptx(None, tmp_path, tmp_path, cancel=cancel)
+    path, err = ensure_project_pptx(tmp_path, tmp_path, cancel=cancel)
     assert path == built
     assert err is None
-    mock_build.assert_called_once_with(None, tmp_path, tmp_path, cancel=cancel)
+    mock_build.assert_called_once_with(tmp_path, tmp_path, cancel=cancel)
 
 
 def test_build_timeout_leaves_margin_for_tool_timeout():

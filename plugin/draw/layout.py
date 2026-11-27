@@ -74,8 +74,8 @@ def distribute_boxes(boxes: Sequence[Box], axis: str) -> list[Box]:
     span_end = max(b[start_idx] + b[extent_idx] for _unused, b in indexed)
     gap = (span_end - span_start - sum(b[extent_idx] for _unused, b in indexed)) / (len(indexed) - 1)
     placed: dict[int, Box] = {
-        first_i: _with_start(first, start_idx, int(span_start)),
-        last_i: _with_start(last, start_idx, last[start_idx]),
+        first_i: _with_start(first, start_idx, span_start),
+        last_i: last,
     }
     cursor = span_start + first[extent_idx] + gap
     for orig_i, box in indexed[1:-1]:

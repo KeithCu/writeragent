@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from plugin.draw.base import ToolDrawPptMasterBase
@@ -42,17 +43,18 @@ class ExportPresentationProject(ToolDrawPptMasterBase):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        apply_data_root_env(ctx.ctx)
-        st = data_root_status(ctx.ctx)
+        apply_data_root_env()
+        st = data_root_status()
         if not st.get("ok"):
             return self._tool_error(
                 f"PPT-Master data package not found. Install with: {PPT_MASTER_INSTALL_CMD}",
                 code="PPT_MASTER_DATA_MISSING",
             )
-        path = kwargs.get("project_path")
-        if not path:
-            return self._tool_error("project_path is required.", code="MISSING_PATH")
-        return export_project_to_doc(ctx.doc, path, ctx.ctx, cancel=ctx.send_cancellation)
+        path, err = self._required_path(kwargs, "project_path")
+        if err is not None:
+            return err
+        assert path is not None
+        return export_project_to_doc(ctx.doc, path, ctx.ctx, data_root=Path(st["data_root"]), cancel=ctx.send_cancellation)
 
 
 class ValidatePptMasterProject(ToolDrawPptMasterBase):
@@ -68,10 +70,11 @@ class ValidatePptMasterProject(ToolDrawPptMasterBase):
     }
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        apply_data_root_env(ctx.ctx)
-        path = kwargs.get("project_path")
-        if not path:
-            return self._tool_error("project_path is required.", code="MISSING_PATH")
+        apply_data_root_env()
+        path, err = self._required_path(kwargs, "project_path")
+        if err is not None:
+            return err
+        assert path is not None
         return validate_project_structure(path)
 
 
@@ -88,10 +91,11 @@ class ApplyPptMasterTemplateFill(ToolDrawPptMasterBase):
     }
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        apply_data_root_env(ctx.ctx)
-        plan_path = kwargs.get("fill_plan_path")
-        if not plan_path:
-            return self._tool_error("fill_plan_path is required.", code="MISSING_PATH")
+        apply_data_root_env()
+        plan_path, err = self._required_path(kwargs, "fill_plan_path")
+        if err is not None:
+            return err
+        assert plan_path is not None
         return apply_template_fill(ctx.doc, plan_path)
 
 
@@ -108,8 +112,9 @@ class ApplyPptMasterNativeEnhance(ToolDrawPptMasterBase):
     }
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        apply_data_root_env(ctx.ctx)
-        path = kwargs.get("project_path")
-        if not path:
-            return self._tool_error("project_path is required.", code="MISSING_PATH")
+        apply_data_root_env()
+        path, err = self._required_path(kwargs, "project_path")
+        if err is not None:
+            return err
+        assert path is not None
         return apply_native_enhance(ctx.doc, path)

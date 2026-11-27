@@ -4,16 +4,13 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Impress shipped-design tools (list / current-doc apply).
 
-M0′ (``docs/draw/impress-lo-first-m0-probe-results.md``, PR #788) showed:
-
 * PathSettings template dirs enumerate shipped ``.otp`` (Metropolis, …).
 * ``loadComponentFromURL`` + ``AsTemplate`` opens a designed untitled
   document, used here as the hidden clone source.
 * ``loadStylesFromURL`` is absent/incomplete on Impress — do not use it.
 
-Current-doc restyle (#791 clipboard path failed headed — system clipboard
-paste pulled desktop junk, not the Hidden ``.otp`` master). Do **not** use
-``.uno:DiaMode`` Copy/Paste or ``.uno:PresentationLayout`` PropertyValues
+Current-doc restyle: do **not** use system-clipboard paste,
+``.uno:DiaMode`` Copy/Paste, or ``.uno:PresentationLayout`` PropertyValues
 (SDI formal args empty → silent no-op). Cross-doc ``MasterPage`` assign is
 a no-op / unsafe. ``XTransferableSupplier`` is not reachable on Impress
 controllers from PyUNO.
@@ -52,17 +49,16 @@ from plugin.framework.doc_type import IMPRESS_DOCUMENT_SERVICE, is_impress
 from plugin.doc.document_research import path_settings_from_ctx, resolve_lo_directory_path, should_skip_filename
 from plugin.draw.design_look import derive_otp_look
 from plugin.draw.masters import find_master, iter_masters
-from plugin.draw.otp_zip import extract_member, read_member
+from plugin.draw.otp_zip import extract_member, norm_zip_name, read_member
 from plugin.draw.shape_clone import clone_shape, copy_prop, fill_style_kind
 from plugin.framework.tool import ToolBase, ToolContext
-from plugin.framework.errors import available_miss_details
-from plugin.framework.errors import is_disposal
+from plugin.framework.errors import available_miss_details, is_disposal
 from plugin.framework.scratch_writer import close_scratch_document, load_scratch_document
 from plugin.framework.thread_guard import guard_uno
 from plugin.framework.uno_context import create_property_value, get_desktop, uno_same
 from plugin.framework.url_utils import path_to_file_url
 
-log = logging.getLogger("writeragent.draw.designs")
+log = logging.getLogger(__name__)
 
 
 class ClonedMaster(NamedTuple):
@@ -119,22 +115,14 @@ def _master_image_hrefs_from_zip(zf: Any, master_name: str) -> list[str] | None:
         return None
     for elem in root.iter():
         if elem.tag.endswith("master-page"):
-            raw_name = (
-                elem.attrib.get("{urn:oasis:names:tc:opendocument:xmlns:style:1.0}name")
-                or elem.attrib.get("style:name")
-                or elem.attrib.get("name")
-            )
+            raw_name = elem.attrib.get("{urn:oasis:names:tc:opendocument:xmlns:style:1.0}name")
             if raw_name:
                 decoded = _decode_odf_name(raw_name)
-                if decoded == master_name or decoded.strip().lower() == master_name.strip().lower():
+                if decoded.strip().lower() == master_name.strip().lower():
                     hrefs: list[str] = []
                     for desc in elem.iter():
                         if desc.tag.endswith("image") and not desc.tag.endswith("fill-image"):
-                            href = (
-                                desc.attrib.get("{http://www.w3.org/1999/xlink}href")
-                                or desc.attrib.get("xlink:href")
-                                or desc.attrib.get("href")
-                            )
+                            href = desc.attrib.get("{http://www.w3.org/1999/xlink}href")
                             if href:
                                 hrefs.append(href)
                     return hrefs
@@ -193,7 +181,7 @@ def _split_pathsettings_value(raw: str) -> list[str]:
         if buf:
             parts.append(buf)
         return parts
-    return [p for p in text.split() if p]
+    return text.split()
 
 
 def _iter_template_directories(ctx: Any) -> list[str]:
@@ -223,6 +211,12 @@ def _iter_template_directories(ctx: Any) -> list[str]:
     return found
 
 
+def _sorted_designs(designs_by_id: dict[str, dict[str, str]]) -> list[dict[str, str]]:
+    out = list(designs_by_id.values())
+    out.sort(key=lambda d: (d["name"].lower(), d["path"]))
+    return out
+
+
 def enumerate_impress_designs(ctx: Any, *, include_look: bool = True) -> list[dict[str, str]]:
     """Walk PathSettings template dirs for ``.otp`` files. Stable id = stem lowercased."""
     designs_by_id: dict[str, dict[str, str]] = {}
@@ -242,30 +236,23 @@ def enumerate_impress_designs(ctx: Any, *, include_look: bool = True) -> list[di
                 stem = os.path.splitext(os.path.basename(full))[0]
                 did = stem.strip().lower()
                 if len(designs_by_id) >= limit and did not in designs_by_id:
-                    out = list(designs_by_id.values())
-                    out.sort(key=lambda d: (d["name"].lower(), d["path"]))
-                    return out
+                    return _sorted_designs(designs_by_id)
                 entry = {
                     "id": did,
                     "name": stem,
                     "path": full,
                     "url": path_to_file_url(full),
-                    # ZIP thumbnail / Pictures / styles — never Desktop-open.
-                    # Name/path match does not need this. Opening every .otp
-                    # just to resolve a design name made design_apply scan
-                    # the template tree twice on a miss.
+                    # Name and path matching do not need the look, so design_apply passes include_look=False and no ZIP is opened.
                     "look": derive_otp_look(full) if include_look else "",
                 }
                 designs_by_id[did] = entry
-    out = list(designs_by_id.values())
-    out.sort(key=lambda d: (d["name"].lower(), d["path"]))
-    return out
+    return _sorted_designs(designs_by_id)
 
 
 def _match_listed_design(designs: list[dict[str, str]], needle: str) -> dict[str, str] | None:
     """Match a listed design by id, name, path, or file URL."""
     lower = needle.lower()
-    lower_stem = lower[:-4] if lower.endswith(".otp") else lower
+    lower_stem = lower[:-4] if lower.endswith(_OTP_EXT) else lower
     path_norm = os.path.normcase(os.path.normpath(needle)) if not needle.startswith("file:") else ""
     for entry in designs:
         if entry["id"] == lower or entry["name"].lower() == lower:
@@ -521,8 +508,7 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
             matching_candidates.append(item)
 
     pool = matching_candidates if matching_candidates else all_candidates
-    _best_idx, best_master, best_diff = min(pool, key=lambda x: (x[2], x[0]))
-    src_master = best_master
+    _best_idx, src_master, best_diff = min(pool, key=lambda x: (x[2], x[0]))
     source_master_name = src_master.Name
     aspect_mismatch = best_diff > 0.05
 
@@ -537,8 +523,7 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
         design_name = source_master_name or "Imported"
 
     dest_masters = dest_doc.getMasterPages()
-    # Always insert a new master. Reusing a same-named master cleared its
-    # shapes before the copy, so a later failure left that master empty.
+    # Always insert a new master, so a failed clone never leaves an existing same-named master empty.
     dest_master = dest_masters.insertNewByIndex(dest_masters.getCount())
     if dest_master is None:
         raise RuntimeError("Could not insert a destination master page.")
@@ -588,7 +573,7 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
             try:
                 with zipfile.ZipFile(otp_path, "r") as zf:
                     hrefs = _master_image_hrefs_from_zip(zf, str(src_master.Name or ""))
-                    pics = [n for n in zf.namelist() if n.replace("\\", "/").lstrip("./").lower().startswith("pictures/") and not n.endswith("/")]
+                    pics = [n for n in zf.namelist() if norm_zip_name(n).startswith("pictures/") and not n.endswith("/")]
                     if hrefs is not None:
                         if len(hrefs) == graphic_shape_count:
                             for idx, href in enumerate(hrefs):
@@ -603,7 +588,7 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
         cloned_types: list[str] = []
         graphic_shapes = 0
         graphic_reimports = 0
-        image_paths = extracted_image_paths if extracted_image_paths else None
+        image_paths = extracted_image_paths or None
         for i in range(src_count):
             src_shape = src_master.getByIndex(i)
             st = str(getattr(src_shape, "ShapeType", "") or "")
@@ -758,8 +743,8 @@ def apply_design_to_current_doc(uno_ctx: Any, dest_doc: Any, design: dict[str, s
     master_name = ""
     slides_updated = 0
     clone_warnings_list: list[str] = []
-    design_label = design.get("name") or design.get("id") or "?"
-    target_design_name = str(design.get("name") or design_label).strip()
+    design_label = str(design.get("name") or design.get("id") or "?").strip()
+    target_design_name = design_label
 
     try:
         src = open_design_source_hidden(uno_ctx, design)
@@ -941,12 +926,11 @@ class ApplyDesign(ToolBase):
         listed = enumerate_impress_designs(ctx.ctx, include_look=False)
         entry = _match_listed_design(listed, design_key)
         if entry is None:
-            available = [d["id"] for d in listed]
-            avail = available[:40]
+            avail = [d["id"] for d in listed][:40]
             return self._tool_error(
                 "Design not found: %s" % design_key,
                 available=avail,
-                **available_miss_details(str(design_key), avail),
+                **available_miss_details(design_key, avail),
             )
         try:
             return apply_design_to_current_doc(ctx.ctx, ctx.doc, entry)

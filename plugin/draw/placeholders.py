@@ -17,6 +17,7 @@ from typing import Any
 from plugin.draw.base import DRAW_PAGE_PROPERTY
 from plugin.draw.bridge import DrawBridge
 from plugin.draw.shapes import set_shape_string
+from plugin.framework.doc_type import IMPRESS_DOCUMENT_SERVICE
 from plugin.framework.errors import uno_read
 from plugin.framework.tool import ToolBase, ToolContext
 
@@ -78,12 +79,12 @@ def find_placeholder(page: Any, role: str, scan: list[_ScanRow] | None = None) -
         scan = _scan_shapes(page)
 
     # Strategy 1: role taken from the shape type
-    for i, shape, _shape_type, type_role, _name, _has_text in scan:
+    for i, shape, _type, type_role, _name, _has_text in scan:
         if type_role == role_lower:
             return shape, i
 
     # Strategy 2: shape Name via _role_from_label
-    for i, shape, _shape_type, _type_role, name, _has_text in scan:
+    for i, shape, _type, _type_role, name, _has_text in scan:
         if name and _role_from_label(name) == role_lower:
             return shape, i
 
@@ -98,10 +99,8 @@ def slide_title(page: Any) -> str:
     return str(uno_read(lambda: shape.getString(), "") or "")
 
 
-def _list_placeholders(page: Any, scan: list[_ScanRow] | None = None) -> list[dict[str, Any]]:
+def _list_placeholders(scan: list[_ScanRow]) -> list[dict[str, Any]]:
     """List all text-capable shapes on a page with role detection."""
-    if scan is None:
-        scan = _scan_shapes(page)
     result = []
     for i, shape, class_name, type_role, name, has_text in scan:
         if not has_text:
@@ -121,17 +120,13 @@ def _list_placeholders(page: Any, scan: list[_ScanRow] | None = None) -> list[di
     return result
 
 
-# C1: available=[] is truthful (no presentation placeholders yet) but mercury
-# retried the same role call. Hint + suggest_layout points at delegate
-# slide_layouts — slide_set_layout is specialized and not on the main tool list.
+# An empty "available" list means the slide has no presentation placeholders. The hint points at the slide_layouts delegate because slide_set_layout is not on the main tool list.
 _EMPTY_PLACEHOLDER_HINT = "Slide may lack a text layout. Delegate domain=slide_layouts with layout='text', then placeholder_list."
 
 
-def _role_miss_error_kwargs(page: Any, scan: list[_ScanRow] | None = None) -> dict[str, Any]:
+def _role_miss_error_kwargs(scan: list[_ScanRow]) -> dict[str, Any]:
     """Details for placeholder_set_text when role lookup fails."""
-    if scan is None:
-        scan = _scan_shapes(page)
-    available = _list_placeholders(page, scan)
+    available = _list_placeholders(scan)
     extra: dict[str, Any] = {"available": available}
     if available:
         return extra
@@ -171,12 +166,12 @@ class ListPlaceholders(ToolBase):
     name: str | None = "placeholder_list"
     description: str = "List all text placeholders on a slide with their role (title, subtitle, body), text content, and index. Call this before placeholder_set_text. If count=0, delegate domain=slide_layouts with layout='text', then retry."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": DRAW_PAGE_PROPERTY}, "required": []}
-    uno_services: list[str] | None = ["com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = [IMPRESS_DOCUMENT_SERVICE]
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         page, actual_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
         scan = _scan_shapes(page)
-        placeholders = _list_placeholders(page, scan)
+        placeholders = _list_placeholders(scan)
         return {"status": "ok", "page": actual_idx, "placeholders": placeholders, "count": len(placeholders)}
 
 
@@ -190,7 +185,7 @@ class GetPlaceholderText(ToolBase):
         "properties": {"role": {"type": "string", "description": "Placeholder role: 'title', 'subtitle', or 'body'."}, "index": {"type": "integer", "description": "Shape index (from placeholder_list)."}, "page": DRAW_PAGE_PROPERTY},
         "required": [],
     }
-    uno_services: list[str] | None = ["com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = [IMPRESS_DOCUMENT_SERVICE]
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         page, _actual_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
@@ -200,11 +195,13 @@ class GetPlaceholderText(ToolBase):
 
         shape, shape_index, err = _locate(page, role, shape_index, scan)
         if err == "not_found":
+            assert scan is not None
             payload = self._tool_error("Placeholder '%s' not found on this slide." % role)
-            payload["details"] = _role_miss_error_kwargs(page, scan)
+            payload["details"] = _role_miss_error_kwargs(scan)
             return payload
-        if err or shape is None:
-            return self._tool_error(err or "Shape not found.")
+        if err:
+            return self._tool_error(err)
+        assert shape is not None
 
         if not hasattr(shape, "getString"):
             return self._tool_error("Shape has no text.")
@@ -227,7 +224,7 @@ class SetPlaceholderText(ToolBase):
         },
         "required": ["text"],
     }
-    uno_services: list[str] | None = ["com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = [IMPRESS_DOCUMENT_SERVICE]
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -241,11 +238,13 @@ class SetPlaceholderText(ToolBase):
         if err == "not_found":
             # Named details dict (not **unpack) so mixed list/str values
             # do not collide with _tool_error's code= parameter.
+            assert scan is not None
             payload = self._tool_error("Placeholder '%s' not found on this slide." % role)
-            payload["details"] = _role_miss_error_kwargs(page, scan)
+            payload["details"] = _role_miss_error_kwargs(scan)
             return payload
-        if err or shape is None:
-            return self._tool_error(err or "Shape not found.")
+        if err:
+            return self._tool_error(err)
+        assert shape is not None
 
         if not hasattr(shape, "setString"):
             return self._tool_error("Shape does not support text.")

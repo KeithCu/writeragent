@@ -96,9 +96,9 @@ def layout_id(name_or_id: Any) -> int | None:
     return val if val in VALID_LAYOUT_IDS else None
 
 
-def layout_name(id: int) -> str:
+def layout_name(layout_id_val: int) -> str:
     """Return the canonical friendly name for an AutoLayout id, or 'unknown_<id>'."""
-    return _ID_TO_NAME.get(id, f"unknown_{id}")
+    return _ID_TO_NAME.get(layout_id_val, f"unknown_{layout_id_val}")
 
 
 def available_layout_names() -> list[str]:

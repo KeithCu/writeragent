@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from plugin.draw.tree import ensure_shape_name
 from plugin.framework.errors import ToolExecutionError, is_disposal
+from plugin.framework.uno_context import supports_service
 from plugin.writer.table_helpers import (
     edit_table_band,
     fill_table_cells,
@@ -19,10 +20,10 @@ from plugin.writer.table_helpers import (
     table_dims,
 )
 
-log = logging.getLogger("writeragent.draw")
-
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
+
+log = logging.getLogger(__name__)
 
 _A1 = re.compile(r"^([A-Za-z]+)(\d+)$")
 
@@ -68,10 +69,7 @@ def is_table_shape(shape: Any) -> bool:
             return True
     except Exception:
         log.debug("getShapeType failed during table probe", exc_info=True)
-    try:
-        return bool(shape.supportsService("com.sun.star.drawing.TableShape"))
-    except Exception:
-        return False
+    return supports_service(shape, "com.sun.star.drawing.TableShape")
 
 
 def table_cells_for_shape(shape: Any) -> list[list[str]] | None:
@@ -188,10 +186,10 @@ def resolve_draw_table(doc: Any, *, name: str = "", page: Any = None, index: Any
 
 
 def list_draw_tables(doc: Any) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
-    for t in iter_table_shapes(doc):
-        out.append({"name": t["name"], "rows": t["rows"], "cols": t["cols"], "cell_count": t["rows"] * t["cols"], "page": t["page"], "index": t["index"]})
-    return out
+    return [
+        {"name": t["name"], "rows": t["rows"], "cols": t["cols"], "cell_count": t["rows"] * t["cols"], "page": t["page"], "index": t["index"]}
+        for t in iter_table_shapes(doc)
+    ]
 
 
 def _model_or_raise(entry: dict[str, Any]) -> Any:
@@ -208,7 +206,7 @@ def _cell_or_raise(entry: dict[str, Any], cell_raw: str) -> Any:
         raise ValueError("Cell '%s' is not A1-style (e.g. B2)." % cell_raw)
     col, row = parsed
     nrows, ncols = table_dims(model)
-    if col < 0 or row < 0 or col >= ncols or row >= nrows:
+    if col >= ncols or row >= nrows:
         raise ValueError("Cell '%s' out of range (%s rows x %s cols)." % (cell_raw, nrows, ncols))
     return model.getCellByPosition(col, row)
 

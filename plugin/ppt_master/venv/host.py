@@ -35,7 +35,8 @@ def run_ppt_master_venv_turn(
     cancel: SendCancellation | None = None,
 ) -> dict[str, Any]:
     """Dispatch one sidebar turn to the venv ppt-master runner."""
-    apply_data_root_env(uno_ctx)
+    del uno_ctx
+    apply_data_root_env()
 
     manager, err = get_worker_manager()
     if manager is None:

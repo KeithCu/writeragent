@@ -167,3 +167,9 @@ class ToolDrawPptMasterBase(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "ppt-master"
     specialized_domain_description: ClassVar[str | None] = "PPT-Master workflow: export SVG projects to native Impress shapes, validate, template-fill, enhance."
     uno_services: list[str] | None = DRAW_AND_IMPRESS
+
+    def _required_path(self, kwargs: dict[str, Any], key: str) -> tuple[str | None, dict[str, Any] | None]:
+        path = kwargs.get(key)
+        if not path:
+            return None, self._tool_error(f"{key} is required.", code="MISSING_PATH")
+        return str(path), None

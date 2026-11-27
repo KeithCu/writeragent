@@ -221,14 +221,14 @@ def run_turn(payload: dict[str, Any]) -> dict[str, Any]:
     history_text = payload.get("history_text")
     topic = payload.get("topic")
     model = payload.get("model")
-    max_steps = int(payload.get("max_steps") or 12)
-    max_tokens = int(payload.get("max_tokens") or 16384)
+    max_steps = int(payload["max_steps"])
+    max_tokens = int(payload["max_tokens"])
 
     skill = load_skill_context()
     if not skill.get("ok"):
-        return {"status": "error", "message": skill.get("block", "PPT-Master data root not configured.")}
+        return {"status": "error", "message": skill["block"]}
 
-    instructions = _build_instructions(topic=topic, ctx_block=str(skill.get("block", "")))
+    instructions = _build_instructions(topic=topic, ctx_block=str(skill["block"]))
     tools = _build_tools()
     smol_model = HostRpcModel(model_id=model, max_tokens=max_tokens, status_callback=lambda s: emit_worker_event({"kind": "status", "text": s}))
 
@@ -269,8 +269,7 @@ def run_turn(payload: dict[str, Any]) -> dict[str, Any]:
                     return _user_stopped_payload()
                 parts = [f"Step {step.step_number}:\n"]
                 if step.model_output:
-                    mo = step.model_output
-                    parts.append(f"{(mo.strip() if isinstance(mo, str) else str(mo).strip())}\n")
+                    parts.append(f"{str(step.model_output).strip()}\n")
                 if step.observations:
                     parts.append(f"Observation: {str(step.observations).strip()}\n")
                 parts.append("\n")

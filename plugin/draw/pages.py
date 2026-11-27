@@ -41,7 +41,7 @@ from plugin.writer.search import (
     validate_regex_pattern,
 )
 
-log = logging.getLogger("writeragent.draw.pages")
+log = logging.getLogger(__name__)
 
 
 # Impress Title + Content (title + body). Not "title" (id 0 = title+subtitle).
@@ -63,10 +63,9 @@ def inherit_master_from_neighbor(pages: Any, new_page: Any, insert_at: int) -> s
     neighbor chosen by integer index alone is the new page. Skip
     the new page object (``uno_same``), not the integer
     ``insert_at``. A stale ``insert_at`` of 0 is the neighbor when
-    the new page actually sits at 1. With placement fixed, index
-    0's neighbor is the previous first slide.
+    the new page actually sits at 1. Index 0's neighbor is the previous first slide.
     """
-    # pages.getCount() does not fail on a live deck. Returning "" hid a closed document.
+    # pages.getCount() does not fail on a live deck; a closed document raises here.
     count = int(pages.getCount())
     if count < 2:
         return ""
@@ -82,9 +81,7 @@ def inherit_master_from_neighbor(pages: Any, new_page: Any, insert_at: int) -> s
             new_page.MasterPage = master
             return master.Name if hasattr(master, "Name") else ""
         except Exception as exc:
-            # Prefer the previous slide, then the following one. Returning
-            # here stopped on the first failure. Only disposal escapes;
-            # a live-document RuntimeException tries the next neighbor.
+            # Only disposal escapes; any other failure tries the next neighbor.
             if is_disposal(exc):
                 raise
             log.debug("inherit_master_from_neighbor failed insert_at=%s ref=%s", insert_at, ref_idx, exc_info=True)
@@ -125,7 +122,7 @@ class AddSlide(ToolBase):
                 return self._tool_error(
                     "Unknown layout: %s" % layout_name,
                     available=avail,
-                    **available_miss_details(str(layout_name), avail),
+                    **available_miss_details(layout_name, avail),
                 )
 
         # Master and layout run before switching the view; create_slide uses switch=False like
@@ -136,16 +133,14 @@ class AddSlide(ToolBase):
 
         try:
             # insertNewByIndex can attach factory Default even when the deck already
-            # has a designed master (M1′). Copy the neighbor slide's MasterPage.
+            # has a designed master. Copy the neighbor slide's MasterPage.
             # inherit_master_from_neighbor needs the landed index, not the requested insert index.
             if layout_name is not None:
                 inherited = inherit_master_from_neighbor(bridge.get_pages(), new_page, landed)
                 if inherited:
                     result["master"] = inherited
                 result["placeholders_hint"] = "call placeholder_list on this page"
-                # blank/none are AUTOLAYOUT_NONE (20). insertNewByIndex already
-                # leaves that id with 0 shapes; assigning it keeps the page empty.
-                # blank/none still call apply_slide_layout; only PowerPoint blank id 11 is avoided elsewhere.
+                # blank/none are AUTOLAYOUT_NONE (20), the id insertNewByIndex already leaves; assigning it keeps the page empty.
                 result["layout"] = apply_slide_layout(new_page, layout_name)
         except Exception as exc:
             # Only disposal escapes; a live-document RuntimeException removes the new page and reports the error.
@@ -164,8 +159,7 @@ class AddSlide(ToolBase):
                 cleanup_failed=cleanup_failed,
             )
 
-        # When switch_view is true, check set_current_page_index and set view_switch_failed on failure.
-        # active_page_index reflects the controller, not the assumed landed slot.
+        # A failed view switch is reported as view_switch_failed; active_page_index then comes from the controller.
         switched = bridge.set_current_page_index(landed) if switch_view else False
         if switch_view and not switched:
             result["view_switch_failed"] = True
@@ -276,8 +270,9 @@ def iter_shape_text_units(page: Any, *, table_mode: Literal["per_cell", "tsv"] =
                 raise
             log.debug("iter_shape_text_units getString failed", exc_info=True)
             continue
-        if text and str(text).strip():
-            yield addr, shape_name, str(text).strip()
+        stripped = str(text).strip()
+        if stripped:
+            yield addr, shape_name, stripped
 
 
 class ReadSlideText(ToolBase):
@@ -296,9 +291,10 @@ class ReadSlideText(ToolBase):
         bridge = DrawBridge(ctx.doc)
         page, actual_idx = bridge.resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
 
-        texts: list[dict[str, Any]] = []
-        for addr, shape_name, text in iter_shape_text_units(page, table_mode="tsv"):
-            texts.append({"index": addr, "text": text, "shape_name": shape_name})
+        texts = [
+            {"index": addr, "text": text, "shape_name": shape_name}
+            for addr, shape_name, text in iter_shape_text_units(page, table_mode="tsv")
+        ]
 
         nt = notes_text(page)
         notes_str = "" if nt is None else nt
@@ -333,13 +329,11 @@ class SearchSlides(ToolBase):
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        raw_max = kwargs.get("max_results", DEFAULT_SEARCH_RESULTS)
-        if type(raw_max) is not int or raw_max < 1:
+        max_results = kwargs.get("max_results", DEFAULT_SEARCH_RESULTS)
+        if type(max_results) is not int or max_results < 1:
             return self._tool_error("max_results must be a positive integer.", code="INVALID_PARAM")
-        max_results = raw_max
 
         pattern = kwargs["pattern"]
-        assert isinstance(pattern, str)
         if not pattern:
             return self._tool_error("pattern is required.")
 
@@ -412,10 +406,8 @@ class GetPresentationInfo(ToolBase):
         pages = doc.getDrawPages()
         count = pages.getCount()
 
-        # Dimensions from first page
         width, height = (page_size(pages.getByIndex(0)) or (0, 0)) if count > 0 else (0, 0)
 
-        # Master pages
         masters = [name or ("Master_%d" % i) for i, _m, name in iter_masters(doc)]
 
         bridge = DrawBridge(doc)
@@ -458,8 +450,7 @@ class DuplicateSlide(_SlideMutationTool):
         activate = kwargs.get("activate")
         switch_view = _DEFAULT_ACTIVATE if activate is None else bool(activate)
         bridge.duplicate_slide(page_idx, switch=switch_view)
-        # The copy is inserted immediately after the source. Do not re-read
-        # After duplicate with switch, the active index is page_idx + 1, not getNumber().
+        # The copy sits right after the source, so with switch the active index is page_idx + 1; without it, read the controller.
         active_idx = page_idx + 1 if switch_view else bridge.get_active_page_index()
         return {"status": "ok", "message": "Slide duplicated", "source_page": page_idx, "active_page_index": active_idx}
 

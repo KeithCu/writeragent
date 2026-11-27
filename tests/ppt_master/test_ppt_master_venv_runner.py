@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -144,7 +145,7 @@ def test_run_turn_returns_user_stopped_when_host_stops(monkeypatch: pytest.Monke
         patch("plugin.ppt_master.venv.runner.HostRpcModel"),
         patch("plugin.ppt_master.venv.runner.emit_worker_event"),
     ):
-        result = run_turn({"query": "hi"})
+        result = run_turn({"query": "hi", "max_steps": 12, "max_tokens": 16384})
     assert result["status"] == "error"
     assert result["code"] == "USER_STOPPED"
 
@@ -153,7 +154,7 @@ def test_run_turn_missing_skill_returns_error(tmp_path: Path, monkeypatch: pytes
     from plugin.ppt_master.venv.runner import run_turn
 
     monkeypatch.setenv("PPT_MASTER_DATA_ROOT", str(tmp_path / "nope"))
-    result = run_turn({"query": "hello", "session_id": "test"})
+    result = run_turn({"query": "hello", "session_id": "test", "max_steps": 12, "max_tokens": 16384})
     assert result.get("status") == "error"
 
 
@@ -170,7 +171,7 @@ def test_run_turn_passes_ppt_master_examples(monkeypatch: pytest.MonkeyPatch):
         patch("plugin.ppt_master.venv.runner.ToolCallingAgent", return_value=agent) as mock_agent,
         patch("plugin.ppt_master.venv.runner.HostRpcModel"),
     ):
-        result = run_turn({"query": "hi"})
+        result = run_turn({"query": "hi", "max_steps": 12, "max_tokens": 16384})
     assert result["status"] == "ok"
     assert mock_agent.call_args.kwargs["system_prompt_examples"] == get_examples_block("ppt-master")
 
@@ -244,7 +245,7 @@ def test_run_turn_prints_nothing(capsys, monkeypatch: pytest.MonkeyPatch):
         patch("plugin.ppt_master.venv.runner.emit_worker_event"),
         patch("plugin.ppt_master.venv.runner._build_instructions", return_value="i"),
     ):
-        result = run_turn({"query": "secret-ppt-query"})
+        result = run_turn({"query": "secret-ppt-query", "max_steps": 12, "max_tokens": 16384})
 
     assert result["status"] == "ok"
     assert capsys.readouterr().out == ""
@@ -322,7 +323,7 @@ def test_run_turn_keeps_partial_observations_on_failure(monkeypatch: pytest.Monk
         patch("plugin.ppt_master.venv.runner.emit_worker_event"),
         patch("plugin.ppt_master.venv.runner._build_instructions", return_value="i"),
     ):
-        result = run_turn({"query": "q"})
+        result = run_turn({"query": "q", "max_steps": 12, "max_tokens": 16384})
 
     assert result == {"status": "ok", "result": "done"}
     assert "wrote:title" in seen[1]
@@ -366,7 +367,7 @@ def _run_scripted_turn(
         patch("plugin.ppt_master.venv.runner.emit_worker_event"),
         patch("plugin.ppt_master.venv.runner._build_instructions", return_value="i"),
     ):
-        return run_turn({"query": "q"})
+        return run_turn({"query": "q", "max_steps": 12, "max_tokens": 16384})
 
 
 def test_run_turn_finish_in_failed_turn_does_not_end_session(monkeypatch: pytest.MonkeyPatch):
@@ -487,7 +488,7 @@ def test_run_turn_finished_returns_handoff(monkeypatch: pytest.MonkeyPatch):
         patch("plugin.ppt_master.venv.runner.emit_worker_event"),
         patch("plugin.ppt_master.venv.runner._build_instructions", return_value="i"),
     ):
-        result = run_turn({"query": "q"})
+        result = run_turn({"query": "q", "max_steps": 12, "max_tokens": 16384})
 
     assert result == {"status": "finished", "result": message}
 
@@ -533,3 +534,25 @@ def test_run_turn_reply_to_user_empty_answer_falls_back_to_message(monkeypatch: 
     )
 
     assert result == {"status": "ok", "result": "<p>Fallback</p>"}
+
+
+def test_host_rpc_model_sends_tool_parameter_schemas():
+    from plugin.ppt_master.venv.model import HostRpcModel
+    from plugin.ppt_master.venv.runner import ReplyToUserTool
+
+    model = HostRpcModel(model_id="m", max_tokens=100)
+    captured: dict[str, Any] = {}
+
+    def fake_rpc_llm(**kwargs: Any) -> dict[str, Any]:
+        captured.update(kwargs)
+        return {"role": "assistant", "content": "ok"}
+
+    with patch("plugin.ppt_master.venv.model.rpc_llm", side_effect=fake_rpc_llm):
+        model.generate([{"role": "user", "content": "hi"}], tools_to_call_from=[ReplyToUserTool()])
+
+    assert captured["tools"] is not None
+    assert len(captured["tools"]) == 1
+    fn = captured["tools"][0]["function"]
+    assert fn["name"] == "reply_to_user"
+    assert "parameters" in fn
+    assert "answer" in fn["parameters"]["properties"]

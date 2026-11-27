@@ -17,8 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from plugin.draw.base import DRAW_PAGE_PROPERTY, ToolDrawSlideMastersBase
 from plugin.draw.bridge import DrawBridge
-from plugin.framework.errors import is_disposal
-from plugin.framework.errors import name_miss_details
+from plugin.framework.errors import available_miss_details, is_disposal
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -122,7 +121,7 @@ class SetSlideMaster(ToolDrawSlideMastersBase):
             return self._tool_error(
                 "Master '%s' not found." % master_name,
                 available=available,
-                **name_miss_details(master_name, available, "list_master_slides"),
+                **available_miss_details(master_name, available),
             )
 
         page.MasterPage = target
