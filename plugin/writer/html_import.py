@@ -374,13 +374,12 @@ def _apply_ruby_and_restore_fields(
 
 
 def _table_count(model: Any) -> int | None:
-    """Table count from model.getTextTables(); None when unreadable (a mock). Disposal propagates."""
+    """Table count from model.getTextTables(). Disposal propagates."""
     # Invariant: uno_read raises DocumentDisposedError, so table verification never reports success on a closed doc.
     tables = uno_read(lambda: model.getTextTables(), None)
     if tables is None:
         return None
-    count = uno_read(lambda: tables.getCount(), None)
-    return count if isinstance(count, int) else None
+    return uno_read(lambda: tables.getCount(), None)
 
 
 def raise_if_no_table_added(added: int | None) -> None:
@@ -393,8 +392,7 @@ def _sections_at(cursor: Any) -> list[Any]:
     """Return the TextSection chain at *cursor* (a cursor, paragraph or table), innermost first."""
     out: list[Any] = []
     section = uno_read(lambda: cursor.getPropertyValue("TextSection"), None)
-    # Service check instead of `is not None`: a mock's getParentSection() never returns None.
-    while supports_service(section, "com.sun.star.text.TextSection"):
+    while section is not None:
         out.append(section)
         cur_sec: Any = section
         section = uno_read(lambda: cur_sec.getParentSection(), None)
