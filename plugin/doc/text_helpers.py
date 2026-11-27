@@ -61,6 +61,19 @@ def is_text_table(obj: Any) -> bool:
     return supports_service(obj, TEXT_TABLE_SERVICE)
 
 
+def textfield_service_name(field: Any) -> str:
+    """The ``com.sun.star.text.textfield.*`` service of a Writer text field, or ``""``.
+
+    ``SwXTextField::getSupportedServiceNames`` (sw/source/core/unocore/unofield.cxx) lists the
+    provider name, its ``textfield.`` spelling when that differs, and ``TextContent``, so exactly
+    one name has this prefix. The caller decides how a disposed field is handled.
+    """
+    for name in field.getSupportedServiceNames():
+        if name.startswith("com.sun.star.text.textfield."):
+            return name
+    return ""
+
+
 def redline_bounds(redline: Any) -> tuple[Any, Any, Any]:
     """Return ``(text, start, end)`` of a tracked change; a start at a table is the table's anchor."""
     start = redline.getPropertyValue("RedlineStart")

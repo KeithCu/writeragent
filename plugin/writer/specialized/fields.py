@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 import uno
 
-from plugin.doc.text_helpers import iter_elements
+from plugin.doc.text_helpers import iter_elements, textfield_service_name
 from plugin.doc.udprops import (
     get_document_property,
     list_user_defined_document_properties,
@@ -51,25 +51,6 @@ KNOWN_PROPERTIES = (
 )
 
 
-def _specific_field_service(field: Any) -> str:
-    """Return the most specific com.sun.star.text.textfield.* service name."""
-    try:
-        services = tuple(field.getSupportedServiceNames())
-    except Exception:
-        services = ()
-    narrower = sorted(
-        s for s in services
-        if isinstance(s, str)
-        and s.startswith("com.sun.star.text.textfield.")
-        and s != "com.sun.star.text.textfield.TextField"
-    )
-    if narrower:
-        return narrower[0]
-    if "com.sun.star.text.textfield.TextField" in services:
-        return "com.sun.star.text.textfield.TextField"
-    return ""
-
-
 def _iter_body_field_identity(doc: Any, hasher: Any) -> Iterator[tuple[int, Any, str, str, str]]:
     fields = doc.getTextFields()
     enum = fields.createEnumeration()
@@ -79,7 +60,10 @@ def _iter_body_field_identity(doc: Any, hasher: Any) -> Iterator[tuple[int, Any,
         if supports_service(field, "com.sun.star.text.textfield.Annotation"):
             continue
         count += 1
-        service = _specific_field_service(field)
+        try:
+            service = textfield_service_name(field)
+        except Exception:
+            service = ""
         try:
             presentation = field.getPresentation(False)
         except Exception as e:

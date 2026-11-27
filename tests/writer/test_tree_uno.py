@@ -36,7 +36,7 @@ def test_tree_service_basic(ctx, doc):
     services = SimpleNamespace()
     services.document = doc_svc
     services.events = events
-    services.writer_bookmarks = BookmarkService()
+    services.writer_bookmarks = BookmarkService(services)
     services.writer_tree = TreeService(services)
     tree_svc = services.writer_tree
 
@@ -70,7 +70,7 @@ def _tree_svc_on_bus():
     services = SimpleNamespace()
     services.document = DocumentService()
     services.events = events
-    services.writer_bookmarks = BookmarkService()
+    services.writer_bookmarks = BookmarkService(services)
     tree_svc = TreeService(services)
     return tree_svc, events
 
@@ -423,7 +423,7 @@ def test_tree_hides_multi_para_deletion_in_headings_and_body_uno(ctx, doc):
 
     events = EventBus()
     doc_svc = DocumentService()
-    tree_svc = TreeService(SimpleNamespace(document=doc_svc, writer_bookmarks=BookmarkService(), events=events))
+    tree_svc = TreeService(SimpleNamespace(document=doc_svc, writer_bookmarks=BookmarkService(SimpleNamespace(document=doc_svc)), events=events))
     try:
         tree = tree_svc.build_heading_tree(doc)
         heading_texts = [c["text"] for c in tree["children"]]

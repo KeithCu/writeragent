@@ -420,7 +420,9 @@ def test_copy_flow_into_xtext_one_paragraph_text_then_field():
 
 
 def test_copy_flow_into_xtext_breaks_only_between_paragraphs():
-    from plugin.writer.range_copy import PARAGRAPH_BREAK, copy_flow_into_xtext
+    from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK
+
+    from plugin.writer.range_copy import copy_flow_into_xtext
 
     doc = MagicMock()
     src_text = MagicMock()

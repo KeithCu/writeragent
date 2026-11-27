@@ -2241,7 +2241,7 @@ class StyleUpdate(ToolWriterStyleBase):
     name: str | None = "style_update"
     description: str = (
         "Update the properties of an existing style. "
-        "Provide 'family' (ParagraphStyles or CharacterStyles), 'style_name', and "
+        "Provide 'family' (ParagraphStyles or CharacterStyles), 'style', and "
         "'property_updates': a dictionary of UNO property names to values "
         "(e.g. {'CharColor': '#FF0000', 'CharWeight': 150, 'ParaAdjust': 'center'}). "
         "ParaAdjust is left/center/right/justify, not 0/1/2/3. "

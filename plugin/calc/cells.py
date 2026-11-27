@@ -828,7 +828,7 @@ class SortRange(ToolCalcRangeBase):
                     "Omit for a one-key sort."
                 ),
             },
-            "has_header": {"type": "boolean", "description": ("true when row 1 is labels; false only for a headerless block (default: true).")},
+            "has_header": {"type": "boolean", "description": ("true when row 1 is labels; false only for a headerless block.")},
         },
         "required": ["range", "has_header"],
     }
