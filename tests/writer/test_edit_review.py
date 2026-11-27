@@ -642,7 +642,7 @@ def test_record_mutation_does_not_tag_when_before_snapshot_unreliable():
     assert session.changes == []   # but nothing was registered/tagged
 
 
-def test_record_mutation_does_not_register_when_anchor_insert_fails():
+def test_record_mutation_does_not_register_when_anchor_span_fails():
     from unittest.mock import patch as _patch
 
     from plugin.writer.edit_review import EditReviewSession
@@ -835,7 +835,6 @@ def test_discard_changes_since_noop_when_count_at_or_beyond_length():
     session.discard_changes_since(-1)  # guarded against negative slice
 
     assert [c.token for c in session.changes] == ["t0"]
-    doc.getBookmarks.assert_not_called()
 
 
 def test_portion_type_does_not_fall_back_to_attribute():

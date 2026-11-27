@@ -46,7 +46,7 @@ returns an empty complete result), and degrades to inert if tracking cannot be e
 from __future__ import annotations
 
 import contextlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import itertools
 import logging
 import re
@@ -445,7 +445,8 @@ class ChangeRecord:
     """One reviewable change: its token, anchor, and the two expected end states."""
 
     token: str
-    anchor: Any
+    # Live UNO cursor; exclude from repr/compare/hash so off-main-thread logging or == never calls UNO.
+    anchor: Any = field(compare=False, repr=False)
     accepted_text: str
     rejected_text: str
     original_preview: str
@@ -858,6 +859,8 @@ class EditReviewSession:
         while True:
             scan = run(self._pending_tokens)
             if scan is None:
+                # A closed document, not a timeout. An unreliable scan (..., False) is a live
+                # document whose enumeration is incomplete; keep waiting on it, and never merge it with None.
                 return run(lambda: self._review_payload(complete=False, timed_out=False))
             pending, reliable = scan
             # Done ONLY on a reliable empty intersection of scanned tags with registered
