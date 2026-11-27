@@ -5,15 +5,15 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import TYPE_CHECKING, Any, Protocol, assert_never
 
+from plugin.framework.service import BaseState, FsmTransition
+from plugin.framework.deal_shim import deal
+
 if TYPE_CHECKING:
     from plugin.framework.send_cancellation import SendCancellation
 
 
 class HasSendCancellation(Protocol):
     _send_cancellation: "SendCancellation | None"
-
-from plugin.framework.service import BaseState, FsmTransition
-from plugin.framework.deal_shim import deal
 
 
 # --- Button Actions ---
@@ -176,9 +176,9 @@ def _return_idle(
     clear_text: bool = False,
     release_capture: bool = False,
 ) -> FsmTransition[SendButtonState]:
-    """The three idle exits share Send-on / Stop-off / label-from-cleared-flags;
+    """Shared idle exit: Send on, Stop off, label from the cleared flags.
 
-    status text, clearing typed text, and deleting the take stay arguments.
+    Status text, clearing typed text, and deleting the take are arguments.
     """
     changes: dict[str, Any] = {
         "mode": SendMode.IDLE,
@@ -248,7 +248,7 @@ def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendBu
                 return _noop(state)
 
             # Idle + has_audio is a legal cold-send state; leaving the flag set on
-            # a new take made a later cancel/error treat an empty box as a committed
+            # a new take makes a later cancel/error treat an empty box as a committed
             # take (_get_send_label returns Send). A new capture is not that commit.
             new_state = dataclasses.replace(state, mode=SendMode.RECORDING, has_audio=False)
             effects: list[SendEffects] = [
@@ -340,10 +340,10 @@ def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendBu
                 return _noop(state)
 
             # Keep typed text so the user can retry. Always drop has_audio: Stop Rec
-            # auto-send and _transcribe_audio already consume/delete the WAV. Leaving
-            # has_audio True after STT/chat errors (G13/G28) shows a dead Send button.
-            # Clearing is_recording with only UpdateUIEffect left the FSM idle while
-            # capture could still be running if the caller had not stopped the
+            # auto-send and _transcribe_audio already consume/delete the WAV, and
+            # leaving has_audio True after STT/chat errors shows a dead Send button.
+            # Clearing is_recording with only UpdateUIEffect leaves the FSM idle
+            # while capture can still be running if the caller has not stopped the
             # recorder; release_capture=state.is_recording emits the same
             # CancelRecordingEffect as cancel, and a busy send error does not,
             # because the drain owns that file.

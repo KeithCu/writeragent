@@ -139,7 +139,7 @@ def test_open_loads_dialog_via_shared_loader():
             return_value=(None, "detail"),
         ) as mock_load,
     ):
-        with pytest.raises(RuntimeError, match="load_detail"):
+        with pytest.raises(RuntimeError, match="failed to load module dialog"):
             ModuleConfigDialog(ctx, "vision")._open()
     mock_load.assert_called_once_with("VisionSettingsDialog", ctx)
 

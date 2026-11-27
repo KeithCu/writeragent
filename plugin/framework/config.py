@@ -164,7 +164,7 @@ def get_config_file_path() -> str:
     return init_config()
 
 
-def user_config_dir() -> str | None:
+def user_config_dir() -> str:
     """Return LibreOffice user config directory."""
     return os.path.dirname(get_config_file_path())
 

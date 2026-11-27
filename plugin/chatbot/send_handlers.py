@@ -3,7 +3,6 @@
 Composed onto SendButtonListener in panel.py and contains
 alternate send flows that would otherwise bloat that class:
 
-- Audio transcription fallback
 - Direct image generation / img2img (sidebar Image mode)
 - External agent backends
 - Web research sub-agent
@@ -95,17 +94,17 @@ def dispatch_sidebar_send(
     if mode is None or mode.kind == "chat":
         return False
     if mode.kind == "image":
-        log.debug("_do_send: using image model (direct, level=logging.INFO) — skip chat model")
+        log.debug("_do_send: image mode, direct image_generate")
         panel._send_handlers._do_send_direct_image(query_text, model)
         return True
 
     if mode.allowed_docs is not None and doc_type_label not in mode.allowed_docs:
         return False
     if mode.topic_policy == "switch":
-        if getattr(panel, "_active_mode", "") != sidebar_mode_key or not getattr(panel, "_mode_topic", ""):
+        if panel._active_mode != sidebar_mode_key or not panel._mode_topic:
             panel._mode_topic = query_text
     elif mode.topic_policy == "fill":
-        if not getattr(panel, "_mode_topic", ""):
+        if not panel._mode_topic:
             panel._mode_topic = query_text
     if mode.dispatch_log:
         log.info(mode.dispatch_log)
@@ -113,14 +112,12 @@ def dispatch_sidebar_send(
     return True
 
 
-def _send_worker_queues(host: Any) -> tuple[StreamQueue, Any]:
+def _send_worker_queues(host: Any) -> tuple[StreamQueue, TurnController]:
     # ``_do_send`` starts the turn. A direct handler call with no turn yet
     # starts one before the worker. An aborted turn is not replaced.
-    if current_turn(host) is None:
-        begin_send_turn(host)
+    turn = current_turn(host) or begin_send_turn(host)
     raw: StreamQueue = StreamQueue()
-    turn = current_turn(host)
-    if isinstance(turn, TurnController) and turn.alive:
+    if turn.alive:
         turn.queue = raw
         turn.batcher = None
     return raw, turn
@@ -154,12 +151,12 @@ class SendHandlersMixin:
         q: StreamQueue,
         worker_fn: Callable[[], None],
         handler_type: str,
-        status: str = "starting",
         show_thinking: bool = True,
         on_stopped_callback: Callable[[], None] | None = None,
         on_approval_callback: Callable[[Any], None] | None = None,
         on_finished: Callable[[], None] | None = None,
     ) -> None:
+        status = "starting"
         agent_parts: list[str] = []
 
         def ended() -> bool:
@@ -171,8 +168,8 @@ class SendHandlersMixin:
                 return
             if ended():
                 return
-            # External-agent text is persisted once on STREAM_DONE / stop.
-            # Writing each chunk from the worker raced the UI drain.
+            # External-agent text is persisted once on STREAM_DONE / stop;
+            # writing each chunk from the worker would race the UI drain.
             if handler_type == "agent" and not is_thinking and chunk_text:
                 agent_parts.append(chunk_text)
             self._panel._append_response(chunk_text, is_thinking=is_thinking)
@@ -188,13 +185,12 @@ class SendHandlersMixin:
             # wrapper may still post STREAM_DONE so the drain unblocks.
             # That sentinel is not a successful answer.
             live = current_turn(self._panel)
-            if isinstance(live, TurnController) and not live.alive:
+            if live is not None and not live.alive:
                 return
             payload = item[1] if isinstance(item, tuple) and len(item) > 1 else item
             if isinstance(payload, dict):
-                # Store the answer before a mode handoff aborts this turn.
-                # Web, librarian, brainstorm, writing, PPT, and deep research
-                # Specialized handlers persist assistant text on the worker before mode handoff; that races Clear.
+                # Store the answer here, on the UI thread, before a mode handoff
+                # aborts this turn. A worker-side write races Clear.
                 if handler_type != "agent":
                     answer = payload.get("assistant_content")
                     if isinstance(answer, str) and answer:
@@ -221,7 +217,7 @@ class SendHandlersMixin:
             # so the painted partial never lands in session.messages.
             turn = current_turn(self._panel)
             partial = "".join(agent_parts).strip() if handler_type == "agent" else None
-            if isinstance(turn, TurnController):
+            if turn is not None:
                 turn.close_stopped(self._panel, partial)
             if on_stopped_callback:
                 on_stopped_callback()
@@ -234,21 +230,21 @@ class SendHandlersMixin:
         def on_error(e: Exception) -> None:
             nonlocal status
             live = current_turn(self._panel)
-            if isinstance(live, TurnController) and not live.alive:
+            if live is not None and not live.alive:
                 return
             if ended():
                 return
             status = "error"
             append_text = _fail_handler(self._panel, handler_type, e)
             # Same write for web, agent, and image, using the lines
-            # handle_error already shows. The tool loop stores that banner
+            # _fail_handler already shows. The tool loop stores that banner
             # with persist_assistant_on_turn. Painting the banner and storing
             # the user row without this write leaves the next send a hole
             # where the assistant row should be.
             persist_assistant_on_turn(self._panel, append_text)
 
         turn = current_turn(self._panel)
-        if isinstance(turn, TurnController) and turn.queue is None:
+        if turn is not None and turn.queue is None:
             # The drain owns the queue. The worker wrapper only calls put.
             turn.queue = q
         try:
@@ -330,13 +326,13 @@ class SendHandlersMixin:
         cancel_scope = spawn_scope(self._panel)
 
         def run_direct_image() -> None:
-            doc_type = getattr(self._panel, "cached_doc_type", None) or "writer"
+            doc_type = self._panel.cached_doc_type or "writer"
             try:
                 from plugin.app import get_tools
 
-                tctx = ToolContext(doc=model, ctx=self._panel.ctx, doc_type=doc_type, services=get_tools().services, caller="chat", status_callback=lambda t: turn.put((StreamQueueKind.STATUS, t)), send_cancellation=cancel_scope, uno_services_supported=getattr(self._panel, "cached_uno_services", None))
+                tctx = ToolContext(doc=model, ctx=self._panel.ctx, doc_type=doc_type, services=get_tools().services, caller="chat", status_callback=lambda t: turn.put((StreamQueueKind.STATUS, t)), send_cancellation=cancel_scope, uno_services_supported=self._panel.cached_uno_services)
 
-                # generate_image is async; UNO is marshalled inside the tool (worker runs HTTP).
+                # image_generate is async; UNO is marshalled inside the tool (worker runs HTTP).
                 image_args: dict[str, Any] = {"prompt": query_text, "aspect_ratio": mapped_aspect, "base_size": base_size_int, "image_model": image_model_text}
                 if source_image:
                     image_args["source_image"] = source_image
@@ -344,9 +340,9 @@ class SendHandlersMixin:
                 if isinstance(res, dict) and res.get("status") == "error":
                     # An ordinary user Stop is not a failure; keep it out of ERROR.
                     if is_cancelled(cancel_scope):
-                        log.debug("generate_image (direct) stopped by user: %s", res.get("message"))
+                        log.debug("image_generate (direct) stopped by user: %s", res.get("message"))
                     else:
-                        log.error("generate_image (direct) failed: %s details=%s", res.get("message"), res.get("details"))
+                        log.error("image_generate (direct) failed: %s details=%s", res.get("message"), res.get("details"))
                 data = _tool_result_dict(res, "image_generate", doc_type)
                 note = data.get("message", data.get("status", "done"))
                 # This note is the assistant message. Success (and a tool
@@ -358,11 +354,10 @@ class SendHandlersMixin:
                 turn.put((StreamQueueKind.CHUNK, note_line))
                 turn.put((StreamQueueKind.STREAM_DONE, {"assistant_content": note_line.strip()}))
             except Exception as e:
-                doc_type = getattr(self._panel, "cached_doc_type", None) or "unknown"
                 if is_cancelled(cancel_scope):
                     log.debug("Direct image path cancelled by Stop [doc: %s]: %s", doc_type, e)
                 else:
-                    log.exception("Direct image path failed in _do_send_direct_image [doc: %s]", doc_type)
+                    log.exception("Direct image path failed [doc: %s]", doc_type)
 
                 turn.put((StreamQueueKind.ERROR, format_error_payload(e)))
 
@@ -388,8 +383,8 @@ class SendHandlersMixin:
 
     def _do_send_via_agent_backend(self, query_text: str, model: Any, doc_type_str: str) -> None:
         """Send via external agent backend. No fallback to built-in on failure."""
-        # User row is stored after the backend exists. Writing it here left
-        # a user turn with no assistant row when the adapter was missing.
+        # User row is stored after the backend exists; writing it earlier
+        # leaves a user turn with no assistant row when the adapter is missing.
         self._panel._append_response("\n[Using external agent backend.]\n")
         self._panel._append_response("AI: ")
         self._panel._set_status("Starting agent...")
@@ -403,8 +398,8 @@ class SendHandlersMixin:
         process-worker slot policy: one live child, drop a dead child,
         shutdown is explicit. This is not a ``BaseProcessWorker``.
         """
-        held = getattr(self._panel, "_acp_backend", None)
-        held_id = getattr(self._panel, "_acp_backend_id", None)
+        held = self._panel._acp_backend
+        held_id = self._panel._acp_backend_id
         if held is not None and held_id == backend_id:
             return held
         if held is not None:
@@ -417,8 +412,7 @@ class SendHandlersMixin:
         return adapter
 
     def _execute_agent_backend_effect(self, query_text: str, model: Any, doc_type_str: str) -> None:
-
-
+        doc_type_str = doc_type_str or "writer"
         document_url = ""
         with suppress_disposed("get document URL for agent backend", logger=log):
             if model and hasattr(model, "getURL"):
@@ -430,7 +424,7 @@ class SendHandlersMixin:
 
         def _handle_early_error(exception_instance: Exception) -> None:
             _fail_handler(self._panel, "agent", exception_instance)
-            # Ensure turn is closed out properly, just as _do_send_direct_image does
+            # No drain runs on this early exit, so abort the turn here (the drain epilogue does it on the normal path).
             defer_until_drain_done(lambda: abort_turn(self._panel))
 
         try:
@@ -444,14 +438,11 @@ class SendHandlersMixin:
             _handle_early_error(Exception(_("[Document context error: {0}]").format(str(e))))
             return
 
-
-
         backend_id = normalize_backend_id(get_config("agent_backend.backend_id"))
         # normalize_backend_id always yields a known id; adapters are missing only when not installed.
         adapter = self._retained_agent_backend(backend_id)
         if not adapter.is_available(self._panel.ctx):
-            name = getattr(adapter, "display_name", None)
-            label = name if isinstance(name, str) and name else backend_id
+            label = adapter.display_name or backend_id
             _handle_early_error(ValueError(_("[Agent backend '{0}' is not available. Check Settings (path, install).]").format(label)))
             return
 
@@ -463,12 +454,10 @@ class SendHandlersMixin:
 
         # String-only: classifying the live model hits get_document_type (UNO).
         # run_agent is chatbot-send-handler; do not classify the document here.
-        core_dirs = get_core_directives_for_type(doc_type_str or "writer")
+        core_dirs = get_core_directives_for_type(doc_type_str)
 
         def run_agent() -> None:
             try:
-
-
                 from plugin.mcp_server import is_mcp_server_running
 
                 # Pass mcp_url only when is_mcp_server_running(); a dead server omits MCP from the prompt.
@@ -476,7 +465,7 @@ class SendHandlersMixin:
                 mcp_url = self._get_mcp_url() if mcp_running else None
 
                 # ACP session/new cannot attach per-request headers; when MCP is off or down the
-                # model still gets full_manual but had no in-chat hint that edits require the server.
+                # model still gets full_manual but has no in-chat hint that edits require the server.
                 if mcp_url is None:
                     turn.put((
                         StreamQueueKind.STATUS,
@@ -499,7 +488,7 @@ class SendHandlersMixin:
                 # WITH the MCP extras (this backend talks to the HTTP server, so e.g. the 429
                 # concurrency contract applies here, unlike the in-process sidebar).
                 # full_manual(doc_type_str) is string-only — do not classify the document here.
-                lean_system_prompt = f"{core_dirs}\n\n{full_manual(doc_type_str or 'writer')}\n\nYou are currently interacting with a LibreOffice document.\n{mcp_instructions}\nPlease proceed with the user's request."
+                lean_system_prompt = f"{core_dirs}\n\n{full_manual(doc_type_str)}\n\nYou are currently interacting with a LibreOffice document.\n{mcp_instructions}\nPlease proceed with the user's request."
 
                 # Add optional instructions from settings
                 extra = str(get_config("additional_instructions") or "").strip()
@@ -513,13 +502,11 @@ class SendHandlersMixin:
             except BlockingWaitStopped:
                 turn.put((StreamQueueKind.STOPPED,))
             except Exception as e:
-                log.exception("Agent backend ERROR in _do_send_via_agent_backend [backend: %s, doc: %s]", backend_id, doc_type_str)
+                log.exception("Agent backend ERROR [backend: %s, doc: %s]", backend_id, doc_type_str)
                 turn.put((StreamQueueKind.ERROR, format_error_payload(e)))
 
         def on_approval_required(item: Any) -> None:
             # item = ("approval_required", description, tool_name, args, request_id)
-
-
             description = item[1] if len(item) > 1 else ""
             tool_name = item[2] if len(item) > 2 else ""
             request_id = item[4] if len(item) > 4 else None
@@ -533,12 +520,12 @@ class SendHandlersMixin:
                 approved = True
             else:
                 try:
-                    approved = show_approval_dialog(self._panel.ctx, description, tool_name, parent_frame=getattr(self._panel, "frame", None))
+                    approved = show_approval_dialog(self._panel.ctx, description, tool_name, parent_frame=self._panel.frame)
                 except Exception as e:
                     log.error("Error showing approval dialog: %s", e)
                     approved = False
 
-            if request_id is not None and hasattr(adapter, "submit_approval"):
+            if request_id is not None:
                 best_effort(lambda: adapter.submit_approval(request_id, approved), "submitting agent backend approval")
 
         self._run_unified_worker_drain_loop(drain_q, run_agent, "agent", on_approval_callback=on_approval_required, on_finished=self._finalize_terminal_ready)
@@ -547,7 +534,7 @@ class SendHandlersMixin:
         """Run a specialized mode (or web research) and stream its result into the response area."""
         spec = sidebar_mode(mode)
         if spec and spec.prefetch_suggested_name:
-            if not getattr(self._panel, "_librarian_suggested_user_name_fetched", False):
+            if not self._panel._librarian_suggested_user_name_fetched:
                 from plugin.chatbot.librarian import get_suggested_user_name
 
                 # Resolve on the UI thread so UNO UserProfile reads stay on the main thread.
@@ -580,7 +567,7 @@ class SendHandlersMixin:
         history_text = format_sub_agent_conversation_history(self._panel.session, current_query=query_text)
         cancel_scope = spawn_scope(self._panel)
 
-        doc_type = getattr(self._panel, "cached_doc_type", None) or "writer"
+        doc_type = self._panel.cached_doc_type or "writer"
 
         def run_search() -> None:
             try:
@@ -601,8 +588,8 @@ class SendHandlersMixin:
                     setattr(event, "approved", False)
                     setattr(event, "query_override", None)
                     turn.put((StreamQueueKind.APPROVAL_REQUIRED, query_for_engine, tool_name, event))
-                    # event.wait() ignored Stop. Sidebar close latches the
-                    # checker and never sets the event, so this worker parked.
+                    # event.wait() ignores Stop: sidebar close latches the
+                    # checker and never sets the event, so this worker would park.
                     if not wait_for_approval(event, cancel_scope):
                         turn.put((StreamQueueKind.STOPPED,))
                         return (False, None)
@@ -617,7 +604,7 @@ class SendHandlersMixin:
                 # run_search runs on the chatbot-send-handler worker;
                 # get_ctx() is main-thread-only. Panel bootstrap ctx matches
                 # tool_loop.execute_fn (async tools marshal UNO reads themselves).
-                tctx = ToolContext(doc=model, ctx=self._panel.ctx, doc_type=doc_type, services=get_tools().services, caller="chat", status_callback=status_cb, append_thinking_callback=thinking_cb, approval_callback=approval_cb if as_bool(get_config("chatbot.prompt_for_web_research")) else None, chat_append_callback=chat_append_cb, send_cancellation=cancel_scope, uno_services_supported=getattr(self._panel, "cached_uno_services", None))
+                tctx = ToolContext(doc=model, ctx=self._panel.ctx, doc_type=doc_type, services=get_tools().services, caller="chat", status_callback=status_cb, append_thinking_callback=thinking_cb, approval_callback=approval_cb if as_bool(get_config("chatbot.prompt_for_web_research")) else None, chat_append_callback=chat_append_cb, send_cancellation=cancel_scope, uno_services_supported=self._panel.cached_uno_services)
 
                 extra_args: dict[str, Any] = {}
                 if spec.extra_kwarg and spec.extra_attr:
@@ -669,7 +656,7 @@ class SendHandlersMixin:
                         done_payload["spec_saved"] = False
                     turn.put((StreamQueueKind.STREAM_DONE, done_payload))
             except Exception as e:
-                log.exception("Web/Librarian path ERROR in _run_web_research [doc: %s]", doc_type)
+                log.exception("Web/Librarian path ERROR [doc: %s]", doc_type)
 
                 turn.put((StreamQueueKind.ERROR, format_error_payload(e)))
 
@@ -679,7 +666,7 @@ class SendHandlersMixin:
             tool_name = item[2] if len(item) > 2 else ""
             event_obj = item[3] if len(item) > 3 else None
             if event_obj is not None:
-                self._panel._events.begin_inline_web_approval(query_for_engine, tool_name, event_obj)
+                self._panel._events.begin_inline_web_approval(query_for_engine, event_obj)
             log.info("web_research on_approval_required: tool=%s (inline Accept/Change/Reject)", tool_name)
 
         def _finalize_research() -> None:

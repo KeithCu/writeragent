@@ -1,23 +1,22 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from plugin.chatbot.history_db import get_chat_history
 from plugin.framework.client.shim_helpers import snapshot_text
+
+if TYPE_CHECKING:
+    from plugin.chatbot.compaction import CompactionState
 
 log = logging.getLogger(__name__)
 
 
 def strip_legacy_document_suffix(content: str) -> str:
-    """If content endswith '\n[END DOCUMENT]' and contains '\n\n[DOCUMENT CONTENT]\n',
-    return content[:content.rfind(that marker)]. Otherwise return content.
-    """
+    """Drop the document excerpt that older histories stored at the end of the system message."""
     marker = "\n\n[DOCUMENT CONTENT]\n"
     if content.endswith("\n[END DOCUMENT]") and marker in content:
-        idx = content.rfind(marker)
-        if idx != -1:
-            return content[:idx]
+        return content[: content.rfind(marker)]
     return content
 
 
@@ -34,12 +33,7 @@ def request_tail(session: ChatSession) -> str:
     Everything that changes per request lives after the cache breakpoint so
     earlier history and system prompts stay cacheable across turns.
     """
-    doc_text = session.document_context
-    if doc_text:
-        snap = snapshot_text(doc_text)
-        if snap:
-            return snap
-    return ""
+    return snapshot_text(session.document_context)
 
 # ---------------------------------------------------------------------------
 # ChatSession - holds conversation history for multi-turn chat
@@ -56,7 +50,7 @@ class ChatSession:
     document_context: str
     active_specialized_domain: str | None
     python_tool_domain: str | None
-    compaction: Any
+    compaction: CompactionState | None
     history_notice: str
 
     def __init__(self, system_prompt: str | None = None, session_id: str | None = None) -> None:
@@ -69,9 +63,9 @@ class ChatSession:
 
         self.active_specialized_domain = None
         self.python_tool_domain = None
-        # Cached compact view (CompactionState). Duck-typed by compaction.py;
-        # never persisted. New chat / clear() must drop it or the next send
-        # would keep summarizing against a stale first_kept_index.
+        # Cached view over ChatSession.messages; never persisted.
+        # New chat / clear() must drop it or the next send would keep
+        # summarizing against a stale first_kept_index.
         self.compaction = None
 
         if session_id:
@@ -171,7 +165,7 @@ class ChatSession:
 
         tail = request_tail(self)
         last = view[-1]
-        role = last.get("role") if isinstance(last, dict) else None
+        role = last.get("role")
 
         if role == "user":
             # Strict-alternation templates reject two adjacent user turns; the tail folds into the last user message.
@@ -217,8 +211,9 @@ class ChatSession:
         if reasoning_replay:
             msg.update(reasoning_replay)
         # Streamed tokens sit in an open row so the sidebar can paint them.
-        # This committed message replaces that row. Leaving both showed the
-        # answer twice, and the open row is not a history write.
+        # The committed message replaces the open row the sidebar painted from;
+        # keeping both would show the answer twice, and the open row is not a
+        # history write.
         if self.messages and self.messages[-1].get("_open_transcript"):
             self.messages.pop()
         self.messages.append(msg)
@@ -234,8 +229,8 @@ class ChatSession:
     def clear(self) -> None:
         """Reset to just the system prompt."""
         self.compaction = None
-        # The next send advertises tools from these fields. Leaving the
-        # previous delegate set meant Clear still offered that domain.
+        # The next send advertises tools from these fields, so Clear resets
+        # them with the messages.
         self.active_specialized_domain = None
         self.python_tool_domain = None
         self._seed_system_message()

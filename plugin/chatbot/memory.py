@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Mapping, cast
 from plugin.framework.config import atomic_write_text, user_config_dir
 from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
 from plugin.framework.deal_shim import deal
-from plugin.framework.errors import ConfigError, best_effort
+from plugin.framework.errors import best_effort
 from plugin.framework.prompts import fenced_data_block
 from plugin.framework.tool import ToolBase
 
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
 # Librarian and chat can upsert the same USER.md from different threads.
-# os.replace is atomic; the read-modify-write around it was not.
+# os.replace is atomic; the read-modify-write around it is guarded by this lock.
 _MEMORY_WRITE_LOCK = threading.Lock()
 
 # Non-JSON USER.md (legacy prose) is preserved under this key when migrating.
@@ -29,8 +29,6 @@ class MemoryStore:
     def __init__(self) -> None:
         # crosshair: off
         config_dir = user_config_dir()
-        if config_dir is None:
-            raise ConfigError("UNO context is required to resolve memory store path")
         self.path = os.path.join(config_dir, "memories", "USER.md")
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
 
@@ -76,7 +74,7 @@ class MemoryStore:
 
             # Nested update: empty content or null deletes the key instead of storing "".
             # JSON null is the same delete. A dotted key must not replace a string
-            # value with {} (name="Ada" then name.nickname wiped the profile).
+            # value with {} (for example name="Ada" followed by name.nickname).
             parts = key.split(".")
             if content is None or content == "":
                 node: Any = parsed
@@ -91,9 +89,9 @@ class MemoryStore:
             else:
                 current_dict: dict[str, Any] = parsed
                 for part in parts[:-1]:
-                    if part in current_dict and not isinstance(current_dict.get(part), dict):
-                        return {"status": "error", "message": f"Memory key '{key}' would replace a non-object value; left unchanged."}
                     child = current_dict.get(part)
+                    if part in current_dict and not isinstance(child, dict):
+                        return {"status": "error", "message": f"Memory key '{key}' would replace a non-object value; left unchanged."}
                     if not isinstance(child, dict):
                         child = {}
                         current_dict[part] = child
@@ -158,6 +156,8 @@ def format_user_memory_prompt_block() -> str:
 UPSERT_MEMORY_CHAT_VALUE_MAX = 400
 
 
+# Pytest profile: always True. scripts/crosshair_domains.py _patch_memory swaps these
+# for bounded predicates so CrossHair explores a small domain.
 def _deal_memory_args_ok(*args: Any, **kwargs: Any) -> bool:
     return True
 
@@ -227,7 +227,7 @@ class MemoryTool(ToolBase):
         # is the documented delete. "" and JSON null still delete.
         if "content" not in kwargs:
             return self._tool_error("Content is required.")
-        content = kwargs.get("content")
+        content = kwargs["content"]
 
         try:
             store = MemoryStore()
@@ -236,5 +236,5 @@ class MemoryTool(ToolBase):
 
         res = store.upsert(key, content)
         if res.get("status") == "error":
-            return self._tool_error(res.get("message", "Failed to update memory."))
+            return self._tool_error(res["message"])
         return res

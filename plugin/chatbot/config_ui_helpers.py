@@ -415,12 +415,12 @@ REASONING_EFFORT_DISPLAY_LABELS: tuple[str, ...] = tuple(disp for disp, _val in 
 
 
 def reasoning_effort_to_display(effort: str | None) -> str:
-    """Map stored effort level ('', 'low', 'medium', 'high', 'xhigh', 'max') to short display label ('def', 'lo', ...)."""
+    """Map stored effort level ('', 'low', 'medium', 'high', 'xhigh', 'max') to short display label ('default', 'lo', ...)."""
     return {val: disp for disp, val in REASONING_EFFORT_OPTIONS}.get((effort or "").strip(), "default")
 
 
 def display_to_reasoning_effort(label: str | None) -> str:
-    """Map short display label ('def', 'lo', ...) back to stored effort level ('', 'low', ...)."""
+    """Map short display label ('default', 'lo', ...) back to stored effort level ('', 'low', ...)."""
     return dict(REASONING_EFFORT_OPTIONS).get((label or "").strip(), "")
 
 
@@ -452,7 +452,7 @@ def get_reasoning_effort_selector_value(ctrl: Any) -> str:
 
 
 def populate_reasoning_effort_selector(ctrl: Any, endpoint: str | None = None) -> None:
-    """Populate reasoning effort selector items ('def', 'lo', ...) and select the current endpoint's saved level."""
+    """Populate reasoning effort selector items ('default', 'lo', ...) and select the current endpoint's saved level."""
     if ctrl is None:
         return
     target_endpoint = endpoint if endpoint is not None else get_current_endpoint()

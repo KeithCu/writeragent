@@ -28,6 +28,12 @@ class DummyChatbotPanel(SendHandlersMixin):
         self._send_cancellation = None
         self._active_mode = ""
         self._mode_topic = ""
+        self._librarian_suggested_user_name_fetched = False
+        self.cached_doc_type = None
+        self.cached_uno_services = None
+        self._acp_backend = None
+        self._acp_backend_id = None
+        self.frame = None
         self.responses = []
         self.thinking_flags = []
         self.status_history = []
@@ -43,7 +49,7 @@ class DummyChatbotPanel(SendHandlersMixin):
         self._sidebar_mode = MagicMock()
         self.sidebar_mode_flags = SidebarModeFlags()
         self.chat_mode_selector = MagicMock()
-        self._apply_sidebar_mode_fn = MagicMock()
+        self.apply_sidebar_mode = MagicMock()
 
         # UI Mocks
         self.aspect_ratio_selector = MagicMock()
@@ -570,6 +576,8 @@ def test_acp_approval_default_and_dead_turn():
             self.stop_requested = False
             self._send_cancellation = None
             self.session = None
+            self._acp_backend = None
+            self._acp_backend_id = None
             self.ctx = mock.MagicMock()
             self.frame = mock.MagicMock()
         def _append_response(self, *args, **kwargs):
@@ -616,6 +624,8 @@ def test_acp_approval_auto_approve_when_configured():
             self.stop_requested = False
             self._send_cancellation = None
             self.session = None
+            self._acp_backend = None
+            self._acp_backend_id = None
             self.ctx = mock.MagicMock()
             self.frame = mock.MagicMock()
         def _append_response(self, *args, **kwargs):
@@ -912,7 +922,7 @@ def test_run_librarian_keeps_panel_flag_until_switch():
 
 def test_run_librarian_clears_panel_flag_on_switch_mode():
     panel = DummyChatbotPanel()
-    panel._apply_sidebar_mode_fn = MagicMock()
+    panel.apply_sidebar_mode = MagicMock()
     panel._sidebar_mode = SidebarModeController(panel)
     mock_registry = _make_tool_registry({"status": "switch_mode", "result": "Switching now"})
 
@@ -1078,18 +1088,23 @@ def test_handler_errors_persist_assistant_banner():
 def test_on_error_after_stopped_or_done_writes_no_history_row():
     from plugin.chatbot.tool_loop_actions import begin_send_turn
 
-    for status in ("stopped", "done"):
+    for trigger in ("stopped", "done"):
         panel = DummyChatbotPanel()
         begin_send_turn(panel)
         q = StreamQueue()
 
         def fake_drain_loop(drain_q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn=None, cancel=None, **kwargs):
+            if trigger == "stopped":
+                on_stopped()
+            else:
+                on_stream_done({})
+            panel.session.add_assistant_message.reset_mock()
             on_error(RuntimeError("late error"))
             outcome.done = True
 
         with patch("plugin.framework.async_stream.run_in_background", side_effect=lambda f, **kw: f()):
             with patch("plugin.framework.async_stream.run_stream_drain_loop", side_effect=fake_drain_loop):
-                panel._run_unified_worker_drain_loop(q, lambda: None, "web", status=status)
+                panel._run_unified_worker_drain_loop(q, lambda: None, "web")
 
         assert panel.session.add_assistant_message.call_count == 0
 
@@ -1602,7 +1617,7 @@ def test_tool_error_clearing_mode_flag_runs_session_finished_callback():
         panel._active_mode = mode_val
         panel.sidebar_mode_flags = SidebarModeFlags(include_brainstorming=True, include_writing_plan=True, include_ppt_master=True)
         panel.chat_mode_selector = MagicMock()
-        panel._apply_sidebar_mode_fn = MagicMock()
+        panel.apply_sidebar_mode = MagicMock()
         panel._sidebar_mode = SidebarModeController(panel)
 
         q = StreamQueue()
@@ -1611,17 +1626,17 @@ def test_tool_error_clearing_mode_flag_runs_session_finished_callback():
         def worker_fn():
             q.put((StreamQueueKind.STREAM_DONE, error_payload))
 
-        panel._run_unified_worker_drain_loop(q, worker_fn, "web", "ready")
+        panel._run_unified_worker_drain_loop(q, worker_fn, "web")
 
         assert panel._active_mode == ""
-        panel._apply_sidebar_mode_fn.assert_called_once_with(CHAT_MODE_CHAT)
+        panel.apply_sidebar_mode.assert_called_once_with(CHAT_MODE_CHAT)
 
     # and a brainstorming tool error that includes spec_saved: True still shows chat
     panel = DummyChatbotPanel()
     panel._active_mode = CHAT_MODE_BRAINSTORMING
     panel.sidebar_mode_flags = SidebarModeFlags(include_brainstorming=True, include_writing_plan=True)
     panel.chat_mode_selector = MagicMock()
-    panel._apply_sidebar_mode_fn = MagicMock()
+    panel.apply_sidebar_mode = MagicMock()
     panel._sidebar_mode = SidebarModeController(panel)
 
     mock_registry = MagicMock()
@@ -1638,7 +1653,7 @@ def test_tool_error_clearing_mode_flag_runs_session_finished_callback():
                     panel._execute_web_research_effect("query", MagicMock(), mode=CHAT_MODE_BRAINSTORMING)
 
     assert panel._active_mode == ""
-    panel._apply_sidebar_mode_fn.assert_called_once_with(CHAT_MODE_CHAT)
+    panel.apply_sidebar_mode.assert_called_once_with(CHAT_MODE_CHAT)
 
 
 def test_brainstorming_send_replaces_writing_plan_topic():

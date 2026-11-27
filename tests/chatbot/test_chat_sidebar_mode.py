@@ -176,7 +176,7 @@ def test_sidebar_mode_controller_brainstorming_finished():
     panel = MagicMock()
     panel.sidebar_mode_flags = SidebarModeFlags(include_brainstorming=True, include_writing_plan=True)
     panel.chat_mode_selector = MagicMock()
-    panel._apply_sidebar_mode_fn = MagicMock()
+    panel.apply_sidebar_mode = MagicMock()
     panel._mode_topic = "Kitchen remodel"
     panel._active_mode = CHAT_MODE_BRAINSTORMING
 
@@ -186,15 +186,15 @@ def test_sidebar_mode_controller_brainstorming_finished():
     assert panel._mode_topic == "Implement the saved spec: Kitchen remodel"
     assert panel._active_mode == CHAT_MODE_WRITING_PLAN
     assert mock_set.call_args[0][1] == CHAT_MODE_WRITING_PLAN
-    panel._apply_sidebar_mode_fn.assert_called_once_with(CHAT_MODE_WRITING_PLAN)
+    panel.apply_sidebar_mode.assert_called_once_with(CHAT_MODE_WRITING_PLAN)
 
     # Without spec saved
     panel._mode_topic = "Kitchen remodel"
     panel._active_mode = CHAT_MODE_BRAINSTORMING
-    panel._apply_sidebar_mode_fn.reset_mock()
+    panel.apply_sidebar_mode.reset_mock()
     with patch("plugin.chatbot.chat_sidebar_mode.set_selector_mode_with_flags"):
         controller.on_mode_finished(CHAT_MODE_BRAINSTORMING, {"spec_saved": False})
-    panel._apply_sidebar_mode_fn.assert_called_once_with(CHAT_MODE_CHAT)
+    panel.apply_sidebar_mode.assert_called_once_with(CHAT_MODE_CHAT)
 
 
 def test_sidebar_mode_controller_other_modes_finished():
@@ -202,13 +202,13 @@ def test_sidebar_mode_controller_other_modes_finished():
         panel = MagicMock()
         panel.sidebar_mode_flags = SidebarModeFlags(include_brainstorming=True, include_writing_plan=True, include_ppt_master=True)
         panel.chat_mode_selector = MagicMock()
-        panel._apply_sidebar_mode_fn = MagicMock()
+        panel.apply_sidebar_mode = MagicMock()
         panel._active_mode = mode_key
 
         controller = SidebarModeController(panel)
         with patch("plugin.chatbot.chat_sidebar_mode.set_selector_mode_with_flags"):
             controller.on_mode_finished(mode_key, {})
-        panel._apply_sidebar_mode_fn.assert_called_once_with(CHAT_MODE_CHAT)
+        panel.apply_sidebar_mode.assert_called_once_with(CHAT_MODE_CHAT)
 
 
 def test_greeting_for_chat_mode_falls_back_to_document_greeting():
@@ -227,7 +227,7 @@ def test_librarian_mode_finished_applies_chat_mode():
     listener = SimpleNamespace(
         sidebar_mode_flags=SidebarModeFlags(include_brainstorming=True, include_writing_plan=True),
         chat_mode_selector=MagicMock(),
-        _apply_sidebar_mode_fn=MagicMock(),
+        apply_sidebar_mode=MagicMock(),
         _active_mode="librarian",
     )
     with patch("plugin.chatbot.chat_sidebar_mode.set_selector_mode_with_flags") as mock_set:
@@ -236,4 +236,4 @@ def test_librarian_mode_finished_applies_chat_mode():
     assert listener._active_mode == ""
     mock_set.assert_called_once()
     assert mock_set.call_args[0][1] == CHAT_MODE_CHAT
-    listener._apply_sidebar_mode_fn.assert_called_once_with(CHAT_MODE_CHAT)
+    listener.apply_sidebar_mode.assert_called_once_with(CHAT_MODE_CHAT)

@@ -25,6 +25,7 @@ from plugin.framework.menu_icon_dpi import (
     menu_icon_filename,
 )
 from plugin.framework.thread_guard import main_thread_only
+from plugin.framework.uno_context import get_document_from_frame
 
 log = logging.getLogger(__name__)
 
@@ -36,23 +37,17 @@ def show_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
         return
 
     try:
-        model = None
-        if frame and hasattr(frame, "getController"):
-            ctrl = frame.getController()
-            if ctrl and hasattr(ctrl, "getModel"):
-                model = ctrl.getModel()
+        model = get_document_from_frame(frame)
 
         is_calc_doc = is_calc(model)
         is_writer_doc = is_writer(model)
         is_draw_doc = is_draw(model)
 
-        smgr = getattr(ctx, "getServiceManager", lambda: None)()
+        smgr = ctx.getServiceManager()
         if smgr is None:
             return
 
         popup = smgr.createInstanceWithContext("com.sun.star.awt.PopupMenu", ctx)
-        if popup is None:
-            return
 
         item_actions: dict[int, str] = {}
         next_id = 1
@@ -64,29 +59,24 @@ def show_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
             next_id += 1
             menu.insertItem(n_id, label, 0, pos)
             item_actions[n_id] = action
-            if hasattr(menu, "setCommand"):
-                menu.setCommand(n_id, "org.extension.writeragent:" + action)
+            menu.setCommand(n_id, "org.extension.writeragent:" + action)
             if icon:
                 g = load_menu_graphic(ctx, icon)
                 if g is not None:
-                    if hasattr(menu, "setItemImage"):
-                        best_effort(lambda: menu.setItemImage(n_id, g, False), f"setItemImage failed for {icon}")
-                    elif hasattr(menu, "setItemGraphic"):
-                        best_effort(lambda: menu.setItemGraphic(n_id, g), f"setItemGraphic failed for {icon}")
+                    best_effort(lambda: menu.setItemImage(n_id, g, False), f"setItemImage failed for {icon}")
             return pos + 1
 
         def add_separator(menu: Any, pos: int) -> int:
             menu.insertSeparator(pos)
             return pos + 1
 
-        # 1. Edit / Extend selection
+        # Edit / Extend selection
         pos = add_item(popup, _("Extend Selection"), "chatbot.extend_selection", pos)
         pos = add_item(popup, _("Edit Selection"), "chatbot.edit_selection", pos)
 
-        # 2. Separator
         pos = add_separator(popup, pos)
 
-        # 3. Main feature actions
+        # Main feature actions
         pos = add_item(popup, _("Run Python Script..."), "scripting.run_python_dialog", pos, menu_icon_filename("python", ctx=ctx))
 
         if is_calc_doc:
@@ -99,10 +89,9 @@ def show_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
             pos = add_item(popup, _("Insert LaTeX Math..."), "writer.insert_latex_dialog", pos, STOCK_ICON_MATH)
             pos = add_item(popup, _("Text Analytics..."), "textanalytics.open_dialog", pos)
 
-        # 4. Separator
         pos = add_separator(popup, pos)
 
-        # 5. Settings & Servers with Dynamic MCP Status
+        # Settings & Servers with Dynamic MCP Status
         pos = add_item(popup, _("Settings"), "main.settings", pos, STOCK_ICON_SETTINGS)
         pos = add_item(popup, _("Vision OCR Settings..."), "vision.open_settings", pos)
 
@@ -130,29 +119,27 @@ def show_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
 
         # Release builds strip Debug from Addons.xcu; omit commands when tests are unbundled.
         if tests_bundled():
-            # 6. Separator
             pos = add_separator(popup, pos)
 
-            # 7. Debug Submenu
+            # Debug Submenu
             debug_popup = smgr.createInstanceWithContext("com.sun.star.awt.PopupMenu", ctx)
-            if debug_popup is not None:
-                d_pos = 0
-                if is_writer_doc:
-                    d_pos = add_item(debug_popup, _("Run format tests"), "main.RunFormatTests", d_pos)
-                if is_calc_doc:
-                    d_pos = add_item(debug_popup, _("Run calc tests"), "main.RunCalcTests", d_pos)
-                    d_pos = add_item(debug_popup, _("Run Calc API integration tests"), "main.RunCalcIntegrationTests", d_pos)
-                if is_draw_doc:
-                    d_pos = add_item(debug_popup, _("Run draw tests"), "main.RunDrawTests", d_pos)
-                d_pos = add_item(debug_popup, _("Evaluation Dashboard"), "main.EvaluationDashboard", d_pos)
+            d_pos = 0
+            if is_writer_doc:
+                d_pos = add_item(debug_popup, _("Run format tests"), "main.RunFormatTests", d_pos)
+            if is_calc_doc:
+                d_pos = add_item(debug_popup, _("Run calc tests"), "main.RunCalcTests", d_pos)
+                d_pos = add_item(debug_popup, _("Run Calc API integration tests"), "main.RunCalcIntegrationTests", d_pos)
+            if is_draw_doc:
+                d_pos = add_item(debug_popup, _("Run draw tests"), "main.RunDrawTests", d_pos)
+            d_pos = add_item(debug_popup, _("Evaluation Dashboard"), "main.EvaluationDashboard", d_pos)
 
-                sub_id = next_id
-                next_id += 1
-                popup.insertItem(sub_id, _("Debug"), 0, pos)
-                popup.setPopupMenu(sub_id, debug_popup)
-                pos += 1
+            sub_id = next_id
+            next_id += 1
+            popup.insertItem(sub_id, _("Debug"), 0, pos)
+            popup.setPopupMenu(sub_id, debug_popup)
+            pos += 1
 
-        # 8. Report bug
+        # Report bug
         pos = add_item(popup, _("Report bug..."), "main.report_bug", pos)
 
         from plugin.librepy.sidebar_menus import execute_popup_under_button, invoke_action_handler

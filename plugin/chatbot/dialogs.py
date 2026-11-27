@@ -44,7 +44,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import TYPE_CHECKING, Any, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Sequence
 from plugin.framework.uno_listeners import BaseActionListener
 
 if TYPE_CHECKING:
@@ -91,7 +91,7 @@ def _execute_message_box(
     try:
         return box.execute()
     finally:
-        best_effort(box.dispose, "show_approval_dialog dispose failed")
+        best_effort(box.dispose, "message box dispose failed")
 
 
 def msgbox(
@@ -183,7 +183,7 @@ def _run_text_dialog(
     xdl_name: str,
     edit_name: str,
     *,
-    prepare: Any,
+    prepare: Callable[[Any], None],
     log_label: str,
 ) -> str | None:
     if not ctx:
@@ -392,17 +392,26 @@ def msgbox_with_report(ctx: Any, title: str, message: str, *, reportable: bool =
 # ── XDL dialog loading ──────────────────────────────────────────────
 
 
+_TRANSLATE_CONTROL_TYPES: dict[str, tuple[str, ...]] = {
+    "Dialog": ("Title",),
+    "FixedText": ("Text", "Label"),
+    "Button": ("Label",),
+    "CheckBox": ("Label",),
+    "RadioButton": ("Label",),
+    "ListBox": ("StringItemList",),
+    "ComboBox": ("StringItemList",),
+    "GroupBox": ("Label",),
+    "FixedLine": ("Label",),
+}
+
+
 def _xcc(ctrl: Any) -> Any:
     """Return ``XControlContainer`` for ``ctrl``, or None.
 
-    pyuno's ``queryInterface`` needs a UNO type from ``uno.getTypeByName``.
     Passing the imported ``XControlContainer`` class raises "Couldn't convert
-    ... to a UNO type" on every call, which broke every ``translate_dialog``
-    caller (Chat and LibrePy sidebar panels). A missing interface returns None
-    and does not raise.
+    ... to a UNO type", so the type comes from ``uno.getTypeByName``. A missing
+    interface returns None and does not raise.
     """
-    if ctrl is None:
-        return None
     import uno
 
     return ctrl.queryInterface(uno.getTypeByName("com.sun.star.awt.XControlContainer"))
@@ -435,10 +444,6 @@ def translate_dialog(dlg: Any) -> None:
     every label inside the container. ``HelpText`` is translated on every
     control model, not only types that have a caption property.
     """
-
-    # Map control types to their translatable properties
-    control_types = {"Dialog": ("Title",), "FixedText": ("Text", "Label"), "Button": ("Label",), "CheckBox": ("Label",), "RadioButton": ("Label",), "ListBox": ("StringItemList",), "ComboBox": ("StringItemList",), "GroupBox": ("Label",), "FixedLine": ("Label",)}
-
     _xcc_root = _xcc(dlg)
     root_child_count = len(_xcc_root.getControls()) if _xcc_root is not None else 0
 
@@ -448,7 +453,7 @@ def translate_dialog(dlg: Any) -> None:
             short_type = _uno_impl_to_control_type(impl_name)
             model = ctrl.getModel() if hasattr(ctrl, "getModel") else None
 
-            for prop in control_types.get(short_type, ()) + ("HelpText",):
+            for prop in _TRANSLATE_CONTROL_TYPES.get(short_type, ()) + ("HelpText",):
                 if prop == "StringItemList":
                     # ListBox often exposes getStringItemList on the view; ComboBox
                     # typically only has StringItemList on the model.
@@ -737,6 +742,11 @@ def get_control_text(ctrl: Any, default: str = "") -> str:
             return str(ctrl.getModel().Text)
         return default
     return best_effort(_get, "get_control_text exception", default=default)
+
+
+def query_text(ctrl: Any) -> str:
+    """Return trimmed text of a chat query control."""
+    return get_control_text(ctrl).strip()
 
 
 def set_control_text(ctrl: Any, text: str) -> None:

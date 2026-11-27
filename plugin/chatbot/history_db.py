@@ -42,15 +42,13 @@ log = logging.getLogger(__name__)
 
 def _get_db_path() -> str:
     config_dir = user_config_dir()
-    if config_dir:
-        try:
-            os.makedirs(config_dir, exist_ok=True)
-        except OSError:
-            log.exception("Error creating config directory")
-        path = os.path.join(config_dir, "writeragent_history.db")
-        log.info(f"Using database path: {path}")
-        return path
-    return "writeragent_history.db"
+    try:
+        os.makedirs(config_dir, exist_ok=True)
+    except OSError:
+        log.exception("Error creating config directory")
+    path = os.path.join(config_dir, "writeragent_history.db")
+    log.info(f"Using database path: {path}")
+    return path
 
 
 AUDIO_ATTACHED_PLACEHOLDER = "[Voice message]"
@@ -136,10 +134,9 @@ class SQLite3History:
         # so commits append to the WAL without a checkpoint.
         # WAL history assumes a single host at a time (multi-host profile sharing is unsupported).
         # WAL+NORMAL is process-crash consistent and a power loss can drop uncheckpointed commits.
-        # sqlite3.Connection's context manager commits or rolls back and does
-        # not close. Each history call left a connection until GC. closing()
-        # calls close() on the way out, including when execute raises. Every
-        # per-call connect in this file uses the same wrap.
+        # sqlite3.Connection's context manager commits or rolls back but does
+        # not close; closing() closes on the way out, including when execute
+        # raises. Every per-call connect in this file uses the same wrap.
         conn = _open_wal(self.db_path)
         try:
             _ensure_keeper(self.db_path)
@@ -271,9 +268,8 @@ class JSONHistory:
         try:
             messages = self.get_messages()
         except (json.JSONDecodeError, UnicodeDecodeError):
-            # open(..., "w") truncated the file before json.dump. A crash or a
-            # bad read then looked like an empty session and the next add
-            # replaced history with one row. Leave an unreadable file alone.
+            # An unreadable file is left alone: treating it as empty would
+            # replace the history with one row.
             log.exception("JSONHistory: refusing to overwrite unreadable session %s", self.session_id)
             return
         mutate(messages)
@@ -351,13 +347,9 @@ def get_chat_history(session_id: str, db_path: str | None = None) -> SQLite3Hist
 def fork_doc_chat_history(old_session_id: str, new_session_id: str) -> None:
     """Copy document-chat rows onto *new_session_id*.
 
-    Snapshot the source first and replace the destination in one write.
-    ``clear()`` then ``get_messages()`` wipes the only store when the
-    regenerated id is the stored id, and a JSON ``clear`` that swallows
-    ``OSError`` then appends onto the rows it failed to remove. Save As
-    re-enters setup after a partial property write, or ``os.remove`` fails
-    and the copy still runs. The caller skips this when the two ids are
-    equal.
+    Snapshot the source first and replace the destination in one write, so a
+    failed copy cannot leave a half-written destination. The caller skips this
+    when the two ids are equal.
     """
     # If the destination already has a conversation, leave it intact.
     # We do not overwrite the destination's chat when "Save As" targets

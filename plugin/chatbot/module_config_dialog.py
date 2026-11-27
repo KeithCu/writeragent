@@ -319,9 +319,9 @@ class ModuleConfigDialog:
             raise RuntimeError("No config_dialog.id for module %s" % self._module_name)
 
         dlg, load_detail = load_writeragent_dialog_detail(dialog_id, ctx)
-        # Raise, not log-and-return: a silent return left a dialog with _dlg None in _active_dialogs.
+        # Raise so show() does not register a dialog whose _dlg is None.
         if dlg is None:
-            raise RuntimeError("load_detail: failed to load module dialog %s: %s" % (dialog_id, load_detail))
+            raise RuntimeError("failed to load module dialog %s: %s" % (dialog_id, load_detail))
 
         self._dlg = dlg
         try:

@@ -27,6 +27,7 @@ from __future__ import annotations
 import logging
 import threading
 import uno
+from plugin.chatbot.dialogs import query_text as read_query_text
 from plugin.chatbot.send_handlers import SendHandlersMixin, dispatch_sidebar_send
 from plugin.chatbot.tool_loop import ToolCallingMixin
 from plugin.chatbot.tool_loop_actions import (
@@ -39,7 +40,7 @@ from plugin.chatbot.tool_loop_actions import (
     send_outcome_terminal_display,
 )
 
-from plugin.framework.errors import suppress_disposed, WriterAgentException, DocumentDisposedError
+from plugin.framework.errors import suppress_disposed, DocumentDisposedError
 from plugin.framework.logging import update_activity_state, note_activity
 from plugin.framework.queue_executor import MainThread, main
 from plugin.framework.send_cancellation import is_cancelled, SendCancellation, agent_session
@@ -52,7 +53,6 @@ from plugin.chatbot.record_gesture import (
     hands_free_status_text,
 )
 
-# Recording shipped unless built with --no-recording (see scripts/build_oxt.py).
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -60,6 +60,7 @@ if TYPE_CHECKING:
     from plugin.chatbot.chat_session import ChatSession
     from plugin.framework.client.llm_client import LlmClient
 
+# Recording shipped unless built with --no-recording (see scripts/build_oxt.py).
 _AudioRecorderCls: type[Any] | None
 try:
     from plugin.chatbot.audio_recorder import AudioRecorder as _AR
@@ -104,10 +105,6 @@ from plugin.chatbot.slash_commands import (
 )
 
 
-# ---------------------------------------------------------------------------
-# QueryTextListener - dynamic button toggling
-# ---------------------------------------------------------------------------
-
 from plugin.framework.uno_listeners import (
     BaseActionListener,
     BaseKeyListener,
@@ -140,6 +137,14 @@ _LABEL_ACTION_MAP = {
 }
 
 
+_COMPATIBLE_DOC_TYPES = frozenset({"writer", "calc", "draw", "impress"})
+
+
+# ---------------------------------------------------------------------------
+# QueryTextListener - dynamic button toggling
+# ---------------------------------------------------------------------------
+
+
 class QueryTextListener(BaseTextListener):
     send_listener: Any
 
@@ -150,8 +155,7 @@ class QueryTextListener(BaseTextListener):
     def on_text_changed(self, rEvent: Any) -> None:
         # Disposing must drop this listener from the Ask control, or a
         # late text event dispatches TEXT_UPDATED into a dead panel.
-        # ``is True`` so a MagicMock host (tests) is not treated as dead.
-        if getattr(self.send_listener, "_panel_teardown", False) is True:
+        if self.send_listener._panel_teardown:
             return
         # Missing source or model skips TEXT_UPDATED for that keystroke instead of raising.
         source = getattr(rEvent, "Source", None)
@@ -164,7 +168,7 @@ class QueryTextListener(BaseTextListener):
         raw = model.Text or ""
         text = raw.strip()
 
-        popup = getattr(self.send_listener, "slash_popup", None)
+        popup = self.send_listener.slash_popup
         if popup is not None:
             try:
                 if popup.on_query_text(raw) is True:
@@ -191,14 +195,9 @@ class QueryKeyListener(BaseKeyListener):
         self.send_listener = send_listener
 
     def on_key_pressed(self, e: Any) -> None:
-        # Popup Enter must not also Send. Consume only when handle_key is True
-        # (MagicMock hosts in unit tests return a mock, which is not True).
-        popup = getattr(self.send_listener, "slash_popup", None)
-        handle = getattr(popup, "handle_key", None) if popup is not None else None
-        if callable(handle) and handle(getattr(e, "KeyCode", -1), getattr(e, "Modifiers", 0)) is True:
-            with suppress_disposed("QueryKeyListener slash Consume", logger=log):
-                if hasattr(e, "Consume"):
-                    setattr(e, "Consume", True)
+        # Popup Enter must not also Send: when the popup handles the key, this listener stops here.
+        popup = self.send_listener.slash_popup
+        if popup is not None and popup.handle_key(e.KeyCode, e.Modifiers) is True:
             return
         if not query_enter_triggers_primary_send(e.KeyCode, e.Modifiers):
             return
@@ -210,20 +209,14 @@ class QueryKeyListener(BaseKeyListener):
         if not sc or not sc.getModel():
             return
         if not sc.getModel().Enabled:
-            if try_dispatch_slash_on_send_click(self.send_listener):
-                with suppress_disposed("QueryKeyListener Consume busy slash", logger=log):
-                    if hasattr(e, "Consume"):
-                        setattr(e, "Consume", True)
+            try_dispatch_slash_on_send_click(self.send_listener)
             return
         # Enter in the query box sends only when the button label is
         # "Send". Enabled alone is not enough: an empty box reads "Record"
         # (Enter would start recording), "Stop Rec" while recording would
         # stop and send, and "Accept" is web-search approval.
-        if getattr(self.send_listener, "_button_action", None) != ButtonAction.SEND:
+        if self.send_listener._button_action != ButtonAction.SEND:
             return
-        with suppress_disposed("QueryKeyListener Consume", logger=log):
-            if hasattr(e, "Consume"):
-                setattr(e, "Consume", True)
         self.send_listener.on_action_performed(e)
 
 
@@ -263,7 +256,7 @@ def skip_legacy_assistant_stream_chunk(text: str) -> bool:
 def _set_control_enabled(control: Any, enabled: bool, why: str) -> None:
     if control and control.getModel():
         with suppress_disposed(why, logger=log):
-            control.getModel().Enabled = bool(enabled)
+            control.getModel().Enabled = enabled
 
 
 def _continue_do_send(
@@ -277,12 +270,9 @@ def _continue_do_send(
     if dispatch_sidebar_send(host, host._selector_mode(), query_text, model, doc_type_label):
         return
 
-    # Agent backend: use external agent instead of built-in LLM.
-    # Show the error and end the send here. The handler documents
-    # no builtin fallback. Leaving `_do_send_via_agent_backend` in
-    # this try means the except only logs, then execution falls
-    # through to `_do_send_chat_with_tools` and one Send starts a
-    # second builtin turn.
+    # Agent backend: an external agent replaces the built-in LLM. There is no
+    # builtin fallback: a failure here reports the error and ends the send, so
+    # one Send never starts a second, builtin turn.
     try:
         from plugin.framework.config import get_config
         from plugin.acp.registry import normalize_backend_id
@@ -297,7 +287,7 @@ def _continue_do_send(
 
         log.exception("_do_send: agent backend check failed")
         host._fail_send(
-            _("[Agent backend error: {0}]").format(str(exc)),
+            _("[Agent backend error: {0}]").format(exc),
             restore_query=query_text,
         )
         return
@@ -329,7 +319,8 @@ class SendButtonListener(BaseActionListener):
     chat_mode_selector: Any
     aspect_ratio_selector: Any
     base_size_input: Any
-    sidebar_mode_flags: Any
+    sidebar_mode_flags: SidebarModeFlags
+    apply_sidebar_mode: Callable[[str], None] | None
     ensure_path_fn: Any
     client: LlmClient | None
     initial_doc_type: str | None
@@ -341,6 +332,7 @@ class SendButtonListener(BaseActionListener):
     _stt_kill: Any
     _active_mode: str
     _mode_topic: str
+    _librarian_suggested_user_name_fetched: bool
     _button_action: ButtonAction
     _stop_button_action: ButtonAction
     _clear_button_action: ButtonAction
@@ -408,6 +400,7 @@ class SendButtonListener(BaseActionListener):
         self.base_size_input = base_size_input
 
         self.sidebar_mode_flags = SidebarModeFlags()
+        self.apply_sidebar_mode = None
         self.ensure_path_fn = ensure_path_fn
         self.initial_doc_type = None  # Set by _wireControls
         self.cached_doc_type = None
@@ -421,6 +414,7 @@ class SendButtonListener(BaseActionListener):
         self._stt_pending_close: Callable[[BaseException | None], None] | None = None
         self._active_mode = ""
         self._mode_topic = ""
+        self._librarian_suggested_user_name_fetched = False
         self._button_action = ButtonAction.RECORD
         self._stop_button_action = ButtonAction.IGNORE
         self._clear_button_action = ButtonAction.IGNORE
@@ -563,7 +557,7 @@ class SendButtonListener(BaseActionListener):
         """Show slash /help and similar lines in the transcript (not an LLM turn).
 
         Persists a closed assistant row on ``session.messages`` so repaints and the
-        next chat turn keep the text (QA B8/N2). Local rows use ``_slash_local`` and are
+        next chat turn keep the text. Local rows use ``_slash_local`` and are
         omitted from ``messages_for_llm``.
         """
         session = self.session
@@ -574,7 +568,7 @@ class SendButtonListener(BaseActionListener):
                 return
             from plugin.chatbot.dialogs import get_control_text, set_control_text
 
-            current = get_control_text(response) or ""
+            current = get_control_text(response)
             set_control_text(response, current + text)
             self._scroll_response_to_bottom()
             return
@@ -700,7 +694,6 @@ class SendButtonListener(BaseActionListener):
             self.queue_executor.post_or_run(_write)
         except Exception as e:
             log.debug("_on_grammar_status failed: %s", e)
-            return
 
     def _scroll_response_to_bottom(self) -> None:
         """Scroll the response area to show the bottom (newest content).
@@ -749,7 +742,6 @@ class SendButtonListener(BaseActionListener):
                 if owner.fold_chunk(self, text, "assistant"):
                     if self.session is owner.session and owner.session is not None:
                         self.render_session_messages(owner.session)
-                return
             return
         if cur is not None:
             return
@@ -831,7 +823,7 @@ class SendButtonListener(BaseActionListener):
                 if clean_text is None:
                     return
                 turn.fold_chunk(self, clean_text, role)
-                current = get_control_text(self.response_control) or ""
+                current = get_control_text(self.response_control)
                 set_control_text(self.response_control, current + clean_text)
                 self._scroll_response_to_bottom()
 
@@ -846,7 +838,6 @@ class SendButtonListener(BaseActionListener):
 
         model = get_document_from_frame(self.frame)
 
-        _COMPATIBLE_DOC_TYPES = frozenset({"writer", "calc", "draw", "impress"})
         cached_doc_type = self.cached_doc_type
 
         if model and cached_doc_type in _COMPATIBLE_DOC_TYPES:
@@ -897,9 +888,8 @@ class SendButtonListener(BaseActionListener):
         tr = send_next_state(self.sidebar_state.send, event)
         self.sidebar_state = SidebarCompositeState(send=tr.state, tool_loop=self.sidebar_state.tool_loop)
 
-        # Nested dispatch during an effect (e.g. Record start failure) must run
-        # after remaining effects. RECORD_CLICKED emits UpdateUIEffect after
-        # Re-entrant dispatch queues nested events until the current effect batch finishes.
+        # A dispatch made from inside an effect (for example a Record start failure)
+        # is queued and runs after the current effect batch finishes.
         is_reenter = self._dispatch_reenter is not None
         if not is_reenter:
             self._dispatch_reenter = []
@@ -942,7 +932,7 @@ class SendButtonListener(BaseActionListener):
                         with suppress_disposed("relabel send_control", logger=log):
                             relabel_button(self.send_control, _(effect.send_label), self._mnemonic_cache())
 
-                if effect.status_text is not None and effect.status_text != "":
+                if effect.status_text:
                     # Sticky takes share the Record transition; only the status line differs.
                     if effect.recording_status and self._record_gesture.sticky:
                         self._set_status(hands_free_status_text())
@@ -956,8 +946,8 @@ class SendButtonListener(BaseActionListener):
                 try:
                     self.audio_recorder.start_recording()
                 except Exception as exc:
-                    # Start failures now arrive via on_error (background job); synchronous
-                    # exceptions (e.g. stub initialize) still raise here and recover via ERROR_OCCURRED.
+                    # Synchronous start failures (for example stub initialize) raise here and
+                    # recover via ERROR_OCCURRED; background failures arrive via on_error.
                     if not isinstance(exc, RuntimeError):
                         log.exception("start_recording failed")
                     self._start_local_error_turn("\n[Audio error: %s]\n" % str(exc))
@@ -971,13 +961,10 @@ class SendButtonListener(BaseActionListener):
                     path = self.audio_recorder.stop_recording()
                     if path:
                         self.audio_wav_path = path
-                    elif getattr(self.audio_recorder, "stop_deferred", False) is True:
+                    elif self.audio_recorder.stop_deferred:
                         self._wait_for_take = True
-                except Exception as e:
-                    if isinstance(e, WriterAgentException):
-                        log.exception("WriterAgentException stopping recording")
-                    else:
-                        log.exception("Error stopping recording")
+                except Exception:
+                    log.exception("Error stopping recording")
 
             case CancelRecordingEffect():
                 # cleanup() stops capture and deletes the temp WAV; a stopped
@@ -1076,20 +1063,15 @@ class SendButtonListener(BaseActionListener):
     def sync_has_text_from_query(self) -> None:
         """Ask is the source of truth after SEND_COMPLETED forces has_text False.
 
-        Ask is the source of truth after completion. Completion always
-        clears has_text, so text typed while a reply streamed, and the
-        extracted-peer path that never clears Ask, then look empty. With
+        Completion always clears has_text, so text typed while a reply streamed,
+        and the extracted-peer path that never clears Ask, then look empty. With
         recording support the button becomes Record. The FSM still forces
         False so a missed text listener cannot leave has_text true on an
         empty box. This event corrects it from the control.
         """
-        ctrl = self.query_control
-        if ctrl is None:
+        if self.query_control is None:
             return
-        from plugin.chatbot.dialogs import get_control_text
-
-        text = get_control_text(ctrl) or ""
-        self.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=bool(str(text).strip())))
+        self.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=bool(read_query_text(self.query_control))))
 
     def _run_turn_drain(
         self,
@@ -1162,7 +1144,7 @@ class SendButtonListener(BaseActionListener):
                     assign_send_outcome(self, "error")
                 on_close()
 
-            if getattr(self, "_stt_defer_close", False) and exit_error is None:
+            if self._stt_defer_close and exit_error is None:
                 self._stt_pending_close = _close_turn_drain
             else:
                 defer_until_drain_done(_close_turn_drain)
@@ -1298,16 +1280,11 @@ class SendButtonListener(BaseActionListener):
         from plugin.framework.i18n import _
 
         # Get user query and clear field (before loading tools, so direct-image path can return early)
-        query_text = ""
-        if self.query_control and self.query_control.getModel():
-            from plugin.chatbot.dialogs import get_control_text
-
-            query_text = (get_control_text(self.query_control) or "").strip()
+        query_text = read_query_text(self.query_control)
 
         # Audio implies we have input even if text is empty.
-        # Stop Rec sets has_audio and always starts a send. A missing WAV used
-        # to leave outcome unset and return, so the click looked like it did
-        # nothing (no Whisper, no chat) after the stop handshake lost the file.
+        # Stop Rec sets has_audio and always starts a send; fail explicitly
+        # when the WAV path is missing so the click does not silently no-op.
         if not query_text and not self.audio_wav_path:
             if self.sidebar_state.send.has_audio:
                 log.warning("_do_send: Stop Rec finished without a WAV path")
@@ -1356,22 +1333,14 @@ class SendButtonListener(BaseActionListener):
 
     def _do_send(self) -> None:
 
-        # begin_send_turn aborts the turn already in flight. A pump re-entry
-        # during Whisper must not do that, and must not clear the WAV.
-        # False means not transcribing, initialized in panel __init__.
-        # Reading self._stt_inflight raises AttributeError on the smol
-        # _do_send double: that SimpleNamespace never ran __init__.
+        # A pump re-entry during Whisper must not abort the turn in flight or clear the WAV.
         if self._stt_inflight:
             log.info("_do_send re-entered during speech-to-text; the first Stop still applies")
             return
 
         log.info("=== _do_send START ===")
 
-        peek_text = ""
-        if self.query_control and self.query_control.getModel():
-            from plugin.chatbot.dialogs import get_control_text
-
-            peek_text = (get_control_text(self.query_control) or "").strip()
+        peek_text = read_query_text(self.query_control)
 
         parsed = parse_slash_text(peek_text)
         slash_cmd = None
@@ -1407,7 +1376,7 @@ class SendButtonListener(BaseActionListener):
                 self.run_slash_formula(slash_arg)
                 return
             if planned is SlashRun.ANSWER:
-                slash_transcript_line = peek_text.strip()
+                slash_transcript_line = peek_text
                 query_text = build_slash_answer_query(slash_cmd, slash_arg, model)
                 if slash_answer_is_local_only(slash_cmd, model):
                     turn = running_turn(self)
@@ -1532,13 +1501,10 @@ class SendButtonListener(BaseActionListener):
             query_text, model, doc_type_label, skip_append_user=True
         )
 
-    # Writer edit selection uses WriterStreamedRewriteSession (document compound undo). Broader
-    # chat/tool undo grouping is still future work.
-
     def disposing(self, Source: Any = None) -> None:
         stop_tts()
         popup = self.slash_popup
-        if popup is not None and callable(getattr(popup, "dispose", None)):
+        if popup is not None:
             popup.dispose()
         # Detach both mouse listeners on dispose. attach_stop_mouse_listener
         # and attach_record_mouse_listener add listeners that strongly hold
@@ -1547,7 +1513,7 @@ class SendButtonListener(BaseActionListener):
             (self.stop_control, "_stop_mouse_listener", "stop"),
             (self.send_control, "_record_mouse_listener", "record"),
         ):
-            mouse = getattr(self, attr, None)
+            mouse = getattr(self, attr)
             if mouse is not None and ctrl is not None:
                 setattr(self, attr, None)
                 if hasattr(ctrl, "removeMouseListener"):
@@ -1626,7 +1592,7 @@ class SendButtonListener(BaseActionListener):
 
 def notify_stop_mouse_entered(send_listener: Any = None) -> None:
     """Hovering Stop: do not restore this frame's Ask field on the next stream chunk."""
-    session = getattr(send_listener, "frame_session", None)
+    session = send_listener.frame_session if send_listener is not None else None
     if session is not None:
         session.note_user_left_query()
 
@@ -1637,20 +1603,20 @@ def notify_stop_mouse_pressed(send_listener: Any) -> None:
     Stream append must not refocus the Ask box (GTK drops Stop ActionEvent). Latch cancel on
     mousePressed. Web-search approval Change/Reject stays on ActionEvent only.
     """
-    session = getattr(send_listener, "frame_session", None)
-    if session is not None:
-        session.note_user_left_query()
     if send_listener is None:
         return
-    if getattr(send_listener, "_approval_event", None) is not None:
+    session = send_listener.frame_session
+    if session is not None:
+        session.note_user_left_query()
+    if send_listener._approval_event is not None:
         return
 
     if stop_playback_if_speaking(send_listener):
         return
-    send = getattr(getattr(send_listener, "sidebar_state", None), "send", None)
+    send = send_listener.sidebar_state.send
     # Not busy includes a take: StopButtonListener's ActionEvent owns that
     # step-down. Acting here too would take two steps on one click.
-    if send is None or not send.is_busy:
+    if not send.is_busy:
         return
     log.info("StopButtonListener: STOP_CLICKED (mousePressed)")
     send_listener.dispatch(SendEvent(SendEventKind.STOP_CLICKED))
@@ -1686,7 +1652,7 @@ def attach_stop_mouse_listener(stop_control: Any, send_listener: Any) -> None:
 
 def notify_record_mouse_pressed(send_listener: Any) -> None:
     """Record mousePressed: arm the 2s hold timer. Do not start capture yet."""
-    label_is_record = getattr(send_listener, "_button_action", None) == ButtonAction.RECORD
+    label_is_record = send_listener._button_action == ButtonAction.RECORD
     send_listener._voice._apply_record_gesture(gesture_press(send_listener._record_gesture, label_is_record=label_is_record))
 
 
@@ -1708,7 +1674,7 @@ def attach_record_mouse_listener(send_control: Any, send_listener: Any) -> None:
 
 
 class StopButtonListener(BaseActionListener):
-    """Listener for the Stop button - sets a flag in SendButtonListener to halt loops."""
+    """Stop button: Change during web-search approval, step down during a take, stop TTS, else dispatch STOP_CLICKED."""
 
     send_listener: Any
 
@@ -1724,8 +1690,7 @@ class StopButtonListener(BaseActionListener):
         # During a take Stop steps down (leave hands-free, then cancel). Only
         # this ActionEvent path does it; mousePressed returns while not busy,
         # so one click is one step.
-        # ``is True`` so a MagicMock host (tests) is not treated as recording.
-        if self.send_listener._voice.stop_during_take() is True:
+        if self.send_listener._voice.stop_during_take():
             return
 
         if stop_playback_if_speaking(self.send_listener):
@@ -1788,7 +1753,6 @@ class ClearButtonListener(BaseActionListener):
 
         greeting = self.greeting
         if not greeting:
-            # Nothing sets .doc on the listener. Use a real doc source.
             model = sl._get_document_model() if sl else None
             from plugin.framework.prompts import get_greeting_for_document
 
