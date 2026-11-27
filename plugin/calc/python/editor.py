@@ -57,7 +57,10 @@ log = logging.getLogger(__name__)
 
 
 def _cell_formula_strings(cell: Any) -> list[str]:
-    """Collect formula strings LibreOffice exposes for a formula cell."""
+    """Collect formula strings LibreOffice exposes for a formula cell.
+
+    A TEXT cell's getFormula() returns its text, so a PY-looking literal must not open as a formula.
+    """
     if cell.getType() != FORMULA:
         return []
     out: list[str] = []
@@ -65,8 +68,8 @@ def _cell_formula_strings(cell: Any) -> list[str]:
     if f:
         out.append(f)
     local = uno_read(lambda: cell.getPropertyValue("FormulaLocal"), None)
-    if local and str(local) not in out:
-        out.append(str(local))
+    if local and local not in out:
+        out.append(local)
     return out
 
 

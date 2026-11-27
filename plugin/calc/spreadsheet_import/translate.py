@@ -477,6 +477,7 @@ FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "SORT": _calc("sort", 1, 3),
     "UNIQUE": _calc("unique", 1, 3),
     "SORTBY": _calc("sortby", 2),
+    # Financial, statistical, engineering and other functions
     "PMT": _calc("pmt", 3, 5),
     "FV": _calc("fv", 3, 5),
     "PV": _calc("pv", 3, 5),
