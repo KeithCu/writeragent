@@ -96,6 +96,7 @@ def test_show_popup_plain_click_creates_popup_and_does_not_select_change(
     fake_rl = MagicMock()
     fake_rl.getPropertyValue.side_effect = lambda prop: {
         "RedlineComment": "wa-review:s:1",
+        "RedlineAuthor": "WriterAgent",
         "RedlineType": "Insert",
     }.get(prop)
     redline_enum.nextElement.return_value = fake_rl

@@ -692,3 +692,21 @@ def test_resolve_one_of_two_agent_row_deletes_in_same_table_uno(ctx, doc):
             assert doc.getTextTables().getByName(t_name).getRows().getCount() == expected_rows
     finally:
         save({"doc.agent_edit_review_mode": prev})
+
+
+@native_test
+@with_native_doc("writer")
+def test_token_shaped_user_comment_is_not_an_agent_change_uno(ctx, doc):
+    from tests.writer.doc_builders import list_redlines, strike_substring
+
+    doc.setPropertyValue("RecordChanges", False)
+    doc.getText().setString("First one two three.")
+    strike_substring(doc, doc.getText(), "two", ctx=ctx, author="Alice")
+    doc.getRedlines().getByIndex(0).setPropertyValue("RedlineComment", "wa-review:deadbeef:0")
+
+    assert agent_change_presence(doc) == (0, True)
+    resolved, _msg = resolve_all_with_feedback(doc, ctx, False)
+    assert resolved == 0
+    assert list_redlines(doc) == [
+        {"type": "Delete", "RedlineAuthor": "Alice", "RedlineComment": "wa-review:deadbeef:0"}
+    ]
