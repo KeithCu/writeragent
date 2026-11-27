@@ -1443,3 +1443,131 @@ def test_scan_region_content_sees_nested_input_field_in_content_control_uno(ctx,
 
     scan_meta = _scan_region_content(doc, header)
     assert any(f["presentation"] == "meta-val" for f in scan_meta["fields"]), scan_meta
+
+
+def _seed_header_with_alice_redlines(ctx, doc):
+    from plugin.writer import review_authors
+
+    style, _ = _style(doc)
+    style.setPropertyValue("HeaderIsOn", True)
+    header = style.getPropertyValue("HeaderText")
+    header.setString("Head keeps HEADDEL word end.")
+
+    prev_author = review_authors.begin(ctx)
+    review_authors.set_office_author(ctx, "Alice")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        cur = header.createTextCursor()
+        cur.gotoStart(False)
+        cur.goRight(len("Head keeps "), False)
+        cur.goRight(len("HEADDEL "), True)
+        cur.setString("")
+
+        ins = header.createTextCursor()
+        ins.gotoEnd(False)
+        header.insertString(ins, " HEADINS", False)
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        review_authors.end(ctx, prev_author)
+    return header
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_set_header_refuses_unrecorded_rewrite_over_pending_changes_uno(ctx, doc):
+    from plugin.framework.config import get_config, save
+    from plugin.writer.page import PageGetHeaderFooterText
+    from tests.writer.doc_builders import reject_all_changes
+
+    prev = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "off"})
+    try:
+        header = _seed_header_with_alice_redlines(ctx, doc)
+        before_count = doc.getRedlines().getCount()
+        assert before_count == 2
+
+        tctx = writer_services_tool_context(doc, ctx)
+        read_res = PageGetHeaderFooterText().execute(tctx, style="Standard", region="header")
+        assert read_res["status"] == "ok", read_res
+
+        res = _set_text(doc, ctx, "header", read_res["content"])
+        assert res.get("status") == "error", res
+        assert res.get("code") == "PENDING_TRACKED_CHANGES", res
+        assert doc.getRedlines().getCount() == before_count
+
+        reject_all_changes(doc, ctx)
+        assert header.getString() == "Head keeps HEADDEL word end."
+    finally:
+        save({"doc.agent_edit_review_mode": prev})
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_set_header_in_record_mode_is_tracked_and_rejects_uno(ctx, doc):
+    from plugin.framework.config import get_config, save
+    from tests.writer.doc_builders import list_redlines, reject_all_changes
+
+    prev = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "record"})
+    try:
+        header = _seed_header_with_alice_redlines(ctx, doc)
+        res = _set_text(doc, ctx, "header", "<p>Brand new header</p>")
+        assert res.get("status") == "ok", res
+        assert res.get("tracked") is True, res
+        assert "style_unreviewed" not in res, res
+        alice = [r for r in list_redlines(doc) if r["RedlineAuthor"] == "Alice"]
+        assert len(alice) == 2, alice
+
+        reject_all_changes(doc, ctx)
+        assert header.getString() == "Head keeps HEADDEL word end."
+    finally:
+        save({"doc.agent_edit_review_mode": prev})
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_replace_header_in_record_mode_is_tracked_and_rejects_uno(ctx, doc):
+    from plugin.framework.config import get_config, save
+    from plugin.writer import review_authors
+    from tests.writer.doc_builders import reject_all_changes
+
+    style, _ = _style(doc)
+    style.setPropertyValue("HeaderIsOn", True)
+    header = style.getPropertyValue("HeaderText")
+    header.setString("Old header ACME text")
+
+    prev_author = review_authors.begin(ctx)
+    review_authors.set_office_author(ctx, "Alice")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        ins = header.createTextCursor()
+        ins.gotoEnd(False)
+        header.insertString(ins, " ALIHDR", False)
+
+        cur = header.createTextCursor()
+        cur.gotoStart(False)
+        cur.goRight(len("Old header "), False)
+        cur.goRight(len("ACME "), True)
+        cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        review_authors.end(ctx, prev_author)
+
+    prev_mode = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "record"})
+    try:
+        res = PageReplaceHeaderFooterText().execute(
+            writer_services_tool_context(doc, ctx),
+            style="Standard",
+            region="header",
+            old_content="ALIHDR",
+            new_text="X3",
+        )
+        assert res.get("status") == "ok", res
+        assert res.get("tracked") is True, res
+        assert "style_unreviewed" not in res, res
+
+        reject_all_changes(doc, ctx)
+        assert header.getString() == "Old header ACME text"
+    finally:
+        save({"doc.agent_edit_review_mode": prev_mode})

@@ -59,7 +59,7 @@ from plugin.framework.errors import (
     suggest_call,
     uno_read,
 )
-from plugin.doc.text_helpers import KeepViewSelection, TrackedDeletions
+from plugin.doc.text_helpers import KeepViewSelection, TrackedDeletions, iter_elements
 from plugin.framework.uno_context import enum_has_more, supports_service, uno_same
 from plugin.framework.json_utils import parse_html_fragment_list
 from plugin.writer import (
@@ -271,6 +271,28 @@ def _range_contains_table(text_range: Any) -> bool:
         if elem is not None and supports_service(elem, "com.sun.star.text.TextTable"):
             return True
     return False
+
+
+_OBJECT_PORTIONS = {"Footnote": "footnote or endnote", "TextField": "field"}
+
+
+def _range_object_kind(text_range: Any) -> str | None:
+    """Label of the first footnote, endnote or field inside *text_range* (paragraph enumeration is
+    clipped to the range, SwXTextCursor::createEnumeration in unoobj.cxx), else None."""
+    enum = uno_read(lambda: text_range.createEnumeration(), None)
+    if enum is None:
+        return None
+    for elem in iter_elements(enum):
+        if supports_service(elem, "com.sun.star.text.TextTable"):
+            continue
+        p_enum = uno_read(lambda: elem.createEnumeration(), None)
+        if p_enum is None:
+            continue
+        for portion in iter_elements(p_enum):
+            kind = uno_read(lambda: portion.getPropertyValue("TextPortionType"), None)
+            if kind in _OBJECT_PORTIONS:
+                return _OBJECT_PORTIONS[kind]
+    return None
 
 
 def build_search_replace_response(
@@ -870,7 +892,7 @@ class ApplyDocumentContent(ToolBase):
             return self._tool_error("dry_run search failed: %s" % e, code="SEARCH_FAILED")
         labeler = search_mod.LocationLabeler(ctx.doc)
         deletions = TrackedDeletions(ctx.doc)
-        refuse_crossing = params.position == "replace" and not params.regex and not edit_is_recorded(ctx.doc)
+        refuse_crossing = params.position == "replace" and not edit_is_recorded(ctx.doc)
         replaceable: list[dict[str, Any]] = []
 
         def _match_snippet(found: Any) -> tuple[str, str]:
@@ -1379,6 +1401,15 @@ class ApplyDocumentContent(ToolBase):
         # Anchor BEFORE the edit: the selection insert clears the selection first, so only a
         # collapsed position (not the selection range itself) survives the replace.
         rng, after_object = request_insert_range(ctx)
+        # The selection insert clears the range with setString(""), so unrecorded it erases a struck span.
+        if rng is not None and not after_object:
+            rng_text = uno_read(rng.getText, None)
+            if rng_text is not None and rng_text.compareRegionStarts(rng.getStart(), rng.getEnd()) != 0:
+                refused = search_mod.crossing_match_error(
+                    ctx.doc, rng, recorded=params.track_reviewable or is_recording_changes(ctx.doc)
+                )
+                if refused is not None:
+                    return refused
         anchor = collapsed_anchor(rng) if rng is not None else None
         headings = headings_if_touched(ctx.doc, [rng]) if rng is not None else None
         with (UndoStepOrRollback(ctx.doc, next_agent_edit_undo_title()) if headings is not None else contextlib.nullcontext()), session:
@@ -1582,6 +1613,13 @@ class ApplyDocumentContent(ToolBase):
                 )
             elif (refused := search_mod.crossing_match_error(doc, found, recorded=recorded)) is not None:
                 res = refused
+            elif not recorded and (kind := _range_object_kind(found)) is not None:
+                res = self._tool_error(
+                    f"The range from start_anchor through end_anchor contains a {kind} that reads do not show; "
+                    "with Track Changes off, replacing the range would delete it. "
+                    "Choose anchors that leave it outside the range, or ask the user to turn on Track Changes.",
+                    code="OBJECT_IN_ANCHOR_RANGE",
+                )
             else:
                 res = self._edit_replace_one(ctx, session, params, found)
             res.update(mode.result_fields())
@@ -1595,9 +1633,10 @@ class ApplyDocumentContent(ToolBase):
             params.case_sensitive,
             limit=search_mod.MAX_SEARCH_REPLACEMENTS if many else 1,
         )
-        # Crossing matches are refused only when the edit is not recorded; inserting beside a match
-        # leaves it untouched, and a regex match is raw text as LibreOffice finds it.
-        deletions = TrackedDeletions(doc) if params.position == "replace" and not params.regex and not recorded else None
+        # Crossing matches are refused only when the edit is not recorded, whether found literally or
+        # by regex (a regex runs over raw text, so a pattern such as ``.*`` can take in struck text);
+        # inserting beside a match leaves it untouched.
+        deletions = TrackedDeletions(doc) if params.position == "replace" and not recorded else None
         first = params.occurrence or 0
         picked = ranges if params.all_matches else ranges[first : first + 1]
         editable = [r for r in picked if not deletions or not deletions.overlaps(r)]
