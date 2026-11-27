@@ -30,7 +30,7 @@ import unohelper
 if TYPE_CHECKING:
     from com.sun.star.util import URL as UnoURL
 
-from plugin.framework.logging import init_logging, log as wa_log, log_exception
+from plugin.framework.logging import init_logging, log_exception
 from plugin.framework.constants import EXTENSION_ID_LIBREPY
 from plugin.framework.url_utils import dispatch_command_from_url
 
@@ -40,7 +40,9 @@ log = logging.getLogger(__name__)
 
 from plugin.bootstrap import (
     bootstrap_extension,
+    clear_bootstrap_error,
     MainBootstrapJob as BaseMainBootstrapJob,
+    mark_initialized,
 )
 from plugin.framework.main_shared import (
     ExtensionProtocolHandler,
@@ -63,7 +65,6 @@ def _register_librepy_handlers() -> None:
 
 
 def _librepy_bootstrap_finish(ctx: Any) -> None:
-    import plugin.bootstrap as bootstrap
     from plugin.framework.queue_executor import Policy, main
 
     _register_librepy_handlers()
@@ -75,8 +76,8 @@ def _librepy_bootstrap_finish(ctx: Any) -> None:
             arm_webview_probe_at_startup()
         except Exception:
             log.exception("bootstrap: failed to arm webview probe at startup")
-    bootstrap.mark_initialized()
-    bootstrap.clear_bootstrap_error()
+    mark_initialized()
+    clear_bootstrap_error()
 
 
 def bootstrap(ctx: Any | None = None) -> None:
@@ -87,18 +88,22 @@ def bootstrap(ctx: Any | None = None) -> None:
     )
 
 
-def _run_startup(ctx: Any) -> None:
-    try:
-        init_logging(ctx)
-    except Exception:
-        log.exception("LibrePy init_logging failed")
+def _bootstrap_and_schedule_update(ctx: Any) -> None:
     try:
         bootstrap(ctx)
         from plugin.chatbot.extension_update_check import schedule_extension_update_check_once
 
         schedule_extension_update_check_once(ctx, EXTENSION_ID)
-    except Exception as e:
-        log.exception("LibrePy bootstrap failed: %s", e)
+    except Exception:
+        log.exception("LibrePy bootstrap failed")
+
+
+def _run_startup(ctx: Any) -> None:
+    try:
+        init_logging(ctx)
+    except Exception:
+        log.exception("LibrePy init_logging failed")
+    _bootstrap_and_schedule_update(ctx)
 
 
 def _dispatch_command(command: str, ctx: Any | None = None) -> None:
@@ -118,19 +123,12 @@ class MainBootstrapJob(BaseMainBootstrapJob):
         init_logging(ctx)
 
     def on_start(self, ctx: Any) -> None:
-        try:
-            bootstrap(ctx)
-            from plugin.chatbot.extension_update_check import schedule_extension_update_check_once
-
-            schedule_extension_update_check_once(ctx, EXTENSION_ID)
-        except Exception as e:
-            log.exception("LibrePy bootstrap failed: %s", e)
+        _bootstrap_and_schedule_update(ctx)
 
     def trigger(self, Event: str) -> None:
         _run_startup(self.ctx)
         if Event and "." in Event:
-            cmd = Event[7:] if Event.startswith("plugin.") else Event
-            _dispatch_command(cmd, self.ctx)
+            _dispatch_command(Event.removeprefix("plugin."), self.ctx)
 
 
 class DispatchHandler(ExtensionProtocolHandler):
@@ -141,11 +139,11 @@ class DispatchHandler(ExtensionProtocolHandler):
         command = dispatch_command_from_url(URL)
         try:
             init_logging(self.ctx)
-            wa_log.debug(
+            log.debug(
                 "LibrePy dispatch: command=%r complete=%r path=%r",
                 command,
-                getattr(URL, "Complete", ""),
-                getattr(URL, "Path", ""),
+                URL.Complete,
+                URL.Path,
             )
             _dispatch_command(command, self.ctx)
         except Exception as e:
@@ -154,7 +152,6 @@ class DispatchHandler(ExtensionProtocolHandler):
                 report_action_failure(command, e)
             except Exception:
                 log.exception("LibrePy dispatch error report failed")
-
 
 
 g_ImplementationHelper = unohelper.ImplementationHelper()

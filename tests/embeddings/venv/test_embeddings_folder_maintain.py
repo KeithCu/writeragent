@@ -413,7 +413,7 @@ def test_cold_build_ingests_one_file_at_a_time(tmp_path):
         patch.object(embeddings_folder_maintain.CorpusMeta, "ensure"),
         patch.object(embeddings_folder_maintain, "indexable_chunks_from_path", side_effect=[(1, [_chunk("file:///a.odt", 0, "a")]), (1, [_chunk("file:///b.odt", 0, "b")])]),
         patch.object(embeddings_folder_maintain, "_ingest_rows", side_effect=_fake_ingest_rows),
-        patch.object(embeddings_folder_maintain, "sync_file_paragraph_state_in_db") as sync_mock,
+        patch.object(embeddings_folder_maintain, "mark_file_indexed_in_db") as sync_mock,
         patch.object(embeddings_folder_maintain, "corpus_db_path", return_value=db_path),
         patch.object(embeddings_folder_maintain.CorpusMeta, "write_row_count"),
     ):
@@ -443,7 +443,7 @@ def test_cold_build_skips_ingest_for_empty_files(tmp_path):
         patch.object(embeddings_folder_maintain.CorpusMeta, "ensure"),
         patch.object(embeddings_folder_maintain, "indexable_chunks_from_path", return_value=(0, [])),
         patch.object(embeddings_folder_maintain, "_ingest_rows") as ingest_mock,
-        patch.object(embeddings_folder_maintain, "sync_file_paragraph_state_in_db") as sync_mock,
+        patch.object(embeddings_folder_maintain, "mark_file_indexed_in_db") as sync_mock,
         patch.object(embeddings_folder_maintain, "corpus_db_path", return_value=tmp_path / "writeragent_embeddings" / "corpus.db"),
         patch.object(embeddings_folder_maintain.CorpusMeta, "write_row_count"),
     ):

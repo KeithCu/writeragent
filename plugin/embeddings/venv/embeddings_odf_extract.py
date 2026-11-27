@@ -8,6 +8,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from plugin.embeddings.venv.embeddings_ooxml_extract import frames_to_rows
+
 log = logging.getLogger(__name__)
 
 __all__ = ["extract_draw_pages", "extract_calc_rows"]
@@ -17,17 +19,15 @@ __all__ = ["extract_draw_pages", "extract_calc_rows"]
 
 def _paragraph_plain_text(paragraph: Any) -> str:
     from odf.teletype import extractText
-    if paragraph is not None:
-        return extractText(paragraph).strip()
-    return ""
+    return extractText(paragraph).strip()
 
 
 def _is_descendant_of(element: Any, ancestor: Any) -> bool:
-    parent = getattr(element, "parentNode", None)
+    parent = element.parentNode
     while parent is not None:
         if parent is ancestor:
             return True
-        parent = getattr(parent, "parentNode", None)
+        parent = parent.parentNode
     return False
 
 
@@ -74,9 +74,7 @@ def extract_draw_pages(path: str) -> list[str]:
         raise RuntimeError(f"extract_draw_pages failed for {path}") from exc
 
     passages: list[str] = []
-    page_index = 0
-    for page in document.getElementsByType(DrawPage):
-        page_index += 1
+    for page_index, page in enumerate(document.getElementsByType(DrawPage), start=1):
         name = str(page.getAttribute("name") or "").strip() or f"Page{page_index}"
         body = _collect_paragraph_text(page, notes_type=Notes)
         if body:
@@ -105,10 +103,4 @@ def extract_calc_rows(path: str) -> list[str] | None:
         log.debug("extract_calc_rows failed for %s", path, exc_info=True)
         return None
 
-    rows: list[str] = []
-    for sheet_name, frame in sheets.items():
-        for _unused, row in frame.iterrows():
-            cells = [str(value).strip() for value in row if pd.notna(value) and str(value).strip()]
-            if cells:
-                rows.append(f"[Sheet: {sheet_name}]\t" + "\t".join(cells))
-    return rows
+    return frames_to_rows(sheets, pd)

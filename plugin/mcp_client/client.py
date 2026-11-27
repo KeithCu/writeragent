@@ -86,7 +86,7 @@ from plugin.mcp_client.client_helpers import (
     make_tool_filter,
     names_unknown_tool,
     restore_masked,
-    safe_numeric,
+    timeout_seconds,
     sanitize_error,
     secret_spellings,
     server_enabled,
@@ -254,8 +254,8 @@ class McpServerConnection:
                 f"Use only letters, digits and hyphens in the name, and put the value after the colon as a separate JSON string.",
                 code="MCP_CLIENT_CONFIG",
             )
-        self.tool_timeout: float = safe_numeric(server.get("timeout"), DEFAULT_TOOL_TIMEOUT_SEC)
-        self.connect_timeout: float = safe_numeric(server.get("connect_timeout"), DEFAULT_CONNECT_TIMEOUT_SEC)
+        self.tool_timeout: float = timeout_seconds(server.get("timeout"), DEFAULT_TOOL_TIMEOUT_SEC)
+        self.connect_timeout: float = timeout_seconds(server.get("connect_timeout"), DEFAULT_CONNECT_TIMEOUT_SEC)
         self.trusted: bool = server_trusted(server)
         self._server: dict[str, Any] = server
         self._allowed: Callable[[str], bool] = make_tool_filter(self.name, server)
@@ -355,6 +355,9 @@ class McpServerConnection:
     def _sse_too_big(self, method: str) -> McpClientError:
         return McpClientError(f"MCP server '{self.name}' SSE event exceeds {MAX_BODY_BYTES} bytes for {method}.")
 
+    def _response_too_big(self, method: str) -> McpClientError:
+        return McpClientError(f"MCP server '{self.name}' response exceeds {MAX_BODY_BYTES} bytes for {method}.")
+
     def _read_sse(self, resp: http.client.HTTPResponse, method: str, request_id: int) -> dict[str, Any]:
         buf = bytearray()
         scanned = 0
@@ -390,14 +393,12 @@ class McpServerConnection:
         if cl_hdr is not None:
             try:
                 if int(cl_hdr) > MAX_BODY_BYTES:
-                    raise McpClientError(
-                        f"MCP server '{self.name}' response exceeds {MAX_BODY_BYTES} bytes for {method}."
-                    )
+                    raise self._response_too_big(method)
             except ValueError:
                 pass
         raw = resp.read(MAX_BODY_BYTES + 1)
         if len(raw) > MAX_BODY_BYTES:
-            raise McpClientError(f"MCP server '{self.name}' response exceeds {MAX_BODY_BYTES} bytes for {method}.")
+            raise self._response_too_big(method)
         try:
             message = json.loads(raw.decode("utf-8", errors="replace"))
         except ValueError as e:
@@ -435,7 +436,7 @@ class McpServerConnection:
         timeout: float,
         cancel: SendCancellation | None = None,
     ) -> dict[str, Any] | None:
-        method = str(payload.get("method") or "")
+        method = str(payload["method"])
         raw_id = payload.get("id")
         request_id = raw_id if isinstance(raw_id, int) else None
         headers = self._headers()
@@ -477,17 +478,12 @@ class McpServerConnection:
                                 f"MCP server '{self.name}' redirected ({resp.status}) to invalid URL: {e}",
                                 code="MCP_CLIENT_CONFIG",
                             ) from e
-                        if redirect is None:
+                        if redirect is None or resp.status not in (307, 308) or redirect[5]:
                             raise McpClientError(
                                 f"MCP server '{self.name}' redirected ({resp.status}) to {target}; "
                                 f"put that URL directly in the server entry."
                             )
-                        _m, _b, new_headers, new_origin, new_path, cross_origin = redirect
-                        if resp.status not in (307, 308) or cross_origin:
-                            raise McpClientError(
-                                f"MCP server '{self.name}' redirected ({resp.status}) to {target}; "
-                                f"put that URL directly in the server entry."
-                            )
+                        _m, _b, new_headers, new_origin, new_path, _cross_origin = redirect
                         current_headers = new_headers
                         current_url = new_origin + new_path
                         continue
@@ -951,6 +947,7 @@ def mcp_domain_tools(ctx: ToolContext | None) -> tuple[list[ToolBase], str]:
                 )
             )
 
+    # In-function import breaks the chatbot <-> mcp_client cycle.
     from plugin.chatbot.smol_agent import SmolToolAdapter
     from plugin.contrib.smolagents.models import get_tool_json_schema
 
@@ -964,7 +961,7 @@ def mcp_domain_tools(ctx: ToolContext | None) -> tuple[list[ToolBase], str]:
             log.warning(
                 "MCP server '%s': skipping tool '%s', its input schema cannot be sent to the model: %s",
                 candidate.server["name"],
-                candidate.spec.get("name"),
+                candidate.spec["name"],
                 e,
             )
             continue

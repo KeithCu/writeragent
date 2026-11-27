@@ -24,7 +24,7 @@ def _raw_lang_to_bcp47(raw: str | None) -> str | None:
     if not raw:
         return None
 
-    text = str(raw).strip()
+    text = raw.strip()
     # Keep tags outside the grammar registry (sr, th): embeddings still needs them.
     return normalize_detected_bcp47(text) or text
 
@@ -54,8 +54,6 @@ def detect_lang_sample(text: str) -> str | None:
 
 def detect_lang_batch(texts: list[str]) -> list[str | None]:
     """Detect language for each text; return aligned BCP-47 tags (None when unknown)."""
-    if texts is None:
-        return []
     return [detect_lang_sample(text) for text in texts]
 
 

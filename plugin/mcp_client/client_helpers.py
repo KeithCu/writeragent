@@ -152,7 +152,7 @@ def secret_spellings(secret: str) -> list[str]:
     ]
 
 
-def safe_numeric(value: Any, default: float) -> float:
+def timeout_seconds(value: Any, default: float) -> float:
     """A config value in seconds as a finite float of at least 1, or *default* when missing or unusable."""
     try:
         result = float(value)

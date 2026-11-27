@@ -11,19 +11,6 @@ import numpy as np
 from plugin.embeddings.venv import embeddings_search_graph
 
 
-def test_metadata_filter_drops_wrong_model():
-    state = {
-        "model": "model-a",
-        "candidates": [
-            {"doc_url": "file:///a.odt", "embedding_model": "model-a", "score": 0.9},
-            {"doc_url": "file:///b.odt", "embedding_model": "model-b", "score": 0.8},
-        ],
-    }
-    out = embeddings_search_graph.metadata_filter(state)
-    assert len(out["candidates"]) == 1
-    assert out["candidates"][0]["doc_url"] == "file:///a.odt"
-
-
 def test_mmr_reduces_redundant_candidates():
     q = np.array([1.0, 0.0], dtype=np.float32)
     emb_a = np.array([0.8, 0.6], dtype=np.float32)
@@ -39,7 +26,7 @@ def test_mmr_reduces_redundant_candidates():
 
 
 def test_hit_snippet_returns_full_chunk_within_limit():
-    from plugin.embeddings.venv.embeddings_ingest_graph import CHUNK_SIZE
+    from plugin.embeddings.embeddings_split import CHUNK_SIZE
 
     text = "alpha " * 60
     cleaned = " ".join(text.split())
@@ -49,7 +36,7 @@ def test_hit_snippet_returns_full_chunk_within_limit():
 
 
 def test_hit_snippet_truncates_beyond_chunk_size():
-    from plugin.embeddings.venv.embeddings_ingest_graph import CHUNK_SIZE
+    from plugin.embeddings.embeddings_split import CHUNK_SIZE
 
     text = "word " * 200
     snippet = embeddings_search_graph._hit_snippet(text)

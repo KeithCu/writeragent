@@ -30,9 +30,7 @@ import logging
 
 from plugin.framework.uno_bootstrap import ensure_plugin_on_path
 
-# Central bootstrap for UNO-loaded entry points.
-# This replaces the previous manual sys.path manipulation that was duplicated
-# across main.py and the Calc add-ins.
+# Shared sys.path setup for UNO-loaded entry points (plugin/, lib/, vendor/).
 ensure_plugin_on_path(
     __file__,
     levels_up=2,                    # plugin/main.py → plugin/ → extension root
@@ -47,7 +45,7 @@ from plugin.scripting.native_binaries import ensure_native_binaries_on_path
 ensure_native_binaries_on_path()
 
 import unohelper
-from typing import TYPE_CHECKING, Any, ClassVar, Callable
+from typing import TYPE_CHECKING, Any, ClassVar
 
 if TYPE_CHECKING:
     from types import ModuleType
@@ -223,13 +221,6 @@ def _writeragent_bootstrap_finish(ctx: Any) -> None:
         bootstrap.clear_bootstrap_error()
 
 
-def _show_tests_unavailable(test_name: str) -> None:
-    """Show a message when test suites are not bundled (release builds)."""
-    from plugin.chatbot.dialogs import msgbox
-
-    msgbox(get_ctx(), test_name, "This WriterAgent build was packaged without the optional `plugin.tests` test modules.")
-
-
 def _run_test_suite(module_name: str, test_name: str) -> None:
     """Run a bundled in-OXT test suite on the UI thread and show the result.
 
@@ -237,12 +228,11 @@ def _run_test_suite(module_name: str, test_name: str) -> None:
     worker threads (see ``ToolBase.execute_safe``).
     """
     from plugin.chatbot.dialogs import msgbox
+    from plugin.framework.i18n import _
 
     if not app.tests_bundled():
-        _show_tests_unavailable(test_name)
+        msgbox(get_ctx(), test_name, _("This WriterAgent build was packaged without the optional `plugin.tests` test modules."))
         return
-
-    from plugin.framework.i18n import _
 
     ctx = get_ctx()
     try:
@@ -259,19 +249,13 @@ def _run_test_suite(module_name: str, test_name: str) -> None:
         msgbox(ctx, test_name, _("{0}: {1} passed, {2} failed.").format(test_name, p, f) + "\n\n" + "\n".join(suite_log))
     except Exception as e:
         log.exception("_run_test_suite failed: %s", test_name)
-        msgbox(ctx, test_name, _("Tests failed to run: {0}").format(str(e)))
+        msgbox(ctx, test_name, _("Tests failed to run: {0}").format(e))
 
 
 def register_core_handlers() -> None:
     """Register core application handlers during bootstrap."""
     from plugin.chatbot.dialog_views import settings_box
     from plugin.chatbot.eval_dashboard_ui import show_eval_dashboard
-
-    def _install_optional(fn: Callable[..., Any], *args: Any, message: str, level: int = logging.DEBUG) -> None:
-        try:
-            fn(*args)
-        except Exception:
-            log.log(level, message, exc_info=True)
 
     def _open_settings(frame: Any = None) -> None:
         open_dialog_safely(settings_box, "Failed to open settings")
@@ -343,8 +327,7 @@ def register_core_handlers() -> None:
     register_action_handler("writer", "review_reject_all", lambda frame=None: _resolve_all_agent(False))
 
     def _goto_adjacent_change(forward: bool) -> None:
-        """Fast-travel (#2): move the cursor to the next/previous pending agent change, in document
-        order, cycling. Drives the review toolbar's Next/Previous buttons (and any shortcut)."""
+        """Move the cursor to the next/previous pending agent change, in document order, cycling."""
         from plugin.writer.inline_review import goto_adjacent_agent_change
 
         c = get_ctx()
@@ -358,12 +341,12 @@ def register_core_handlers() -> None:
     register_action_handler("writer", "review_next", lambda frame=None: _goto_adjacent_change(True))
     register_action_handler("writer", "review_prev", lambda frame=None: _goto_adjacent_change(False))
 
-    def _install_review_ui() -> None:
+    try:
         from plugin.writer.review_view_attachment import install
 
         install(get_ctx())
-
-    _install_optional(_install_review_ui, message="Review UI install failed", level=logging.WARNING)
+    except Exception:
+        log.exception("Review UI install failed")
 
 
 # ── Dynamic menu text infrastructure ─────────────────────────────────
@@ -374,8 +357,7 @@ menu_icons = MenuIcons()
 menu_status = MenuStatusPublisher(menu_icons)
 
 
-# Bootstrapper replaces the previous monolithic MainJob.
-# It acts as an OnStartApp hook (triggered on office startup) and a proxy for legacy toolbar triggers.
+# OnStartApp job (runs at office startup) and XJobExecutor for accelerator and toolbar triggers.
 class MainBootstrapJob(BaseMainBootstrapJob):
     def init_logging(self, ctx: Any) -> None:
         init_logging(ctx)
@@ -383,8 +365,8 @@ class MainBootstrapJob(BaseMainBootstrapJob):
     def on_start(self, ctx: Any) -> None:
         try:
             app.bootstrap(self.ctx)
-        except Exception as e:  # UNO boundary: XJob.execute entry point
-            log.exception("MainBootstrapJob.execute failed to bootstrap: %s", e)
+        except Exception:  # UNO boundary: XJob.execute entry point
+            log.exception("MainBootstrapJob.on_start failed to bootstrap")
         try:
             from plugin.writer.locale.ai_grammar_proofreader import ensure_writeragent_proofreader_configured
 
@@ -399,8 +381,8 @@ class MainBootstrapJob(BaseMainBootstrapJob):
             log.exception("MainBootstrapJob.trigger: init_logging failed")
 
         try:
-            if Event and ("." in Event or Event.startswith("plugin.")):
-                cmd = Event[7:] if Event.startswith("plugin.") else Event
+            if Event and "." in Event:
+                cmd = Event.removeprefix("plugin.")
                 app.dispatch_command(cmd)
                 return
 
@@ -464,10 +446,10 @@ class DispatchHandler(ExtensionProtocolHandler):
 # pythonloader loads a static g_ImplementationHelper variable
 g_ImplementationHelper = unohelper.ImplementationHelper()
 g_ImplementationHelper.addImplementation(
-    MainBootstrapJob,  # UNO object class
-    f"{EXTENSION_ID}.Main",  # implementation name
+    MainBootstrapJob,
+    f"{EXTENSION_ID}.Main",
     ("com.sun.star.task.Job",),
-)  # implemented services (only 1)
+)
 g_ImplementationHelper.addImplementation(DispatchHandler, DispatchHandler.IMPL_NAME, DispatchHandler.SERVICE_NAMES)
 
 def bind() -> None:

@@ -17,7 +17,7 @@
 """MCP JSON-RPC protocol handler.
 
 Pure protocol logic — no HTTP server, no request handler class.
-Route handlers are registered with the HTTP route registry by MCPModule.
+Route handlers are registered with the HTTP route registry by McpModule.
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ from plugin.framework.doc_type import uno_services_for_document
 from plugin.framework import uno_context
 from plugin.framework.uno_context import get_runtime_uid, normalize_doc_url
 from plugin.version import EXTENSION_VERSION
-from plugin.framework.tool import ToolContext
+from plugin.framework.tool import ToolBase, ToolContext
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 from plugin.framework.errors import resolve_exception_message, format_error_payload, make_tool_error
 import plugin.mcp_server.document_mutation_gate as document_mutation_gate
@@ -107,8 +107,8 @@ def _document_echo_payload(doc: Any) -> dict[str, Any] | None:
         name = unquote(os.path.basename(url)) if url else "Untitled"
         return {"name": name, "uid": get_runtime_uid(doc)}
     except Exception:
-        # Echo is diagnostic. Returning None with no log hid a thread-guard or
-        # proxy regression as a missing "document" field on an otherwise successful call.
+        # The echo is diagnostic, so a failure only drops the "document" field.
+        # It is logged because the cause is a thread-guard or proxy bug.
         log.exception("MCP document echo failed")
         return None
 
@@ -125,10 +125,8 @@ MCP_DELEGATE_EXCLUDE_TIERS = MCP_DIRECT_FLAT_EXCLUDE_TIERS | {"specialized"}
 def drop_unavailable_domains(schemas: Any, registry: Any, ctx: Any) -> Any:
     """Remove tools whose specialized domain cannot run on this install.
 
-    The discovery catalog has always hidden such a domain; without this the flat tool list
-    advertised its tools anyway, so the same install offered a capability in one exposure mode and
-    not the other. Only domains with a known prerequisite are affected — everything else passes
-    through untouched.
+    Keeps the flat tool list consistent with the discovery catalog, which hides
+    the same domains. Only domains with a known prerequisite are affected.
     """
     if ctx is None:
         return schemas
@@ -151,21 +149,21 @@ def drop_unavailable_domains(schemas: Any, registry: Any, ctx: Any) -> Any:
 class _PreparedMcpCall:
     """Main-thread document resolve + ToolContext. Safe to hand to a worker with precomputed echo."""
 
-    tool: object
+    tool: ToolBase
     context: ToolContext
-    doc: object
+    doc: Any
     doc_key: str
     needs_gate: bool
     echo: dict[str, Any] | None
     is_async: bool = False
 
 
-
-# On-demand manual index (editing, editing-html, …). Full how-to lives in docs/chat/.
-# review-modes, search, navigation, images, concurrency — is served per topic by manual_read(topic), so the model
-# pulls one section when needed instead of front-loading a manual here (Claude Desktop doesn't read
-# `instructions`; Claude Code truncates it). The topic texts are the shared prompt pieces in
-# constants.py (single source with the sidebar prompt), mapped per doc type by agent_manual.py.
+# The manual (editing, editing-html, review-modes, search, navigation, images,
+# concurrency, ...) is served per topic by manual_read(topic), so the model
+# pulls one section when needed. The initialize instructions only point at it,
+# because Claude Desktop does not read "instructions" and Claude Code truncates
+# it. The topic texts are the shared prompt pieces in constants.py, mapped per
+# document type by agent_manual.py.
 _MCP_GUIDANCE_POINTER = (
     " HOW TO USE THESE TOOLS: call manual_read(topic) for the manual — topics follow the open "
     f"document's type (for Writer: {topic_list_text('writer', include_mcp=True)}); call manual_read() for the current list. "
@@ -258,7 +256,9 @@ def _exclude_tiers(mode: str, *, listing: bool) -> frozenset[str]:
         return MCP_DIRECT_FLAT_EXCLUDE_TIERS
     return MCP_DELEGATE_EXCLUDE_TIERS
 
+
 _ACTIVE_DOCUMENT_SENTINEL = "__active_document__"
+_NO_SET = "__NOSET__"
 
 
 def _doc_titles(docs: list[Any]) -> list[str]:
@@ -286,8 +286,7 @@ def _real_active_document(doc_svc: Any) -> Any:
     doc = doc_svc.get_active_document()
     if doc is None:
         return None
-    # supportsService on the active component does not fail. The old except
-    # kept the component anyway, including a disposed one.
+    # supportsService on the active component does not fail, so there is no try here.
     if not doc.supportsService("com.sun.star.document.OfficeDocument"):
         return None
     return doc
@@ -338,8 +337,7 @@ def _echoable_jsonrpc_id(msg: Any) -> str | int | None:
 def _mcp_unknown_tool_result(message: str) -> dict[str, Any]:
     """tools/call content block for a tool this exposure mode will not run.
 
-    Same shape as the old hand-built dict: text JSON of status/code/message,
-    isError true. make_tool_error omits empty details.
+    Text JSON of status/code/message with isError true. make_tool_error omits empty details.
     """
     payload = make_tool_error(message, code="UNKNOWN_TOOL")
     return wire_types.call_tool_result(json.dumps(payload, ensure_ascii=False), is_error=True)
@@ -362,8 +360,6 @@ class MCPProtocolHandler:
         self.event_bus = getattr(services, "events", None)
         self._request_scopes: dict[tuple[Any, str | int], list[SendCancellation]] = {}
         self._requests_lock: threading.Lock = threading.Lock()
-        # plugin.version is part of the extension. A missing module is a
-        # packaging bug, not a runtime fallback to "unknown".
         self.version = EXTENSION_VERSION
         self.debug_token = debug_token or secrets.token_urlsafe(32)
 
@@ -383,7 +379,7 @@ class MCPProtocolHandler:
             return None
         session_id = mcp_session.get_request_session_id(handler)
         if not session_id and hasattr(handler, "headers") and handler.headers:
-            session_id = handler.headers.get("X-Session-Id") or handler.headers.get("X-Session-ID")
+            session_id = handler.headers.get("X-Session-Id")
         addr = getattr(handler, "client_address", None)
         peer = addr[0] if isinstance(addr, tuple) and addr else addr
         if session_id and peer:
@@ -462,12 +458,11 @@ class MCPProtocolHandler:
 
     def handle_mcp_delete(self, handler: Any) -> None:
         """DELETE /mcp — not supported: one process-wide session must stay alive."""
-        # Streamable HTTP: clients may DELETE /mcp to drop a session; stale ids get 404.
-        # the session URL to end it. WriterAgent has one session id for the
-        # whole soffice process, shared by every client. Returning 200 claimed
-        # the session ended when it did not; clearing the id would cut every
-        # other client off. 405 tells spec clients the session is still here.
-        # They recover on 404 (stale id after restart), not 409 or 200.
+        # A Streamable HTTP client may DELETE /mcp to end its session.
+        # WriterAgent has one session id for the whole soffice process, shared by
+        # every client, so the session cannot end for one of them: 200 would be
+        # false and clearing the id would cut every other client off. 405 says
+        # the session is still here. Clients recover from a stale id on 404.
         log_mcp_transport_entry(handler, "mcp")
         _send_405(handler, "GET, POST, OPTIONS")
 
@@ -544,8 +539,7 @@ class MCPProtocolHandler:
                 except (ConnectionResetError, OSError):
                     break
         except Exception:
-            # Socket disconnects are handled above. Anything else closed the
-            # client stream; debug text hid the traceback.
+            # Socket disconnects are handled above. Anything else is a bug, so log the traceback.
             log.exception("SSE keepalive loop exception")
         finally:
             if sse is not None:
@@ -554,7 +548,7 @@ class MCPProtocolHandler:
 
     def handle_sse_post(self, handler: Any) -> None:
         """POST /sse or /messages — streamable HTTP (same as /mcp)."""
-        # Shares the same body as handle_mcp_post to include keepalive logic.
+        # /sse and /messages POSTs are handled as /mcp POSTs.
         # The transport label keeps /sse and /messages distinct in [MCP-HTTP] logs.
         self.handle_mcp_post(handler, transport="sse")
 
@@ -572,11 +566,11 @@ class MCPProtocolHandler:
         if headers is None:
             headers = {}
         # Reject Origin to block any cross-origin requests on /debug.
-        origin = headers.get("Origin") or headers.get("origin")
+        origin = headers.get("Origin")
         if origin:
             return "Forbidden: Origin header not allowed on /debug"
 
-        token = headers.get("X-WriterAgent-Debug-Token") or headers.get("x-writeragent-debug-token")
+        token = headers.get("X-WriterAgent-Debug-Token")
         if not token or not self.debug_token or not hmac.compare_digest(token, self.debug_token):
             return "Forbidden: Invalid or missing debug token"
 
@@ -601,7 +595,7 @@ class MCPProtocolHandler:
                     "call_tool": {"description": "Call a registered tool", "body": {"action": "call_tool", "tool": "get_document_info", "args": {}}},
                     "trigger": {"description": "Simulate a menu trigger command", "body": {"action": "trigger", "command": "settings"}},
                     "services": {"description": "List registered services", "body": {"action": "services"}},
-                    "config": {"description": "Get/set config values", "body": {"action": "config", "key": "mcp.port", "value": None}},
+                    "config": {"description": "Get/set config values", "body": {"action": "config", "key": "mcp.mcp_port", "value": None}},
                 },
                 "tools": tools,
             },
@@ -632,7 +626,7 @@ class MCPProtocolHandler:
             elif action == "services":
                 result = self._debug_services()
             elif action == "config":
-                result = self._debug_config(body.get("key"), body.get("value", "__NOSET__"))
+                result = self._debug_config(body.get("key"), body.get("value", _NO_SET))
             else:
                 result = {"error": "Unknown action: %s" % action}
             self._send_json(handler, 200, {"ok": True, "result": result})
@@ -811,9 +805,7 @@ class MCPProtocolHandler:
         if arg_document_url:
             document_url = arg_document_url
 
-        # tool_find is the discovery search tool; it is only advertised in
-        # direct_discovery mode, so reject calling it by name in other modes -- otherwise
-        # the default (delegate) behavior would not really be unchanged.
+        # tool_find is advertised only in direct_discovery mode, so calling it by name is refused in the other modes.
         mode = self._tool_exposure_mode()
         if tool_name == "tool_find" and mode != "direct_discovery":
             return _mcp_unknown_tool_result("Tool 'tool_find' is only available when mcp.tool_exposure_mode is 'direct_discovery'.")
@@ -831,16 +823,14 @@ class MCPProtocolHandler:
 
         try:
             res = self._run_tool(tool_name, arguments, document_url=document_url, req_id=req_id, session=session, cancel=cancel)
-        except document_mutation_gate.BusyError:
-            raise
-        except TimeoutError:
+        except (document_mutation_gate.BusyError, TimeoutError):
             # We map TimeoutError to 504, not a tool error, because only MainThread/gate timeouts reach here; ToolBase.execute_safe already turns a tool's own exceptions (including TimeoutError) into error dicts.
             raise
         except Exception as e:
-            # Tool failures must be MCP tool results (isError), not JSON-RPC
-            # INTERNAL_ERROR. Clients treat HTTP 500 as transient and retry
-            # (Hermes retried apply_style ~150× in 0.5s). BusyError/TimeoutError
-            # Map unexpected tool errors to MCP isError results, not HTTP 500 retries.
+            # A tool failure is an MCP tool result (isError), not JSON-RPC INTERNAL_ERROR:
+            # clients treat HTTP 500 as transient and retry (Hermes retried apply_style
+            # about 150 times in 0.5 s). BusyError and TimeoutError are re-raised above
+            # and map to 429 and 504.
             log.exception("MCP tool %s raised unexpectedly", tool_name)
             code = getattr(e, "code", None) or "TOOL_EXECUTION_ERROR"
             if code == "INTERNAL_ERROR":
@@ -1003,8 +993,6 @@ class MCPProtocolHandler:
         Main-thread only (touches UNO). open_documents already skips a bad
         component. A failure here propagates so tools/list does not omit a family.
         """
-        # open_documents already skips a component whose supportsService fails.
-        # A raise here is a catalog bug; swallowing it hid a document type.
         by_type = self.services.document.open_documents_by_type()
         if not isinstance(by_type, dict):
             return schemas
@@ -1014,7 +1002,7 @@ class MCPProtocolHandler:
 
         seen = {sch.get("name") for sch in schemas}
         for other_type, other_doc in others.items():
-            # A get_schemas failure is a bug. Skipping the type hid that tool family.
+            # A get_schemas failure propagates: skipping the type would drop that tool family from tools/list.
             extra = self.tool_registry.get_schemas("mcp", doc_type=other_type, uno_services_supported=uno_services_for_document(other_doc, other_type), exclude_tiers=exclude_tiers)
             for sch in extra:
                 name = sch.get("name")
@@ -1031,15 +1019,14 @@ class MCPProtocolHandler:
 
         Callers pass the scope captured on the worker. This method does not read the main thread's send contextvar or the request-scope map.
         """
-        initial_tool = self.tool_registry.get(tool_name)
-        if initial_tool is None:
+        tool = self.tool_registry.get(tool_name)
+        if tool is None:
             return {"status": "error", "code": "UNKNOWN_TOOL", "message": "No tool named '%s'. Check tools/list for the exact name (tools are filtered by the open document's type)." % tool_name}
 
         doc = None
         doc_type = "writer"
         # resolve_document_by_url returns (None, None) when nothing matches.
-        # An exception is a disposed document or a real failure. Mapping it to
-        # DOCUMENT_NOT_FOUND dropped the message (only the type name was logged).
+        # An exception is a disposed document or a real failure and propagates with its message.
         doc_svc = self.services.document
         if document_url:
             doc, doc_type = doc_svc.resolve_document_by_url(document_url)
@@ -1050,14 +1037,12 @@ class MCPProtocolHandler:
 
         if doc is None and document_url:
             return {"status": "error", "code": "DOCUMENT_NOT_FOUND", "message": ("No open document matches document_url '%s'. Call document_list_open and retry with one of the returned url or uid values." % document_url), "details": {"document_url": document_url}}
-        if doc is None and getattr(initial_tool, "requires_document", True):
+        if doc is None and getattr(tool, "requires_document", True):
             # Without document_url, resolve among open documents instead of denying when focus is elsewhere.
             # Count DOCUMENTS, not types: with two Writer documents open and neither active,
             # a per-type view has one entry and would silently pick the first -- possibly the
             # wrong petition. Only a single open document is unambiguous.
-            doc_svc = self.services.document
-            # open_documents already returns [] when desktop enumeration fails.
-            # Catching here turned a later bug into a false NO_DOCUMENT_OPEN.
+            # open_documents returns [] when desktop enumeration fails, so no try is needed here.
             open_docs = doc_svc.open_documents()
             if not isinstance(open_docs, list):
                 open_docs = []  # stubbed/unavailable service -> behave as before
@@ -1076,12 +1061,10 @@ class MCPProtocolHandler:
 
         ctx = uno_context.get_ctx()
         uno_services = uno_services_for_document(doc, doc_type)
-        tool = initial_tool
         active_page_idx = None
         if doc_type in ("draw", "impress"):
-            # get_active_page_index returns 0 for a missing page and re-raises
-            # disposal. DrawBridge raises RuntimeError when the doc has no page
-            # container. The old except turned both into active_page_index None.
+            # get_active_page_index returns 0 for a missing page and re-raises disposal.
+            # DrawBridge raises RuntimeError when the document has no page container; that propagates.
             from plugin.draw.bridge import DrawBridge
 
             active_page_idx = DrawBridge(doc).get_active_page_index()
@@ -1089,13 +1072,13 @@ class MCPProtocolHandler:
         # MagicMock tools (and any non-bool is_async result) are not async. A
         # non-numeric timeout is not a positive timeout: comparing MagicMock
         # to int raises TypeError and aborts preparation before ToolContext.
-        _is_async = _is_long_running(tool)
-        _timeout = getattr(tool, "timeout", None)
-        if _is_async and _timeout is not None and not (isinstance(_timeout, (int, float)) and _timeout > 0):
+        is_async = _is_long_running(tool)
+        timeout = getattr(tool, "timeout", None)
+        if is_async and timeout is not None and not (isinstance(timeout, (int, float)) and timeout > 0):
             return {"status": "error", "code": "TOOL_EXECUTION_ERROR", "message": "Async tools must declare a positive timeout to run off-thread."}
 
         context = ToolContext(doc=doc, ctx=ctx, doc_type=doc_type, services=self.services, caller="mcp", active_page_index=active_page_idx, uno_services_supported=uno_services, send_cancellation=cancel)
-        return _PreparedMcpCall(tool=tool, context=context, doc=doc, doc_key=_resolve_mcp_doc_key(document_url, doc), needs_gate=tool.requires_document_lock(arguments), echo=_document_echo_payload(doc), is_async=_is_async)
+        return _PreparedMcpCall(tool=tool, context=context, doc=doc, doc_key=_resolve_mcp_doc_key(document_url, doc), needs_gate=tool.requires_document_lock(arguments), echo=_document_echo_payload(doc), is_async=is_async)
 
     def _invoke_prepared_mcp_tool(self, prepared: _PreparedMcpCall, tool_name: str, arguments: Any) -> Any:
         """Registry execute + elapsed/echo. Caller holds the mutation gate when the tool needs it.
@@ -1136,18 +1119,11 @@ class MCPProtocolHandler:
         if document_url is None:
             document_url = args_copy.pop("document_url", None)
 
-        result = self._run_tool(tool_name, args_copy, document_url=document_url, cancel=SendCancellation())
-        return result
+        return self._run_tool(tool_name, args_copy, document_url=document_url, cancel=SendCancellation())
 
     def _debug_trigger(self, command: str) -> Any:
-        from plugin.app import get_services
-
         if command == "settings":
             from plugin.chatbot.dialog_views import settings_box
-
-            registry = get_services()
-            if registry is None:
-                return {"error": "Services not initialized"}
 
             ctx = uno_context.get_ctx()
             self.queue_executor.call(settings_box, ctx, timeout=120.0)
@@ -1164,17 +1140,21 @@ class MCPProtocolHandler:
 
         if key is None:
             return get_config_dict()
-        if value == "__NOSET__":
+        if value == _NO_SET:
             return {key: get_config(key)}
         save({key: value})
         return {key: value, "persisted": True}
 
     # ── Helpers ───────────────────────────────────────────────────────
 
+    @staticmethod
+    def _mcp_session_headers(handler: Any) -> None:
+        mcp_session.send_mcp_response_headers(handler, session_id=mcp_session.current_session_id())
+
     def _send_empty(self, handler: Any, status: int) -> None:
         """Send an empty response via an HTTP handler."""
-        write_http_empty(handler, status, extra_headers=lambda h: mcp_session.send_mcp_response_headers(h, session_id=mcp_session.current_session_id()))
+        write_http_empty(handler, status, extra_headers=self._mcp_session_headers)
 
     def _send_json(self, handler: Any, status: int, data: Any) -> None:
         """Send a JSON response via an HTTP handler."""
-        write_http_json(handler, status, data, extra_headers=lambda h: mcp_session.send_mcp_response_headers(h, session_id=mcp_session.current_session_id()))
+        write_http_json(handler, status, data, extra_headers=self._mcp_session_headers)

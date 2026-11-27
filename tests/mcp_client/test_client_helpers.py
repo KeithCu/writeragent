@@ -17,7 +17,7 @@ from plugin.mcp_client.client_helpers import (
     format_approval_arguments,
     make_tool_filter,
     names_unknown_tool,
-    safe_numeric,
+    timeout_seconds,
     sanitize_error,
     secret_spellings,
     server_enabled,
@@ -125,13 +125,13 @@ def test_bad_header_position():
     assert bad_header_position({"headers": ["X-Ok"]}) is None
 
 
-def test_safe_numeric():
-    assert safe_numeric("120", 60.0) == 120.0
-    assert safe_numeric("bad", 60.0) == 60.0
-    assert safe_numeric(float("nan"), 60.0) == 60.0
-    assert safe_numeric(float("inf"), 60.0) == 60.0
-    assert safe_numeric(10**400, 60.0) == 60.0
-    assert safe_numeric(-5, 60.0) == 1.0
+def test_timeout_seconds():
+    assert timeout_seconds("120", 60.0) == 120.0
+    assert timeout_seconds("bad", 60.0) == 60.0
+    assert timeout_seconds(float("nan"), 60.0) == 60.0
+    assert timeout_seconds(float("inf"), 60.0) == 60.0
+    assert timeout_seconds(10**400, 60.0) == 60.0
+    assert timeout_seconds(-5, 60.0) == 1.0
 
 
 def test_server_enabled_and_trusted():

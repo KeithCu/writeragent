@@ -524,7 +524,7 @@ class TestSettingsEnhancements:
         assert btn_model.Label == "✓ Copied!"
 
     def test_mcp_port_text_listener_updates_snippet(self):
-        from plugin.mcp_server.mcp_ui import McpPortTextListener
+        from plugin.mcp_server.mcp_ui import McpSnippetListener
 
         dlg = MagicMock()
         snippet_ctrl = MagicMock()
@@ -540,7 +540,7 @@ class TestSettingsEnhancements:
 
         with patch("plugin.mcp_server.mcp_ui.get_optional", side_effect=optional_side_effect), \
              patch("plugin.mcp_server.mcp_ui.set_control_text") as mock_set_text:
-            listener = McpPortTextListener(dlg)
+            listener = McpSnippetListener(dlg)
             listener.textChanged(MagicMock())
 
         mock_set_text.assert_called_once()
