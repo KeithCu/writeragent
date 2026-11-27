@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.app import get_tools
-from plugin.framework.errors import DocumentDisposedError, ToolExecutionError, UnoObjectError
+from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
 from plugin.calc.calc_utils import range_args
 from plugin.calc.sheet_filter import (
     ApplySheetFilter,
@@ -172,33 +172,6 @@ def test_range_args_exactly_one_validation():
     assert range_args(["A1:B2"], exactly_one=True) == ["A1:B2"]
 
 
-def test_contains_header_fails_loudly_when_property_set_missing():
-    ctx = SimpleNamespace(doc=MagicMock())
-    cell_range = MagicMock()
-    cell_range.getRangeAddress.return_value = SimpleNamespace(StartColumn=0, EndColumn=2)
-    xf = MagicMock()
-    fd = MagicMock()
-    xf.createFilterDescriptor.return_value = fd
-
-    with patch("plugin.calc.sheet_filter.CalcBridge") as bridge_cls, \
-         patch("plugin.calc.sheet_filter.query_interface") as qi_mock:
-        bridge_cls.return_value.resolve_range_or_address.return_value = cell_range
-        def fake_qi(obj, iface):
-            if iface == "com.sun.star.sheet.XSheetFilterable":
-                return xf
-            # Simulate missing XPropertySet on fd
-            if iface == "com.sun.star.beans.XPropertySet":
-                return None
-            if iface == "com.sun.star.sheet.XSheetFilterDescriptor2":
-                return MagicMock()
-            return None
-        qi_mock.side_effect = fake_qi
-
-        tool = ApplySheetFilter()
-        with pytest.raises(UnoObjectError, match="Cannot set ContainsHeader"):
-            tool.execute(ctx, range=["A1:C10"], has_header=True, criteria=[{"field": 0, "operator": "EQUAL", "value": "x"}])
-
-
 def test_field_greater_than_or_equal_range_width():
     ctx = SimpleNamespace(doc=MagicMock())
     cell_range = MagicMock()
@@ -228,14 +201,13 @@ def test_field_greater_than_or_equal_range_width():
 
 
 def test_build_filter_fields2_and_readback():
-    uno_mock = MagicMock()
-    uno_mock.createUnoStruct.side_effect = lambda name: SimpleNamespace()
-
     criteria = [
         {"field": 0, "operator": "EQUAL", "value": "val"},
         {"field": 1, "operator": "GREATER", "value": 10, "connection": "OR"},
     ]
-    fields = _build_filter_fields2(uno_mock, criteria, range_width=5)
+    with patch("plugin.calc.sheet_filter.uno") as uno_mock:
+        uno_mock.createUnoStruct.side_effect = lambda name: SimpleNamespace()
+        fields = _build_filter_fields2(criteria, range_width=5)
     assert len(fields) == 2
     assert fields[0].Field == 0
     assert fields[0].Operator == 2

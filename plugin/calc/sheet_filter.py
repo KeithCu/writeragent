@@ -35,7 +35,7 @@ from plugin.calc.sheet_filter_criteria import (
     FILTER_OPERATOR2_LABELS,
     parse_sheet_filter_criterion,
 )
-from plugin.framework.errors import ToolExecutionError, UnoObjectError, make_tool_ok, uno_read
+from plugin.framework.errors import ToolExecutionError, make_tool_ok, uno_read
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -58,7 +58,7 @@ def _field_to_dict(ff: Any, idx: int) -> dict[str, Any]:
     out: dict[str, Any] = {"index": idx}
     op = uno_read(lambda: int(ff.Operator), None)
     if op is not None:
-        out["operator"] = FILTER_OPERATOR2_LABELS[op] if 0 <= op < len(FILTER_OPERATOR2_LABELS) else str(int(op))
+        out["operator"] = FILTER_OPERATOR2_LABELS[op] if 0 <= op < len(FILTER_OPERATOR2_LABELS) else str(op)
         out["operator_code"] = op
 
     field = uno_read(lambda: int(ff.Field), None)
@@ -79,7 +79,7 @@ def _field_to_dict(ff: Any, idx: int) -> dict[str, Any]:
     return out
 
 
-def _build_filter_fields2(uno_obj: Any, criteria: list[dict[str, Any]], range_width: int) -> tuple[Any, ...]:
+def _build_filter_fields2(criteria: list[dict[str, Any]], range_width: int) -> tuple[Any, ...]:
     fields: list[Any] = []
     for i, c_raw in enumerate(criteria):
         c = parse_sheet_filter_criterion(c_raw, i == 0)
@@ -88,7 +88,7 @@ def _build_filter_fields2(uno_obj: Any, criteria: list[dict[str, Any]], range_wi
                 f"Filter criterion field index {c.field} is out of bounds (range has {range_width} columns).",
                 code="INVALID_PARAM",
             )
-        st = uno_obj.createUnoStruct("com.sun.star.sheet.TableFilterField2")
+        st: Any = uno.createUnoStruct("com.sun.star.sheet.TableFilterField2")
         st.Field = c.field
         st.Operator = c.operator
         st.Connection = c.connection
@@ -104,20 +104,15 @@ def _filter_descriptor(
     *,
     empty: bool,
     has_header: bool | None,
-    missing_msg: str,
 ) -> tuple[Any, Any, Any]:
+    # A cell range (ScCellRangeObj) is always XSheetFilterable, and its filter
+    # descriptor (ScFilterDescriptorBase, sc/inc/datauno.hxx) is always an
+    # XPropertySet and an XSheetFilterDescriptor2.
     xf = query_interface(cell_range, "com.sun.star.sheet.XSheetFilterable")
-    if xf is None:
-        raise UnoObjectError("This range does not support filtering (XSheetFilterable missing).")
     fd = xf.createFilterDescriptor(empty)
     if has_header is not None:
-        ps = query_interface(fd, "com.sun.star.beans.XPropertySet")
-        if ps is None:
-            raise UnoObjectError("Cannot set ContainsHeader on this filter descriptor.")
-        ps.setPropertyValue("ContainsHeader", has_header)
+        query_interface(fd, "com.sun.star.beans.XPropertySet").setPropertyValue("ContainsHeader", has_header)
     fd2 = query_interface(fd, "com.sun.star.sheet.XSheetFilterDescriptor2")
-    if fd2 is None:
-        raise UnoObjectError(missing_msg)
     return xf, fd, fd2
 
 
@@ -135,9 +130,8 @@ def _run_filter(
         cell_range,
         empty=True,
         has_header=has_header,
-        missing_msg="XSheetFilterDescriptor2 is not available (need LibreOffice with TableFilterField2 support).",
     )
-    fields = _build_filter_fields2(uno, criteria, range_width=range_width)
+    fields = _build_filter_fields2(criteria, range_width=range_width)
     fd2.setFilterFields2(fields)
     xf.filter(fd)
     return range_name
@@ -228,15 +222,11 @@ class GetSheetFilter(ToolCalcSheetBase):
             cell_range,
             empty=False,
             has_header=None,
-            missing_msg="XSheetFilterDescriptor2 is not available.",
         )
 
-        fields_seq = fd2.getFilterFields2()
-        crit: list[dict[str, Any]] = [] if fields_seq is None else [
-            _field_to_dict(fields_seq[i], i) for i in range(len(fields_seq))
-        ]
+        crit = [_field_to_dict(ff, i) for i, ff in enumerate(fd2.getFilterFields2())]
 
         ps = query_interface(fd, "com.sun.star.beans.XPropertySet")
-        ch = uno_read(lambda: bool(ps.getPropertyValue("ContainsHeader")), None) if ps is not None else None
+        ch = uno_read(lambda: bool(ps.getPropertyValue("ContainsHeader")), None)
 
         return make_tool_ok(range=range_name, has_header=ch, criteria=crit, count=len(crit))

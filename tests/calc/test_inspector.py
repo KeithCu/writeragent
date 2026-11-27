@@ -38,7 +38,8 @@ def test_range_read_types_cells_by_formula_query():
 
 def test_single_cell_error_formula_reads_none():
     cell = MagicMock()
-    del cell.getRangeAddress
+    cell.getRangeAddress.return_value = SimpleNamespace(Sheet=0, StartColumn=0, EndColumn=0, StartRow=0, EndRow=0)
+    cell.getCellByPosition.return_value = cell
     cell.getType.return_value = FORMULA
     cell.getDataArray.return_value = ((None,),)
     cell.getFormulaArray.return_value = (("=1/0",),)

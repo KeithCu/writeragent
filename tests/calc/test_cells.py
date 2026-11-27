@@ -122,10 +122,11 @@ def test_inspector_formula_string_zero_stays_string():
 
     bridge = MagicMock()
     mock_cell = MagicMock()
-    del mock_cell.getRangeAddress
+    mock_cell.getRangeAddress.return_value = SimpleNamespace(Sheet=0, StartColumn=0, EndColumn=0, StartRow=0, EndRow=0)
+    mock_cell.getCellByPosition.return_value = mock_cell
     mock_cell.getType.return_value = 3  # FORMULA
     mock_cell.getError.return_value = 0
-    mock_cell.FormulaResultType = 2  # STRING (not VALUE)
+    mock_cell.FormulaResultType2 = 2  # STRING (not VALUE)
     mock_cell.getString.return_value = "0"
     mock_cell.getValue.return_value = 0.0
     mock_cell.getFormula.return_value = '="0"'
@@ -152,6 +153,7 @@ def test_inspector_read_cell_resolved_a1_address():
     cell.getRangeAddress.return_value = SimpleNamespace(
         StartColumn=1, EndColumn=1, StartRow=2, EndRow=2
     )
+    cell.getCellByPosition.return_value = cell
     bridge.resolve_range_or_address.return_value = cell
 
     inspector = CellInspector(bridge)
@@ -451,6 +453,7 @@ def test_inspector_read_cell_format_enrichment_and_negative_duration():
     cell.getFormulaArray.return_value = (("",),)
     cell.getPropertyValue.side_effect = lambda name: 10 if name == "NumberFormat" else None
     cell.getRangeAddress.return_value = SimpleNamespace(StartColumn=0, EndColumn=0, StartRow=0, EndRow=0)
+    cell.getCellByPosition.return_value = cell
 
     bridge.resolve_range_or_address.return_value = cell
 

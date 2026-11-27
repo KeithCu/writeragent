@@ -234,7 +234,7 @@ def _read_plot_tag(shape: Any) -> _PlotTag | None:
         if attrs is not None and attrs.hasByName(_PLOT_TAG_ATTR):
             return _parse_plot_tag(attrs.getByName(_PLOT_TAG_ATTR).Value)
         name = shape.getPropertyValue("Name")
-        match = _PLOT_NAME_RE.fullmatch(name) if isinstance(name, str) else None
+        match = _PLOT_NAME_RE.fullmatch(name)
         tag = _parse_plot_tag(match.group(2)) if match is not None else None
         return tag._replace(from_name=True) if tag is not None else None
     except (AttributeError, TypeError):
@@ -251,10 +251,8 @@ def _record_plot_tag(shape: Any, target_cell: Any, sha: str | None) -> None:
     """
     from com.sun.star.xml import AttributeData
 
-    addr_key = _cell_address_key(target_cell)
-    if addr_key is None:
-        return
-    owner = (addr_key[1], addr_key[2])
+    _sheet, col, row = _cell_address_key(target_cell)
+    owner = (col, row)
     anchor = _anchor_cell(shape)
     tag = _format_plot_tag(owner, anchor, sha)
     try:
@@ -282,7 +280,7 @@ def _graphic_aspect(shape: Any) -> tuple[int, int] | None:
     """Logical width and height of the shape's current graphic, or None when unknown."""
     try:
         size = shape.getPropertyValue("Graphic").getPropertyValue("Size100thMM")
-        return int(size.Width), int(size.Height)
+        return size.Width, size.Height
     except (AttributeError, TypeError):
         return None
 
@@ -294,9 +292,9 @@ def _formula_axis_hidden(sheet: Any, cell: Any) -> bool:
     """
     try:
         addr = cell.getCellAddress()
-        row = sheet.getRows().getByIndex(int(addr.Row))
-        col = sheet.getColumns().getByIndex(int(addr.Column))
-        return not bool(row.IsVisible) or not bool(col.IsVisible)
+        row = sheet.getRows().getByIndex(addr.Row)
+        col = sheet.getColumns().getByIndex(addr.Column)
+        return not row.IsVisible or not col.IsVisible
     except (AttributeError, TypeError, IndexError):
         return False
 
@@ -304,8 +302,8 @@ def _formula_axis_hidden(sheet: Any, cell: Any) -> bool:
 def _slot_edge(pos: Any, size: Any, rtl: bool) -> int:
     """Calculate the far outer edge coordinate for slot chaining."""
     if rtl:
-        return int(pos.X)
-    return int(pos.X) + int(size.Width)
+        return pos.X
+    return pos.X + size.Width
 
 
 def _resolve_slot(slots: list[tuple[Any, int]], index: int) -> Any | None:
@@ -336,10 +334,10 @@ def _slot_cursor(
     left edge.
     """
     # A hidden column has zero width, so clamp the inset so the start stays inside the cell.
-    inset = min(_PLOT_EDGE_INSET, int(cell_size.Width))
+    inset = min(_PLOT_EDGE_INSET, cell_size.Width)
     edge = _slot_edge(cell_pos, cell_size, rtl)
     cursor_x = edge + inset if rtl else edge - inset
-    cursor_y = int(cell_pos.Y)
+    cursor_y = cell_pos.Y
 
     for idx in range(image_index):
         prev_shape = _resolve_slot(slots, idx)
@@ -349,7 +347,7 @@ def _slot_cursor(
             pos = prev_shape.getPosition()
             size = prev_shape.getSize()
             cursor_x = _slot_edge(pos, size, rtl)
-            cursor_y = int(pos.Y)
+            cursor_y = pos.Y
         except (AttributeError, TypeError):
             break
 
@@ -376,7 +374,7 @@ def _holds_py_formula(sheet: Any, cell: tuple[int, int]) -> bool:
     if col < 0 or row < 0:
         return False
     formula = uno_read(lambda: sheet.getCellByPosition(col, row).getFormula(), "")
-    return isinstance(formula, str) and match_py_alias(normalize_formula_string(formula), require_equals=True) is not None
+    return match_py_alias(normalize_formula_string(formula), require_equals=True) is not None
 
 
 def _shape_matches_target_cell(sheet: Any, shape: Any, target_cell: Any) -> bool:
@@ -404,10 +402,8 @@ def _shape_matches_target_cell(sheet: Any, shape: Any, target_cell: Any) -> bool
     tag = _read_plot_tag(shape)
     if tag is None:
         return _shape_anchor_matches_cell(shape, target_cell)
-    addr_key = _cell_address_key(target_cell)
-    if addr_key is None:
-        return False
-    here = (addr_key[1], addr_key[2])
+    _sheet, col, row = _cell_address_key(target_cell)
+    here = (col, row)
     moved = _moved_owner(sheet, shape, tag)
     if moved is None:
         return tag.owner == here
@@ -425,8 +421,7 @@ def _anchored_plot_slots(sheet: Any, target_cell: Any) -> list[tuple[Any, int]]:
             shape = draw_page.getByIndex(index)
             if not supports_service(shape, _DRAW_GRAPHIC_SERVICE):
                 continue
-            name = shape.getPropertyValue("Name")
-            slot_idx = _plot_slot_index(name if isinstance(name, str) else "")
+            slot_idx = _plot_slot_index(shape.getPropertyValue("Name"))
             if slot_idx is None:
                 continue
             if not _shape_matches_target_cell(sheet, shape, target_cell):
@@ -469,7 +464,7 @@ def _drop_egress_of_undone_formula(doc: Any, sheet: Any, cell: Any, draw_page: A
     _remove_image_note(doc, sheet, cell)
 
 
-def _read_image_bytes(payload: dict[str, Any] | None, tmp_path: str | None) -> bytes | None:
+def _read_image_bytes(payload: dict[str, Any], tmp_path: str | None) -> bytes | None:
     # Read the full file rather than an initial chunk because the SHA-256 byte tag covers all bytes.
     if tmp_path:
         try:
@@ -477,10 +472,9 @@ def _read_image_bytes(payload: dict[str, Any] | None, tmp_path: str | None) -> b
                 return f.read()
         except OSError:
             pass
-    if payload and isinstance(payload, dict):
-        data = payload.get("data")
-        if isinstance(data, (bytes, bytearray)):
-            return bytes(data)
+    data = payload.get("data")
+    if isinstance(data, (bytes, bytearray)):
+        return bytes(data)
     return None
 
 
@@ -555,15 +549,16 @@ def _egress_fail(message: str) -> NoReturn:
     raise ImageEgressError(message)
 
 
-def _cell_address_key(cell: Any) -> tuple[Any, int, int] | None:
-    """Sheet + column + row for a cell-like UNO object, or None."""
-    if hasattr(cell, "getRangeAddress"):
-        addr = cell.getRangeAddress()
-        return (addr.Sheet, int(addr.StartColumn), int(addr.StartRow))
-    if hasattr(cell, "getCellAddress"):
-        addr = cell.getCellAddress()
-        return (addr.Sheet, int(addr.Column), int(addr.Row))
-    return None
+def _cell_address_key(cell: Any) -> tuple[int, int, int]:
+    """Sheet, column and row of the top-left cell of *cell*, a formula cell or a shape's ``Anchor``.
+
+    A shape's ``Anchor`` is an ``ScCellObj`` or an ``ScTableSheetObj``
+    (``ScShapeObj::getPropertyValue``, ``sc/source/ui/unoobj/shapeuno.cxx``); both
+    derive from ``ScCellRangeObj`` (``sc/inc/cellsuno.hxx``), so both have
+    ``getRangeAddress``.
+    """
+    addr = cell.getRangeAddress()
+    return (addr.Sheet, addr.StartColumn, addr.StartRow)
 
 
 def _anchor_cell(shape: Any) -> tuple[int, int] | None:
@@ -571,8 +566,8 @@ def _anchor_cell(shape: Any) -> tuple[int, int] | None:
     anchor = uno_read(lambda: shape.getPropertyValue("Anchor"), None)
     if anchor is None or supports_service(anchor, "com.sun.star.sheet.Spreadsheet"):
         return None
-    key = _cell_address_key(anchor)
-    return (key[1], key[2]) if key is not None else None
+    _sheet, col, row = _cell_address_key(anchor)
+    return (col, row)
 
 
 def _shape_anchor_matches_cell(shape: Any, target_cell: Any) -> bool:
@@ -580,8 +575,8 @@ def _shape_anchor_matches_cell(shape: Any, target_cell: Any) -> bool:
 
     A page-anchored shape's Anchor is the sheet (range 0,0); that must not count as matching a cell.
     """
-    key = _cell_address_key(target_cell)
-    return key is not None and _anchor_cell(shape) == (key[1], key[2])
+    _sheet, col, row = _cell_address_key(target_cell)
+    return _anchor_cell(shape) == (col, row)
 
 
 def _unlink_temp_image(path: str) -> None:
@@ -679,11 +674,11 @@ def _position_new_plot(
 
     cell_pos, cell_size = get_cell_geometry(sheet, target_cell)
     try:
-        is_merged = bool(target_cell.IsMerged)
+        is_merged = target_cell.IsMerged
     except (AttributeError, TypeError):
         is_merged = False
-    width = int(cell_size.Width)
-    height = int(cell_size.Height)
+    width = cell_size.Width
+    height = cell_size.Height
     is_large_placeholder = (
         is_merged
         and width >= MIN_CHART_PLACEHOLDER_WIDTH
@@ -698,7 +693,7 @@ def _position_new_plot(
     if image_index == 0 and is_large_placeholder:
         shape.setPropertyValue("ResizeWithCell", True)
         shape.setSize(cell_size)
-        shape.setPosition(Point(int(cell_pos.X), int(cell_pos.Y)))
+        shape.setPosition(Point(cell_pos.X, cell_pos.Y))
     else:
         edge_pos, edge_size = cell_pos, cell_size
         if spill_cols > 1:
@@ -715,7 +710,7 @@ def _position_new_plot(
         # Each successive plot slot chains horizontally from the outer edge of the
         # preceding slot. Reading the live rectangle of each resolved slot ensures
         # slots fit flush against each other without gaps or overlaps.
-        place_x = cursor_x - int(aspect_size.Width) if rtl else cursor_x
+        place_x = cursor_x - aspect_size.Width if rtl else cursor_x
         shape.setPosition(Point(place_x, cursor_y))
 
     # A new plot is hidden when the formula cell's row or column is hidden.
@@ -796,19 +791,19 @@ def _refit_to_aspect(shape: Any, aspect: tuple[int, int], rtl: bool) -> None:
     from com.sun.star.awt import Point
 
     try:
-        if bool(shape.getPropertyValue("ResizeWithCell")):
+        if shape.getPropertyValue("ResizeWithCell"):
             return
         old_pos = shape.getPosition()
         old_size = shape.getSize()
-        old_w = int(old_size.Width)
-        old_h = int(old_size.Height)
+        old_w = old_size.Width
+        old_h = old_size.Height
         # Keep the long side and the corner the slot chains from: top-left in LTR,
         # top-right in RTL. Slots are flush only when created; resizing an earlier slot
         # here can leave a gap or an overlap next to a later slot, which stays put.
         new_size = _aspect_size(aspect, long_side=max(old_w, old_h))
         shape.setSize(new_size)
         if rtl:
-            shape.setPosition(Point(int(old_pos.X) + old_w - int(new_size.Width), int(old_pos.Y)))
+            shape.setPosition(Point(old_pos.X + old_w - new_size.Width, old_pos.Y))
     except (AttributeError, TypeError):
         log.debug("could not update existing plot geometry", exc_info=True)
 
@@ -891,14 +886,12 @@ def _insert_image_result_on_sheet_impl(
         if sheet is None:
             if ctrl is not None and ctrl.getActiveSheet():
                 sheet = ctrl.getActiveSheet()
-            elif hasattr(doc, "getSheets") and doc.getSheets().getCount() > 0:
+            elif doc.getSheets().getCount() > 0:
                 sheet = doc.getSheets().getByIndex(0)
             else:
                 _egress_fail("could not resolve a sheet for image insertion")
 
-        draw_page = getattr(sheet, "DrawPage", None)
-        if draw_page is None:
-            _egress_fail("target sheet has no DrawPage; image was not inserted")
+        draw_page = sheet.DrawPage
 
         if target_cell is None and ctrl is not None:
             target_cell = selection_top_left_cell(ctrl, sheet)

@@ -58,7 +58,7 @@ class _EvalCell:
     def __init__(self) -> None:
         self.formulas: list[str] = []
         self.Error = 0
-        self.FormulaResultType = 1
+        self.FormulaResultType2 = 1
         self.kind = None
         self.value: float | str = 7
         self.text = "7"
@@ -230,15 +230,15 @@ def test_evaluate_formula_defined_name_does_not_write_the_live_sheet():
     assert doc.temp.range_calls == []
 
 
-def test_evaluate_formula_nonzero_stays_a_float_when_result_kind_differs():
-    # FormulaResult.VALUE is 0 on some LibreOffice builds and 1 on others.
-    # A hardcoded 1 would send =2+3 through getString(), so the result would be
-    # the text "5" and the UNO check against 5.0 would fail.
+def test_evaluate_formula_nonzero_result_skips_the_result_type_read():
+    # A non-zero getValue() is always a number, so formula_cell_result returns it
+    # before reading FormulaResultType2. The fake has no such property, so a read
+    # would raise instead of returning 5.0.
     doc = _EvalDoc()
     doc.temp_cell.kind = FORMULA
     doc.temp_cell.value = 5
     doc.temp_cell.text = "5"
-    doc.temp_cell.FormulaResultType = 0
+    del doc.temp_cell.FormulaResultType2
 
     result = EvaluateFormula().execute(_eval_ctx(doc), formula="=2+3", cell="A1")
 
@@ -253,7 +253,7 @@ def test_evaluate_formula_numeric_zero_stays_a_number():
     doc.temp_cell.kind = FORMULA
     doc.temp_cell.value = 0.0
     doc.temp_cell.text = "0"
-    doc.temp_cell.FormulaResultType = 1
+    doc.temp_cell.FormulaResultType2 = 1
 
     result = EvaluateFormula().execute(_eval_ctx(doc), formula="=1-1", cell="A1")
 
@@ -266,7 +266,7 @@ def test_evaluate_formula_numeric_zero_stays_a_number():
     text_doc.temp_cell.kind = FORMULA
     text_doc.temp_cell.value = 0.0
     text_doc.temp_cell.text = "hello"
-    text_doc.temp_cell.FormulaResultType = 2
+    text_doc.temp_cell.FormulaResultType2 = 2
     text = EvaluateFormula().execute(_eval_ctx(text_doc), formula='="hello"', cell="A1")
     assert text["status"] == "ok"
     assert text["result"] == "hello"
@@ -279,7 +279,7 @@ def test_evaluate_formula_string_zero_stays_a_string():
         doc.temp_cell.kind = FORMULA
         doc.temp_cell.value = 0.0
         doc.temp_cell.text = text_val
-        doc.temp_cell.FormulaResultType = 2  # STRING, not VALUE
+        doc.temp_cell.FormulaResultType2 = 2  # STRING, not VALUE
 
         result = EvaluateFormula().execute(_eval_ctx(doc), formula=f'="{text_val}"', cell="A1")
         assert result["status"] == "ok"

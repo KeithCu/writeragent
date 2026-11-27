@@ -111,8 +111,8 @@ class ListSheets(ToolCalcSheetBase):
             entries.append(
                 {
                     "name": name,
-                    "protected": bool(sheet.isProtected()),
-                    "visible": bool(sheet.getPropertyValue("IsVisible")),
+                    "protected": sheet.isProtected(),
+                    "visible": sheet.getPropertyValue("IsVisible"),
                 }
             )
         log.info("Sheets listed: %s", [entry["name"] for entry in entries])

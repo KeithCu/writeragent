@@ -222,9 +222,9 @@ def _extract_range_info(nr: Any, scope: str, doc: Any) -> dict[str, Any]:
         },
     }
 
-    # getReferredCells is null for a formula name. A sheet range has getRangeAddress.
+    # getReferredCells is null for a formula name.
     cells = uno_read(nr.getReferredCells, None)
-    if cells is not None and hasattr(cells, "getRangeAddress"):
+    if cells is not None:
         addr = cells.getRangeAddress()
         range_str = format_range_address(addr, collapse_single=True)
         info["referred_range"] = {

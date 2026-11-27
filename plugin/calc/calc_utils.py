@@ -35,6 +35,8 @@ log = logging.getLogger(__name__)
 CELL_FLAG_DATETIME = 2  # com.sun.star.sheet.CellFlags.DATETIME
 CELL_FLAG_FORMULA = 16  # com.sun.star.sheet.CellFlags.FORMULA
 CELL_CONTENT_FLAGS = 23  # CellFlags: VALUE=1, DATETIME=2, STRING=4, FORMULA=16
+# com.sun.star.sheet.FormulaResult.VALUE (offapi/com/sun/star/sheet/FormulaResult.idl).
+FORMULA_RESULT_VALUE = 1
 
 
 def range_args(raw: Any, *, exactly_one: bool = False) -> list[Any]:
@@ -124,55 +126,24 @@ def anchor_shape_at_cell(sheet: Any, shape: Any, cell: Any) -> None:
     pos, size = get_cell_geometry(sheet, cell)
     shape.setPropertyValue("Anchor", cell)
     shape.setPropertyValue("ResizeWithCell", False)
-    x = int(pos.X)
+    x = pos.X
     if sheet_is_rtl(sheet):
-        x += int(size.Width) - int(shape.getSize().Width)
-    shape.setPosition(Point(x, int(pos.Y)))
-
-
-def _runtime_formula_result_value() -> int:
-    """``FormulaResult.VALUE`` on this LibreOffice, else 1.
-
-    A hardcoded ``1`` misses builds where ``VALUE`` is ``0``. The enum
-    module is not in the type stubs, so a ``from com.sun.star...`` import
-    fails ``ty``. ``uno.getConstantByName`` is the string lookup other
-    Calc code uses for the same constants.
-    """
-    try:
-        # String name, not an import: FormulaResult is absent from the type
-        # stubs, and ty rejects int() on the untyped constant. The runtime
-        # value is a plain int (0 on some builds, 1 on others).
-        raw = uno.getConstantByName("com.sun.star.sheet.FormulaResult.VALUE")
-        if type(raw) is not int:
-            raise TypeError("FormulaResult.VALUE is not an int")
-        return raw
-    except Exception:
-        return 1
+        x += size.Width - shape.getSize().Width
+    shape.setPosition(Point(x, pos.Y))
 
 
 def formula_cell_result(cell: Any) -> Any:
     """Return a formula cell's result, keeping numbers as floats.
 
-    Non-zero ``getValue()`` is always numeric. Zero uses ``FormulaResult.VALUE``
-    on this runtime (0 or 1 depending on build); text formulas keep ``getString()``.
+    Non-zero ``getValue()`` is always numeric. A zero is a number only when
+    ``FormulaResultType2`` is ``FormulaResult.VALUE``; text formulas keep
+    ``getString()``.
     """
     numeric = cell.getValue()
     if isinstance(numeric, bool) or not isinstance(numeric, (int, float)):
-        as_float = None
-    else:
-        as_float = float(numeric)
-    if as_float is not None and as_float != 0.0:
-        return as_float
-    kind = getattr(cell, "FormulaResultType2", None)
-    if not isinstance(kind, int):
-        kind = getattr(cell, "FormulaResultType", None)
-    runtime_val = _runtime_formula_result_value()
-    try:
-        kind_int = int(kind) if kind is not None else None
-    except (TypeError, ValueError):
-        kind_int = None
-    value_codes = {runtime_val} if runtime_val in (0, 1) else {0, 1}
-    if as_float is not None and kind_int in value_codes:
+        return cell.getString()
+    as_float = float(numeric)
+    if as_float != 0.0 or cell.FormulaResultType2 == FORMULA_RESULT_VALUE:
         return as_float
     return cell.getString()
 
