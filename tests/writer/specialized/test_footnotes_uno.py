@@ -9,7 +9,7 @@ from plugin.framework.config import get_config, save
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import native_writer_tool_context, pinned_writer_tool_context, with_native_doc
 from plugin.writer.specialized.footnotes import FootnotesDelete, FootnotesEdit, FootnotesInsert
-from tests.writer.doc_builders import list_redline_types, reject_all_changes
+from tests.writer.doc_builders import list_redline_types, list_redlines, reject_all_changes
 
 
 def _insert_note(doc, note_type, text):
@@ -168,18 +168,6 @@ def test_footnote_insert_uses_pinned_selection_uno(ctx, doc):
     assert "Second para" in text.getString()
 
 
-def _redlines_info(doc):
-    rls = doc.getRedlines()
-    return [
-        (
-            rls.getByIndex(i).getPropertyValue("RedlineType"),
-            rls.getByIndex(i).getPropertyValue("RedlineAuthor"),
-            rls.getByIndex(i).getPropertyValue("RedlineComment"),
-        )
-        for i in range(rls.getCount())
-    ]
-
-
 @native_test
 @with_native_doc("writer")
 def test_footnote_delete_in_record_mode_is_a_tagged_agent_change_uno(ctx, doc):
@@ -199,11 +187,11 @@ def test_footnote_delete_in_record_mode_is_a_tagged_agent_change_uno(ctx, doc):
     assert res.get("pending_review") is True
     assert res.get("review_mode") == "record"
     assert _supplier(doc, "footnote").getCount() == 1
-    rls = _redlines_info(doc)
+    rls = list_redlines(doc)
     assert len(rls) == 1
-    assert rls[0][0] == "Delete"
-    assert rls[0][1] == "WriterAgent"
-    assert rls[0][2].startswith("wa-review:")
+    assert rls[0]["type"] == "Delete"
+    assert rls[0]["RedlineAuthor"] == "WriterAgent"
+    assert rls[0]["RedlineComment"].startswith("wa-review:")
     assert doc.getPropertyValue("RecordChanges") is False
 
     reject_all_changes(doc, ctx)
@@ -230,8 +218,8 @@ def test_footnote_insert_in_record_mode_rejects_to_no_note_uno(ctx, doc):
 
     assert res["status"] == "ok", res
     assert res.get("tracked") is True
-    rls = _redlines_info(doc)
-    assert rls and all(author == "WriterAgent" for _t, author, _c in rls), rls
+    rls = list_redlines(doc)
+    assert rls and all(rl["RedlineAuthor"] == "WriterAgent" for rl in rls), rls
 
     reject_all_changes(doc, ctx)
     assert _supplier(doc, "footnote").getCount() == 0
