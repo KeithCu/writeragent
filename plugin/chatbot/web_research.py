@@ -489,13 +489,9 @@ WEB_SEARCH_STOPPED_MSG = "Web search stopped by user."
 
 
 def _user_stopped_payload() -> dict[str, Any]:
-<<<<<<< HEAD
     from plugin.framework.errors import user_stopped_payload
 
-    return user_stopped_payload("Web search stopped by user.")
-=======
-    return format_error_payload(ToolExecutionError(WEB_SEARCH_STOPPED_MSG, code="USER_STOPPED"))
->>>>>>> origin/master
+    return user_stopped_payload(WEB_SEARCH_STOPPED_MSG)
 
 
 def _run_web_agent(
