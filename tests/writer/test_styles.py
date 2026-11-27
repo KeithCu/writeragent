@@ -30,6 +30,20 @@ from plugin.framework.send_cancellation import SendCancellation
 from plugin.tests.testing_utils import DisposedException, TestingFactory, WriterDocStub
 
 
+@pytest.fixture(autouse=True)
+def _fill_style_tool_defaults(monkeypatch):
+    """Inject schema defaults for direct tool.execute() calls in unit tests."""
+    for cls in (ApplyStyle, StyleFormatText, StyleImport):
+        orig = cls.execute
+        props = (cls.parameters or {}).get("properties", {})
+        defaults = {k: v["default"] for k, v in props.items() if "default" in v}
+
+        def _wrapped(self, ctx, _orig=orig, _defaults=defaults, **kwargs):
+            return _orig(self, ctx, **{**_defaults, **kwargs})
+
+        monkeypatch.setattr(cls, "execute", _wrapped)
+
+
 def create_mock_style(name, display_name=None, is_in_use=False, is_user_defined=False, is_physical=True, is_hidden=False, category=None):
     style = MagicMock()
     style.isInUse.return_value = is_in_use
@@ -280,18 +294,16 @@ def test_get_style_info_page_styles_returns_page_properties():
 
 def test_apply_style_clear_direct_schema_default_matches_runtime():
     """Small models read the schema; schema default must match the ParagraphStyles runtime default."""
-    assert (
-        ApplyStyle.parameters["properties"]["clear_direct"]["default"]
-        == ApplyStyle._resolve_clear_direct("ParagraphStyles", None)
-    )
+    default = ApplyStyle.parameters["properties"]["clear_direct"]["default"]
+    assert ApplyStyle._resolve_clear_direct("ParagraphStyles", default) == "style_props"
 
 
 def test_resolve_clear_direct_defaults():
-    assert ApplyStyle._resolve_clear_direct("ParagraphStyles", None) == "style_props"
-    assert ApplyStyle._resolve_clear_direct("ParagraphStyles", "") == "style_props"
+    assert ApplyStyle._resolve_clear_direct("ParagraphStyles", "style_props") == "style_props"
     assert ApplyStyle._resolve_clear_direct("ParagraphStyles", "none") == "none"
-    assert ApplyStyle._resolve_clear_direct("CharacterStyles", None) == "none"
+    assert ApplyStyle._resolve_clear_direct("ParagraphStyles", "all") == "all"
     assert ApplyStyle._resolve_clear_direct("CharacterStyles", "style_props") == "none"
+    assert ApplyStyle._resolve_clear_direct("CharacterStyles", "none") == "none"
     assert ApplyStyle._resolve_clear_direct("CharacterStyles", "all") == "all"
 
 
@@ -400,14 +412,16 @@ def test_apply_style_clear_direct_rejected_for_character_styles(mock_resolve, mo
     assert "ParagraphStyles" in res["message"]
 
 
-@patch("plugin.writer.styles.resolve_target_cursor")
-def test_apply_style_rejects_unknown_clear_direct(mock_resolve, mock_ctx):
-    mock_resolve.return_value = MagicMock()
+def test_apply_style_rejects_unknown_clear_direct(mock_ctx):
+    from types import SimpleNamespace
+    from plugin.framework.tool import prepare_tool_call
 
-    res = ApplyStyle().execute(mock_ctx, style="Standard", target="selection", clear_direct="yes")
-
-    assert res["status"] == "error"
-    assert "clear_direct" in res["message"]
+    prep = prepare_tool_call(
+        ApplyStyle(), SimpleNamespace(doc_type="writer", caller="test"), "apply_style",
+        {"style": "Standard", "target": "selection", "clear_direct": "yes"},
+    )
+    assert prep.error is not None
+    assert "clear_direct" in prep.error["message"]
 
 
 @patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char")
@@ -1182,11 +1196,17 @@ def test_create_style_character_conditional_rules_error():
 
 
 def test_style_update_rejects_nondict_and_empty():
+    from types import SimpleNamespace
+    from plugin.framework.tool import prepare_tool_call
+
     ctx = _ctx_with_families(ParagraphStyles=_style_family({"MyStyle": MagicMock()}))
 
-    res1 = StyleUpdate().execute(ctx, style="MyStyle", family="ParagraphStyles", property_updates=["CharWeight"])
-    assert res1["status"] == "error"
-    assert "property_updates must be an object." in res1["message"]
+    prep = prepare_tool_call(
+        StyleUpdate(), SimpleNamespace(doc_type="writer", caller="test"), "style_update",
+        {"style": "MyStyle", "family": "ParagraphStyles", "property_updates": ["CharWeight"]},
+    )
+    assert prep.error is not None
+    assert "property_updates" in prep.error["message"]
 
     res2 = StyleUpdate().execute(ctx, style="MyStyle", family="ParagraphStyles")
     assert res2["status"] == "error"
@@ -1507,32 +1527,29 @@ def test_copy_direct_style_properties_reraises_disposed():
 
 
 def test_clone_text_style_parent_read_reraises_disposed():
-    from plugin.framework.errors import DocumentDisposedError
     from plugin.writer.styles import _clone_text_style
 
     source = MagicMock()
     source.getParentStyle.side_effect = DisposedException("gone")
     doc = MagicMock()
     doc.createInstance.return_value = MagicMock()
-    with pytest.raises(DocumentDisposedError):
+    with pytest.raises(DisposedException):
         _clone_text_style(doc, "CharacterStyles", source, "New", MagicMock())
 
 
 def test_style_update_snapshot_reraises_disposed():
-    from plugin.framework.errors import DocumentDisposedError
-
     style = MagicMock()
     style.getParentStyle.side_effect = DisposedException("gone")
     fam = _style_family({"MyStyle": style, "Standard": MagicMock()})
     ctx = _ctx_with_families(ParagraphStyles=fam)
-    with pytest.raises(DocumentDisposedError):
+    with pytest.raises(DisposedException):
         StyleUpdate().execute(ctx, style="MyStyle", family="ParagraphStyles", parent_style="Standard", property_updates={})
 
     style = MagicMock()
     style.getParentStyle.side_effect = ["Standard", DisposedException("gone")]
     fam = _style_family({"MyStyle": style, "Standard": MagicMock()})
     ctx = _ctx_with_families(ParagraphStyles=fam)
-    with pytest.raises(DocumentDisposedError):
+    with pytest.raises(DisposedException):
         StyleUpdate().execute(ctx, style="MyStyle", family="ParagraphStyles", parent_style="Standard", property_updates={})
 
 
@@ -1555,7 +1572,7 @@ def test_style_list_reraises_disposed_on_category_and_parent():
     style = create_mock_style("StyleB", is_in_use=True)
     style.getParentStyle.side_effect = DisposedException("gone")
     ctx = _ctx_with_families(CharacterStyles=_style_family({"StyleB": style}))
-    with pytest.raises(DocumentDisposedError):
+    with pytest.raises(DisposedException):
         StyleList().execute(ctx, family="CharacterStyles")
 
 
@@ -1667,8 +1684,11 @@ def test_apply_style_suggests_call_when_single_close_match():
         "tool": "apply_style",
         "arguments": {
             "style": "Heading 1",
+            "family": "ParagraphStyles",
             "target": "search",
             "old_content": "Introduction",
+            "all_matches": False,
+            "clear_direct": "style_props",
         },
     }
 
@@ -1734,9 +1754,15 @@ def test_apply_style_parameter_validations():
     assert res["code"] == "INVALID_PARAM"
 
     # Invalid clear_direct value
-    res = tool.execute(ctx, style="Heading 1", clear_direct="invalid")
-    assert res["status"] == "error"
-    assert res["code"] == "INVALID_PARAM"
+    from types import SimpleNamespace
+    from plugin.framework.tool import prepare_tool_call
+
+    prep = prepare_tool_call(
+        tool, SimpleNamespace(doc_type="writer", caller="test"), "apply_style",
+        {"style": "Heading 1", "clear_direct": "invalid"},
+    )
+    assert prep.error is not None
+    assert prep.error["code"] == "VALIDATION_ERROR"
 
     # clear_direct on CharacterStyles
     res = tool.execute(ctx, style="Emphasis", family="CharacterStyles", clear_direct="all")

@@ -17,7 +17,7 @@ from typing import Any
 
 # Minimal stdlib-only bootstrap (same walk as ai_grammar_proofreader) before plugin imports.
 _this = os.path.abspath(__file__)
-for __ in range(4):
+for _idx in range(4):
     _this = os.path.dirname(_this)
 if _this not in sys.path:
     sys.path.insert(0, _this)
@@ -28,19 +28,17 @@ ensure_plugin_on_path(__file__, levels_up=4, also_add_lib=True)
 
 import unohelper
 
-
+from plugin.framework.config import init_config, user_config_dir
+from plugin.framework.constants import EXTENSION_ID_LIBREHARPER
 from plugin.writer.locale import grammar_settings
 from plugin.writer.locale.ai_grammar_proofreader import (
     SERVICE_NAME,
     WriterAgentAiGrammarProofreader,
 )
 from plugin.writer.locale.grammar_proofread_locale import uno_locales_for_tags
+from plugin.writer.locale.harper import HARPER_LOCALE_TAGS, maybe_start_harper_async
 
 log = logging.getLogger("writeragent.grammar")
-
-from plugin.framework.config import init_config, user_config_dir
-from plugin.framework.constants import EXTENSION_ID_LIBREHARPER
-from plugin.writer.locale.harper import HARPER_LOCALE_TAGS, maybe_start_harper_async
 
 IMPLEMENTATION_NAME = f"{EXTENSION_ID_LIBREHARPER}.comp.pyuno.HarperProofreader"
 SERVICE_DISPLAY_NAME = "LibreHarper"
@@ -95,12 +93,13 @@ class HarperProofreader(WriterAgentAiGrammarProofreader):  # pyright: ignore[rep
             )
         if skip_register_ui:
             return
-        # LibreHarper has no OnStartApp job; start harper-ls only once the profile path exists.
+        # LibreHarper has no OnStartApp job; start harper-ls only once the profile path exists
+        # (an empty path would resolve harper/ relative to soffice cwd and FAIL).
         try:
             init_config(ctx)
             ucd = user_config_dir() or ""
             if ucd:
-                maybe_start_harper_async(ctx, user_config_dir=ucd)
+                maybe_start_harper_async(ucd)
         except Exception as e:
             log.warning("[grammar] LibreHarper harper warmup start failed: %s", e)
 

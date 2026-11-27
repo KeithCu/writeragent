@@ -167,7 +167,7 @@ def _read_installed_version(harper_dir: Path) -> str | None:
     try:
         version = sidecar.read_text(encoding="utf-8").strip()
         return version or None
-    except Exception:
+    except (OSError, UnicodeDecodeError):
         return None
 
 
@@ -181,7 +181,7 @@ def _download_harper_binary(dest_path: Path, release: HarperReleaseAsset, *, hea
     is_tarball = release.asset_name.endswith((".tar.gz", ".tgz"))
     extract_suffix = ".untar" if is_tarball else ".unzip"
     downloader = HTTPDownloader(headers={"User-Agent": USER_AGENT}, timeout=_DOWNLOAD_TIMEOUT_SEC, max_bytes=_DOWNLOAD_MAX_BYTES)
-    tmp_binary = dest_path.parent / f".harper-ls{'.exe' if os.name == 'nt' else ''}.download"
+    tmp_binary = dest_path.parent / f".{dest_path.name}.download"
 
     try:
         with tempfile.TemporaryDirectory(prefix="writeragent-harper-") as tmp_dir:
@@ -213,7 +213,7 @@ def _download_harper_binary(dest_path: Path, release: HarperReleaseAsset, *, hea
         log.exception("[harper] Failed to download and extract binary")
         raise RuntimeError(f"Failed to auto-download Harper binary: {e}") from e
     finally:
-        best_effort(lambda: tmp_binary.unlink() if tmp_binary.exists() else None, "[harper] temp binary unlink failed")
+        best_effort(lambda: tmp_binary.unlink(missing_ok=True), "[harper] temp binary unlink failed")
 
 
 def get_harper_binary(user_config_dir: str, *, heartbeat_fn: Callable[[dict[str, str]], None] | None = None) -> str:

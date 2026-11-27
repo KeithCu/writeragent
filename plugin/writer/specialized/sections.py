@@ -31,7 +31,7 @@ from plugin.doc.text_helpers import (
 )
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.doc.visual_helpers import mm_to_unit
-from plugin.framework.errors import ToolExecutionError, name_miss_details
+from plugin.framework.errors import ToolExecutionError
 
 from ..edit_review import flag_style_unreviewed
 from ..page import apply_column_layout, column_layout_error
@@ -80,7 +80,7 @@ def _section_or_error(
     # uiregionsw.cxx:SwEditRegionDlg::CheckPasswd guards protection, removal, and columns;
     # UNO itself does not enforce ProtectionKey, so refuse here rather than bypassing it.
     key = section.getPropertyValue("ProtectionKey")
-    if len(key):
+    if key:
         if current_password is None:
             return tool._tool_error(
                 f"Section '{name}' has a password; pass it as current_password to section_set_password to remove it, or change it in Format > Sections.",
@@ -123,15 +123,15 @@ def _password_matches(key: Any, password: str) -> bool:
     return any(key == d for d in digests)
 
 
-def _section_summary(name: str, section: Any) -> dict[str, Any]:
+def _section_summary(name: str, section: Any, *, is_visible: bool | None = None) -> dict[str, Any]:
     is_index = section.getPropertyValue("DocumentIndex") is not None
     prot_key = section.getPropertyValue("ProtectionKey")
-    has_password = bool(prot_key and len(prot_key))
+    has_password = bool(prot_key)
     cols = section.getPropertyValue("TextColumns")
     column_count = max(1, int(cols.getColumnCount())) if cols is not None else 1
     return {
         "name": name,
-        "is_visible": section.IsVisible,
+        "is_visible": section.IsVisible if is_visible is None else is_visible,
         "is_protected": section.IsProtected,
         "is_index": is_index,
         "has_password": has_password,
@@ -151,7 +151,7 @@ def _visibility_fields(section: Any) -> dict[str, Any]:
     visible = bool(section.getPropertyValue("IsVisible"))
     # SwSection::CalcHiddenFlag (sw/source/core/docnode/section.cxx) hides a section when it
     # or any ancestor section is hidden.
-    shown = _own_shown(section)
+    shown = visible or bool(section.getPropertyValue("IsCurrentlyVisible"))
     parent = section.getParentSection()
     while shown and parent is not None:
         shown = _own_shown(parent)
@@ -281,18 +281,17 @@ class SectionGetInfo(ToolWriterSectionBase):
     is_mutation: bool | None = False
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        name: str | None = kwargs.get("name")
+        name: str = kwargs["name"]
         section = _find_section(self, ctx, name)
         if isinstance(section, dict):
             return section
-        assert name is not None
         parent = section.getParentSection()
         children = section.getChildSections()
+        vis = _visibility_fields(section)
         return {
             "status": "ok",
-            **_section_summary(name, section),
-            # Overrides summary's is_visible with the typed getPropertyValue read.
-            **_visibility_fields(section),
+            **_section_summary(name, section, is_visible=vis["is_visible"]),
+            **vis,
             **_margin_fields(section),
             "parent_section": parent.getName() if parent is not None else None,
             "child_sections": [c.getName() for c in children],
@@ -314,22 +313,12 @@ class SectionRead(ToolWriterSectionBase):
     is_mutation: bool | None = False
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        # Accept legacy section= alias alongside standardized name=.
-        section_name = kwargs.get("name") or kwargs.get("section")
-        if not section_name:
-            return self._tool_error("name is required.")
+        section_name: str = kwargs["name"]
+        section = _find_section(self, ctx, section_name)
+        if isinstance(section, dict):
+            return section
 
         doc = ctx.doc
-        sections = doc.getTextSections()
-        if not sections.hasByName(section_name):
-            available = list(sections.getElementNames())
-            return self._tool_error(
-                "Section '%s' not found." % section_name,
-                available=available,
-                **name_miss_details(section_name, [str(n) for n in available], "section_list"),
-            )
-
-        section = sections.getByName(section_name)
         anchor = section.getAnchor()
 
         enum = anchor.createEnumeration()
@@ -395,9 +384,7 @@ class SectionCreate(ToolWriterSectionBase):
             return self._tool_error("name is required.")
 
         doc = ctx.doc
-        sections = self.get_collection(doc, "getTextSections", "Document does not support text sections.")
-        if isinstance(sections, dict):
-            return sections
+        sections = doc.getTextSections()
 
         # SwXTextSection::attach -> GetUniqueSectionName would otherwise rename duplicates silently to SectionN.
         if sections.hasByName(name):
@@ -682,7 +669,7 @@ class SectionSetPassword(ToolWriterSectionBase):
             lambda: {
                 "status": "ok",
                 "section_name": name,
-                "has_password": bool(len(section.getPropertyValue("ProtectionKey"))),
+                "has_password": bool(section.getPropertyValue("ProtectionKey")),
                 "is_protected": bool(section.getPropertyValue("IsProtected")),
             },
         )

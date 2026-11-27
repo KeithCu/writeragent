@@ -73,7 +73,7 @@ def _frame_from_controller(obj: Any) -> Any | None:
         controller = obj.getCurrentController()
         if controller is None:
             return None
-        return cast("Any", controller).getFrame()
+        return controller.getFrame()
     except Exception:
         return None
 
@@ -391,7 +391,7 @@ class StatusBarGrammarStatus(GrammarStatus):
         except Exception as e:
             log.debug("[grammar] status bar emit failed: %s", e, exc_info=True)
 
-    def _paint(self, phase: str, result: str = "", routine: bool = False) -> None:
+    def _paint(self, phase: str, result: str, routine: bool) -> None:
         """Update the LibreOffice window status bar using XStatusIndicator."""
         prefix = self._label
         msg = f"{prefix}: {result or 'Checking...'}"

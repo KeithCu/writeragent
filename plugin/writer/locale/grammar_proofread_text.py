@@ -113,11 +113,6 @@ def get_break_iterator_and_locale(ctx: Any, loc_key: str | None) -> tuple[Any, A
 
 
 # ---------------------------------------------------------------------------
-# Sentence splitting (BreakIterator + abbrev heuristic; Thai/Lao/Khmer whitespace)
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
 # Abbreviations before "." (BreakIterator sentence extension)
 # ---------------------------------------------------------------------------
 #
@@ -211,9 +206,9 @@ def split_into_sentences(ctx: Any, locale_key: str, text: str) -> list[tuple[int
                 while j >= pos and not text[j].isspace() and text[j] not in ".!?":
                     j -= 1
                 word = text[j + 1 : i].lstrip(_ABBREV_LEADING_OPENERS)
-                abbrev_len = word_before_period_is_abbrev(word)  # Returns alpha char count (1-6) or 1 for pure numbers
+                abbrev_len = word_before_period_is_abbrev(word)
                 grammar_obs("word_before_period_is_abbrev", word=word, abbrev_len=abbrev_len)
-                if abbrev_len > 0:  # >0 means it's an abbreviation or number
+                if abbrev_len > 0:
                     # Cursor k: advance past the period, trailing closers, and following whitespace to set the
                     # clean restart position for BreakIterator.
                     k = i + 1
@@ -534,7 +529,6 @@ def normalize_errors_for_text(full_text: str, items: Iterable[dict[str, Any]], c
                 continue
             used_spans.append(span)
 
-        # 4. Build and append the NormalizedProofError
         results.append(_build_normalized_error(pos, length, it, correct))
 
     return results

@@ -70,7 +70,7 @@ def test_harper_proofreader_initialization_starts_harper_warmup() -> None:
         patch("plugin.writer.locale.harper_proofreader.maybe_start_harper_async") as mock_start,
     ):
         HarperProofreader(ctx)
-        mock_start.assert_called_once_with(ctx, user_config_dir="/tmp/lo-user")
+        mock_start.assert_called_once_with("/tmp/lo-user")
 
 
 def test_harper_proofreader_skips_register_side_effects_on_no_vcl() -> None:

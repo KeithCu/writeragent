@@ -26,10 +26,11 @@ from functools import lru_cache
 import logging
 import re
 import time
-from typing import Any
+from typing import Any, NoReturn
 import unicodedata
 
-from plugin.framework.errors import ToolExecutionError
+from plugin.framework.errors import ToolExecutionError, is_disposal
+from plugin.framework.grammar_rule_ids import ISO_TO_SNOWBALL
 from plugin.framework.service import ServiceBase
 from plugin.doc.document_helpers import is_cacheable_doc_key
 from plugin.writer.locale.stop_words import stop_words_for_snowball
@@ -38,8 +39,6 @@ from plugin.doc.text_helpers import TrackedDeletions, get_string_without_tracked
 log = logging.getLogger("writeragent.writer.index")
 
 # ── Language mapping (ISO 639-1 -> snowballstemmer algorithm) ─────────
-
-from plugin.framework.grammar_rule_ids import ISO_TO_SNOWBALL
 
 # ── Tokenisation ──────────────────────────────────────────────────────
 
@@ -199,8 +198,9 @@ class IndexService(ServiceBase):
                 iso = _locale_language(doc.getPropertyValue(prop))
                 if iso is not None:
                     return iso
-            except Exception:  # noqa: S110 - not every document model exposes all three
-                pass
+            except Exception as exc:  # not every document model exposes all three
+                if is_disposal(exc):
+                    raise
         text_obj = doc.getText()
         enum = text_obj.createEnumeration()
         state = TrackedDeletions(doc).state_at(text_obj)
@@ -211,7 +211,9 @@ class IndexService(ServiceBase):
                 continue
             try:
                 loc = el.getPropertyValue("CharLocale")
-            except Exception:  # noqa: S112 - missing CharLocale property falls through to next paragraph
+            except Exception as exc:  # missing CharLocale property falls through to next paragraph
+                if is_disposal(exc):
+                    raise
                 continue
             iso = _locale_language(loc)
             if iso is not None:
@@ -258,11 +260,7 @@ class IndexService(ServiceBase):
                 for t in raw_tokens(text):
                     if t not in stop_words:
                         stem = stemmer.stemWord(t)
-                        s = idx.terms.get(stem)
-                        if s is None:
-                            s = set()
-                            idx.terms[stem] = s
-                        s.add(para_i)
+                        idx.terms.setdefault(stem, set()).add(para_i)
             else:
                 idx.para_texts.append("[Table]")
 
@@ -280,7 +278,7 @@ class IndexService(ServiceBase):
         not_stems: list[str] = []
         dropped_stops: list[str] = []
 
-        def fail(msg: str) -> None:
+        def fail(msg: str) -> NoReturn:
             dropped = sorted(set(dropped_stops))
             if dropped:
                 msg += " (stop words dropped: %s)" % ", ".join(dropped)

@@ -6,8 +6,8 @@
 
 Architecture and module map: ``docs/writer/grammar-checker-plan.md``.
 UNO service ``__init__(self, ctx, *args)`` is required (LibreOffice uses
-``createInstanceWithArgumentsAndContext``). Keep top-level imports minimal —
-see stdlib-only bootstrap above before ``plugin.*`` imports.
+``createInstanceWithArgumentsAndContext``). Keep the imports above the
+bootstrap stdlib-only: the bootstrap below must run before any ``plugin.*`` import.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ import time
 # Minimal stdlib-only bootstrap (must run before the "from plugin..." import below)
 # because unopkg writeRegistryInfo loads this file before the OXT root is on sys.path.
 _this = os.path.abspath(__file__)
-for __ in range(4):  # writer/locale/ai_grammar_proofreader.py → writer/locale/ → writer/ → plugin/ → extension root
+for _idx in range(4):  # writer/locale/ai_grammar_proofreader.py → writer/locale/ → writer/ → plugin/ → extension root
     _this = os.path.dirname(_this)
 if _this not in sys.path:
     sys.path.insert(0, _this)
@@ -43,27 +43,6 @@ from com.sun.star.linguistic2 import XProofreader, XSupportedLocales, XLinguServ
 from com.sun.star.text import XFlatParagraph
 
 from plugin.writer.locale import grammar_settings
-
-log = logging.getLogger("writeragent.grammar")
-
-IMPLEMENTATION_NAME = "org.extension.writeragent.comp.pyuno.AiGrammarProofreader"
-SERVICE_NAME = "com.sun.star.linguistic2.Proofreader"
-
-
-def _advance_past_leading_whitespace(text: str, index: int) -> int:
-    """Advance ``index`` while ``text[index]`` is Unicode whitespace (not ASCII space only)."""
-    n = min(max(0, index), len(text))
-    while n < len(text) and text[n].isspace():
-        n += 1
-    return n
-
-
-# INFO once when grammar is off (Writer still calls doProofreading); reset when enabled again.
-# Several Linguistic workers can enter doProofreading together. The lock makes that
-# notice exact-once for a disabled stretch; a concurrent enable still clears it.
-_GRAMMAR_DISABLED_NOTICE_LOCK = threading.Lock()
-_GRAMMAR_DISABLED_NOTICE_EMITTED = False
-
 from plugin.writer.locale.grammar_ignore_rules import (
     IgnoreSet,
     canonical_rule_key,
@@ -103,6 +82,26 @@ from plugin.framework.thread_guard import background_if_dummy_thread, guard_uno
 if TYPE_CHECKING:
     import types
 
+log = logging.getLogger("writeragent.grammar")
+
+IMPLEMENTATION_NAME = "org.extension.writeragent.comp.pyuno.AiGrammarProofreader"
+SERVICE_NAME = "com.sun.star.linguistic2.Proofreader"
+
+
+def _advance_past_leading_whitespace(text: str, index: int) -> int:
+    """Advance ``index`` while ``text[index]`` is Unicode whitespace (not ASCII space only)."""
+    n = min(max(0, index), len(text))
+    while n < len(text) and text[n].isspace():
+        n += 1
+    return n
+
+
+# INFO once when grammar is off (Writer still calls doProofreading); reset when enabled again.
+# Several Linguistic workers can enter doProofreading together. The lock makes that
+# notice exact-once for a disabled stretch; a concurrent enable still clears it.
+_GRAMMAR_DISABLED_NOTICE_LOCK = threading.Lock()
+_GRAMMAR_DISABLED_NOTICE_EMITTED = False
+
 BIND_RETRY_SEC: float = 1.5
 
 
@@ -123,24 +122,13 @@ def _clear_grammar_disabled_notice() -> None:
         _GRAMMAR_DISABLED_NOTICE_EMITTED = False
 
 
+# Not importing plugin.framework.doc_type: not shipped in LibreHarper OXT.
 _TEXT_DOCUMENT_SERVICE = "com.sun.star.text.TextDocument"
-
-
-def _harper_module() -> types.ModuleType:
-    """Return ``plugin.writer.locale.harper``, importing it on first use."""
-    # Weight: harper.py loads the harper-ls LSP client and binary downloader; import it only on the Harper path.
-    from plugin.writer.locale import harper
-
-    return harper
 
 
 def _is_text_document(model: Any) -> bool:
     """True only when UNO reports a Writer model; ``None`` is not a document."""
     return uno_context.supports_service(model, _TEXT_DOCUMENT_SERVICE)
-
-
-def _current_component(desktop: Any) -> Any | None:
-    return desktop.getCurrentComponent() if hasattr(desktop, "getCurrentComponent") else None
 
 
 # Starts with a private-use character, so no document paragraph equals it.
@@ -225,8 +213,16 @@ def _ensure_persistence_bound(ctx: Any, doc_id: str, locale: Any) -> Any | None:
         return None
 
 
+def _harper_module() -> types.ModuleType:
+    """Return ``plugin.writer.locale.harper``, importing it on first use."""
+    # Weight: harper.py loads the harper-ls LSP client and binary downloader; import it only on the Harper path.
+    from plugin.writer.locale import harper
+
+    return harper
+
+
 def _ignore_rule_on_main(doc_id: str, rule_identifier: str) -> None:
-    ignore_rule_add(str(rule_identifier))
+    ignore_rule_add(rule_identifier)
     p = grammar_persistence.get_persistence(doc_id)
     if not p:
         return
@@ -256,8 +252,7 @@ def _proofreading_markup_type() -> int:
     global _PROOFREADING_MARKUP_TYPE
     if _PROOFREADING_MARKUP_TYPE is not None:
         return _PROOFREADING_MARKUP_TYPE
-    v: Any = uno.getConstantByName("com.sun.star.text.TextMarkupType.PROOFREADING")
-    _PROOFREADING_MARKUP_TYPE = int(cast("int | float | str", v))
+    _PROOFREADING_MARKUP_TYPE = int(cast("Any", uno.getConstantByName("com.sun.star.text.TextMarkupType.PROOFREADING")))
     return _PROOFREADING_MARKUP_TYPE
 
 
@@ -301,14 +296,14 @@ def ensure_writeragent_proofreader_configured(ctx: Any) -> None:
     from plugin.framework.config import init_config, user_config_dir
 
     init_logging(ctx)
-    log.debug("[grammar] ensure_proofreader_selection: entry")
+    log.debug("[grammar] ensure_writeragent_proofreader_configured: entry")
     try:
         init_config(ctx)
     except Exception as e:
-        log.debug("[grammar] ensure_proofreader_selection: init_config: %s", e)
+        log.debug("[grammar] ensure_writeragent_proofreader_configured: init_config: %s", e)
     enabled = grammar_settings.is_grammar_enabled()
     if not enabled:
-        log.info("[grammar] ensure_proofreader_selection: Doc-tab AI grammar off (enable on Doc tab to use the checker)")
+        log.info("[grammar] ensure_writeragent_proofreader_configured: Doc-tab AI grammar off (enable on Doc tab to use the checker)")
         return
     try:
         ucd = user_config_dir() or ""
@@ -317,10 +312,11 @@ def ensure_writeragent_proofreader_configured(ctx: Any) -> None:
     if not ucd:
         log.debug("[grammar] skip harper warmup: user config dir not ready")
         return
+    # Empty profile path would resolve harper/ relative to soffice cwd and FAIL.
     try:
-        _harper_module().maybe_start_harper_async(ctx, user_config_dir=ucd)
+        _harper_module().maybe_start_harper_async(ucd)
     except Exception as e:
-        log.warning("[grammar] OnStartApp: could not warmup harper: %s", e)
+        log.warning("[grammar] ensure_writeragent_proofreader_configured: could not warmup harper: %s", e)
     log.info("[grammar] Doc-tab AI grammar on — if Writer does not underline yet, set WriterAgent as the active grammar checker under Tools → Options → Language Settings → Writing aids for the document language (same locales as the extension’s UI translation set).")
 
 
@@ -369,8 +365,7 @@ def _apply_proofreading_end_positions(
 
     Skips spaces after ``covered_end`` so Writer advances past inter-sentence whitespace.
     """
-    n_next = min(max(0, covered_end), len(a_text))
-    n_next = _advance_past_leading_whitespace(a_text, n_next)
+    n_next = _advance_past_leading_whitespace(a_text, covered_end)
     _set_proofreading_end_positions(a_res, n_next, u16_map)
 
 
@@ -419,8 +414,8 @@ def _obs_result_window(
     """Emit final ``do_proofreading_result_window`` after cache / Harper / enqueue.
 
     ``n_errors`` is the Python list we built; ``n_aErrors`` is ``len(a_res.aErrors)``
-    after UNO conversion. Grep ``stage='final'`` — this is not the pre-fast-path
-    cache snapshot (empty lint vs Linguistic paint drop).
+    after UNO conversion. The event carries ``stage='final'``: it describes the
+    list returned to Writer, after cache, Harper and enqueue.
     """
     if not log.isEnabledFor(logging.DEBUG):
         return
@@ -616,7 +611,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         uncached_spans: list[tuple[int, int, str]] = []
         is_llm = checker_identity.startswith("llm:")
         max_chars = grammar_proofread_locale.grammar_max_chars() if is_llm else 0
-        for sent_start, _sent_end, sent_text in work_spans:
+        for sent_start, sent_end, sent_text in work_spans:
             lookup_text = (
                 grammar_proofread_locale.checked_grammar_text(sent_text, max_chars)
                 if is_llm
@@ -625,7 +620,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             cached = cache_get_sentence(loc_key, lookup_text, doc_id=a_doc_id, checker_identity=checker_identity)
             grammar_obs("do_proofreading_sentence_cache", doc_id=a_doc_id, sent_start=sent_start, sent_len=len(sent_text), cache_hit=cached is not None, sent_preview=slice_preview_debug(sent_text, 48))
             if cached is None:
-                uncached_spans.append((sent_start, _sent_end, sent_text))
+                uncached_spans.append((sent_start, sent_end, sent_text))
                 continue
             _append_shifted_errors(cached, sent_start, combined_errors)
         return combined_errors, uncached_spans
@@ -751,7 +746,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                     sentence_count=len(active_spans),
                     n_start_lo=nStartOfSentencePosition,
                     n_suggested_behind_end=nSuggestedBehindEndOfSentencePosition,
-                    n_next=getattr(a_res, "nStartOfNextSentencePosition", None),
+                    n_next=a_res.nStartOfNextSentencePosition,
                 )
 
                 # 3. Cache lookup. Harper is synchronous: return only the sentence(s)
@@ -772,9 +767,8 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                     else reconcile_active_and_paragraph_spans(active_spans, uncached_cache_spans)
                 )
 
-                # Result-window obs waits until Harper (or enqueue) has built the
-                # list we actually return. Emitting n_errors before _try_harper_fast_path
-                # looked like an empty lint when headed later dropped paint.
+                # The result-window obs runs after Harper (or enqueue) has built the list
+                # this call returns, so n_errors matches aErrors.
                 result_source = "cache"
                 if not uncached_active_spans:
                     grammar_obs("do_proofreading_cache_all_hit", doc_id=aDocumentIdentifier, grammar_bcp47=loc_key, sentence_count=len(active_spans), error_count=len(combined_errors))
@@ -827,7 +821,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             desktop = uno_context.get_desktop(self.ctx)
             if desktop is None:
                 return None
-            current = _current_component(desktop)
+            current = desktop.getCurrentComponent()
             if current is not None:
                 uid = uno_context.get_runtime_uid(current)
                 if uid and uid in self._doc_id_for_ignore:
@@ -894,10 +888,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         pending = self._pending_proofread_again
         ready = False
         if not pending:
-            try:
-                ready = self._resolved_profile().provider == "harper" and _harper_module().runtime.is_ready()
-            except Exception:
-                ready = False
+            ready = self._resolved_profile().provider == "harper" and _harper_module().runtime.is_ready()
         if not pending and not ready:
             return
         self._first_listener_proofread_again_done = True
@@ -910,15 +901,14 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
     def broadcast_proofread_again(self) -> None:
         """Ask Writer's grammar iterator to walk the document again (PROOFREAD_AGAIN)."""
         if not self._lingu_listeners:
-            # Remember the miss: first addLinguServiceEventListener recovers it.
-            # ``_pending_proofread_again`` schedules a later proofread when the first
-            # listener attach fails, so grammar marks are not stuck off until restart.
+            # No listener yet: remember the request. addLinguServiceEventListener
+            # replays it once when Writer attaches the first listener.
             self._pending_proofread_again = True
             return
         self._pending_proofread_again = False
-        event = uno.createUnoStruct("com.sun.star.linguistic2.LinguServiceEvent")
-        setattr(event, "Source", self)
-        setattr(event, "nEvent", 8)  # com.sun.star.linguistic2.LinguServiceEventFlags.PROOFREAD_AGAIN
+        event = cast("Any", uno.createUnoStruct("com.sun.star.linguistic2.LinguServiceEvent"))
+        event.Source = self
+        event.nEvent = int(cast("Any", uno.getConstantByName("com.sun.star.linguistic2.LinguServiceEventFlags.PROOFREAD_AGAIN")))
         for listener in list(self._lingu_listeners):
             try:
                 listener.processLinguServiceEvent(event)

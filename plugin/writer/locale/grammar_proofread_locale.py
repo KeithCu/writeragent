@@ -22,7 +22,7 @@ from typing import Any, Sequence
 from plugin.framework.grammar_rule_ids import bcp47_to_uno_lang_country
 from plugin.writer.locale import grammar_settings
 
-_log = logging.getLogger("writeragent.grammar")
+log = logging.getLogger("writeragent.grammar")
 
 
 # ---------------------------------------------------------------------------
@@ -62,11 +62,11 @@ def _clamped_int_config(key: str, lo: int, hi: int, *, warn_name: str = "") -> i
 
     try:
         n = int(config.get_config(key))
-    except Exception:
+    except (TypeError, ValueError):
         n = 0
     clamped = max(lo, min(hi, n))
     if warn_name and n > 0 and clamped != n:
-        _log.warning("[grammar] %s %d out of range [%d, %d], clamping", warn_name, n, lo, hi)
+        log.warning("[grammar] %s %d out of range [%d, %d], clamping", warn_name, n, lo, hi)
     return clamped
 
 
@@ -80,7 +80,7 @@ def grammar_max_in_flight() -> int:
     if grammar_settings.provider() != "llm":
         # Harper / LanguageTool / Vale: never parallel drain threads.
         if n > 1:
-            _log.debug("[grammar] max_in_flight=%s ignored for local provider (always 1)", n)
+            log.debug("[grammar] max_in_flight=%s ignored for local provider (always 1)", n)
         return 1
     return n
 
@@ -88,7 +88,8 @@ def grammar_max_in_flight() -> int:
 def grammar_batch_sentences() -> int:
     """Clamp ``doc.grammar_proofreader_batch_sentences`` to [1, GRAMMAR_BATCH_MAX_SENTENCES].
 
-    Logs a warning and clamps if the value is out of bounds or malformed.
+    Clamps out-of-range values and logs a warning for a positive one; a malformed or
+    non-positive value falls back to 1 silently.
     """
     return _clamped_int_config(
         "doc.grammar_proofreader_batch_sentences",
@@ -114,8 +115,8 @@ def grammar_max_chars() -> int:
     Not user-configurable (there is no config key for it).
     For an LLM identity, characters past the cap are not checked; the cache identity
     is the checked prefix; a tail-only edit does not miss that prefix and does not raise
-    a new squiggle. Old rows stored under the full-sentence fingerprint miss once and are
-    rewritten under the prefix. No migration.
+    a new squiggle. A row stored under a full-sentence fingerprint misses once and is
+    rewritten under the prefix.
     """
     return 8192
 
@@ -348,7 +349,7 @@ def split_sentence_chunks_by_separator_regex(text: str, sep_re: re.Pattern[str])
     last = 0
     for m in sep_re.finditer(text):
         seg = text[last : m.start()]
-        ws = text[m.start() : m.end()]
+        ws = m.group()
         if seg:
             result.append((last, seg + ws))
         last = m.end()
@@ -360,7 +361,7 @@ def split_sentence_chunks_by_separator_regex(text: str, sep_re: re.Pattern[str])
 _sterm_class = f"[{re.escape(''.join(sorted(GRAMMAR_SENTENCE_TERMINATORS)))}]"
 
 # Terminators used for cache key normalization (strips redundant trailing terminators).
-GRAMMAR_CACHE_NORMALIZATION_RE = re.compile(rf"^(.*?{_sterm_class})({_sterm_class}*)$")
+GRAMMAR_CACHE_NORMALIZATION_RE = re.compile(rf"^(.*?{_sterm_class}){_sterm_class}*$")
 
 
 # ---------------------------------------------------------------------------

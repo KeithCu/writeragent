@@ -74,7 +74,7 @@ def update_selection_pin(ctx: ToolContext, text_range: Any) -> None:
 def resolve_target_cursor(
     ctx: ToolContext,
     target: str,
-    old_content: Any,
+    old_content: str | None,
     *,
     case_sensitive: bool | None = None,
 ) -> Any:
@@ -100,7 +100,7 @@ def resolve_target_cursor(
             cursor.gotoStart(False)
             cursor.gotoEnd(True)
         return cursor
-    elif target == "selection":
+    if target == "selection":
         # Resolve the pinned Send-time range (sidebar) or the live selection/caret (MCP);
         # NEVER fall back to document end (a gotoEnd fallback would append edits at the very
         # end and still report ok). Only when unavailable do we raise a clear error, so a

@@ -62,7 +62,8 @@ def _ec(client: MagicMock | None = None, *, detect_lang_mode: str = "llm",
         gq: GrammarWorkQueue | None = None) -> GrammarWorkerContext:
     return GrammarWorkerContext(ctx=MagicMock(), client=client or MagicMock(),
                                 gq=gq if gq is not None else GrammarWorkQueue(), model="test-model",
-                                grammar_bcp47="en-US", max_tok=512, detect_lang_mode=detect_lang_mode)
+                                grammar_bcp47="en-US", max_tok=512, detect_lang_mode=detect_lang_mode,
+                                spec=None)
 
 
 def test_detect_lang_instruction_french_only_no_en_us() -> None:
@@ -174,6 +175,7 @@ def test_grammar_check_equivalent_tags_no_locale_change() -> None:
         gq=gq,
         detect_lang_mode="off",
         grammar_bcp47="ja-JP",
+        spec=None,
     )
     chunk = [(item, item.text)]
     gq.inflight_superseded.return_value = False
@@ -486,6 +488,8 @@ def test_language_detect_skips_llm_when_persisted_grammar_exists() -> None:
         model="m",
         grammar_bcp47="en-US",
         max_tok=100,
+        detect_lang_mode="off",
+        spec=None,
     )
 
     mock_p = MagicMock()
@@ -518,6 +522,8 @@ def test_language_detect_calls_llm_when_no_persisted_grammar() -> None:
         model="m",
         grammar_bcp47="en-US",
         max_tok=100,
+        detect_lang_mode="off",
+        spec=None,
     )
 
     mock_p = MagicMock()
@@ -564,6 +570,7 @@ def test_grammar_empty_single_response_caches_clean() -> None:
         gq=gq,
         detect_lang_mode="off",
         grammar_bcp47="en-US",
+        spec=None,
     )
     chunk = [(item, item.text)]
     gq.inflight_superseded.return_value = False
@@ -596,6 +603,7 @@ def test_grammar_batch_empty_response_emits_failed_no_requeue() -> None:
         gq=gq,
         detect_lang_mode="off",
         grammar_bcp47="en-US",
+        spec=None,
     )
     chunk = [(a, a.text), (b, b.text)]
     with patch("plugin.writer.locale.grammar_worker.call_grammar_llm", return_value=([], 50)), \
@@ -639,6 +647,8 @@ def test_inplace_locale_retarget_mints_seq_and_drops_older() -> None:
         model="m",
         grammar_bcp47="en-US",
         max_tok=64,
+        detect_lang_mode="off",
+        spec=None,
     )
     retargeted = _retarget_item_locale(item, text, "fr-FR", ec)
     assert retargeted is not None
@@ -658,6 +668,8 @@ def test_inplace_locale_retarget_mints_seq_and_drops_older() -> None:
         model="m",
         grammar_bcp47="en-US",
         max_tok=64,
+        detect_lang_mode="off",
+        spec=None,
     )
     assert _retarget_item_locale(item, text, "fr-FR", stale_ec) is None
     assert stale._latest_seq[new_key] == 10**9
@@ -676,6 +688,7 @@ def test_grammar_mismatch_requeue_skips_cache_placeholder() -> None:
         gq=MagicMock(),
         detect_lang_mode="off",
         grammar_bcp47="en-US",
+        spec=None,
     )
     chunk = [(a, a.text), (b, b.text)]
     with patch("plugin.writer.locale.grammar_worker.call_grammar_llm", return_value=([[]], 50)), \
@@ -1165,6 +1178,8 @@ def test_requeue_and_retarget_agree_on_inflight_key_completeness() -> None:
             model="m",
             grammar_bcp47="en-US",
             max_tok=64,
+            detect_lang_mode="off",
+            spec=None,
         )
         requeue_individual_item(item, "fr-FR", "en-US", ec_requeue)
         mock_gq.enqueue.assert_called_once()
@@ -1179,6 +1194,8 @@ def test_requeue_and_retarget_agree_on_inflight_key_completeness() -> None:
             model="m",
             grammar_bcp47="en-US",
             max_tok=64,
+            detect_lang_mode="off",
+            spec=None,
         )
         retargeted_item = _retarget_item_locale(item, text, "fr-FR", ec_retarget)
         assert retargeted_item is not None

@@ -23,6 +23,9 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
 from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK  # type: ignore
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_CHARACTER, AT_PAGE, AT_PARAGRAPH
 
@@ -108,7 +111,6 @@ class GetPageObjects(ToolBase):
         "required": [],
     }
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
-    tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
@@ -125,11 +127,12 @@ class GetPageObjects(ToolBase):
             if page >= total:
                 return self._tool_error(page_not_found_message(page, total))
             lo_page = page + 1
+        view_cursor_err = "Cannot resolve view cursor page: %s"
         try:
             vc = doc.getCurrentController().getViewCursor()
         except Exception as exc:
             reraise_if_disposed(exc)
-            return self._tool_error("Cannot resolve view cursor page: %s" % exc)
+            return self._tool_error(view_cursor_err % exc)
 
         if page is None:
             locator = kwargs.get("locator")
@@ -151,7 +154,7 @@ class GetPageObjects(ToolBase):
                     lo_page = vc.getPage()
                 except Exception as exc:
                     reraise_if_disposed(exc)
-                    return self._tool_error("Cannot resolve view cursor page: %s" % exc)
+                    return self._tool_error(view_cursor_err % exc)
             if lo_page <= 0:
                 return self._tool_error("Cannot resolve page: invalid page %s" % lo_page)
 
@@ -172,10 +175,7 @@ class GetPageObjects(ToolBase):
         """
         vc.gotoRange(rng, False)
         page_no = vc.getPage()
-        if page_no != 0 or not retry_if_zero:
-            return page_no
-        has_locked = getattr(doc, "hasControllersLocked", None)
-        if has_locked is None or not has_locked():
+        if page_no != 0 or not retry_if_zero or not doc.hasControllersLocked():
             return page_no
         doc.unlockControllers()
         try:
@@ -191,9 +191,9 @@ class GetPageObjects(ToolBase):
             return page_no
         return self._page_at_range(doc, vc, obj.getAnchor(), retry_if_zero=True)
 
-    def _scan_page(self, doc: Any, vc: Any, lo_page: Any) -> dict[str, Any]:
+    def _scan_page(self, doc: Any, vc: Any, lo_page: int) -> dict[str, Any]:
         """Scan objects on LibreOffice's 1-based physical *lo_page* (same space as getPage() and AnchorPageNo)."""
-        def _scan(container: Any, label: str, build: Any) -> list[dict[str, Any]]:
+        def _scan(container: Any, label: str, build: Callable[[str, Any], dict[str, Any]]) -> list[dict[str, Any]]:
             items = []
             for name in container.getElementNames():
                 try:
@@ -334,7 +334,6 @@ class CloneHeadingBlock(ToolBaseDummy):
         if para_index is None:
             return self._tool_error("Provide locator or paragraph_index.")
 
-        # Use writer_tree service to find the heading node and block size.
         tree_svc = getattr(ctx.services, "writer_tree", None)
         if tree_svc is None:
             return self._tool_error("Writer tree service unavailable.", code="SERVICE_UNAVAILABLE")
@@ -344,10 +343,8 @@ class CloneHeadingBlock(ToolBaseDummy):
         if node is None:
             return self._tool_error("No heading found at paragraph %d." % para_index)
 
-        # Total paragraphs in the block: heading + body + all children
         total = 1 + tree_svc.heading_block_body_count(node)
 
-        # Collect elements for the block
         doc_text = ctx.doc.getText()
         enum = doc_text.createEnumeration()
         elements = []

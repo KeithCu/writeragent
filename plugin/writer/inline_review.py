@@ -25,17 +25,16 @@ This is the model layer; the right-click context menu in ``change_context_menu.p
 from __future__ import annotations
 
 from collections import Counter
-import contextlib
 from enum import Enum, auto
 import logging
-from typing import Any, Generator, NamedTuple
+from typing import Any, NamedTuple
 
 from plugin.chatbot.dialogs import msgbox
 from plugin.doc.compound_undo import WriterCompoundUndo
 from plugin.framework.errors import is_disposal
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import execute_dispatch, uno_same
-from plugin.writer import review_scan as _review_scan
+from plugin.writer import review_scan
 
 log = logging.getLogger(__name__)
 
@@ -144,15 +143,15 @@ def scan_redline_view(model: Any) -> RedlineView:
 
     def on_item(rl: Any) -> bool:
         comment_raw = rl.getPropertyValue("RedlineComment")
-        comment_str = _review_scan.normalize_redline_comment(comment_raw)
-        token = comment_str if (comment_str and _review_scan.is_agent_token(comment_str)) else None
+        comment_str = review_scan.normalize_redline_comment(comment_raw)
+        token = comment_str if (comment_str and review_scan.is_agent_token(comment_str)) else None
         start = rl.getPropertyValue("RedlineStart")
         end = rl.getPropertyValue("RedlineEnd")
 
         identity = (
             None
             if token is not None
-            else _review_scan.redline_identity_key(rl, comment=comment_raw)
+            else review_scan.redline_identity_key(rl, comment=comment_raw)
         )
 
         rows.append(
@@ -165,7 +164,7 @@ def scan_redline_view(model: Any) -> RedlineView:
         )
         return True
 
-    reliable, _seen, total = _review_scan.scan_redlines(model, on_item)
+    reliable, _seen, total = review_scan.scan_redlines(model, on_item)
     return RedlineView(reliable=reliable, total=total, rows=tuple(rows))
 
 
@@ -224,8 +223,8 @@ def show_review_message(ctx: Any, message: str) -> None:
 # --- agent-change helpers (used by the click popup and the context menu) -------------------
 #
 # Every redline an EditReviewSession records carries a RedlineComment "wa-review:<session>:<n>"
-# (see review_scan.TOKEN_PREFIX); one token = one logical change (a replace's Delete+Insert)
-# pair shares it). These helpers see the document purely through those tokens, so the user's
+# (see review_scan.TOKEN_PREFIX); one token is one logical change (the Delete and Insert
+# of a replace share it). These helpers see the document purely through those tokens, so the user's
 # own tracked changes are never listed or resolved.
 def _is_all_redlines_agent(view: RedlineView) -> bool:
     """True only if every tracked change in the view is an agent change and scan was complete."""
@@ -264,7 +263,7 @@ def agent_self_resolution_block_reason(model: Any) -> str | None:
             return None
     except Exception:
         return _BULK_UNRELIABLE_MSG
-    count, reliable = _review_scan.agent_change_presence(model)
+    count, reliable = review_scan.agent_change_presence(model)
     if not reliable:
         return _BULK_UNRELIABLE_MSG
     if count > 0:
@@ -520,7 +519,7 @@ def _classify_span_conflicts(
     for r in view.rows:
         if r.token is not None and r.token == target_token:
             continue
-        is_sibling = bool(r.token is not None)
+        is_sibling = r.token is not None
         if r.start is None or r.end is None:
             if is_sibling:
                 has_sibling = True
@@ -610,7 +609,7 @@ def _dispatch_and_scan(
 def _token_delta(before: RedlineView, after: RedlineView) -> tuple[set[str], bool]:
     """Calculate (removed_agent_tokens, foreign_safe) between two snapshots."""
     # Tip: RedlineIdentifier reuses the SwRangeRedline object address across PopData
-    # (sw/source/core/unocore/unoredline.cxx), so an identifier set can stay identical
+    # (sw/source/core/unocore/unoredline.cxx GetRedlinePortionPropertyValue), so an identifier set can stay identical
     # across stacked pops. Compare counts of the full identity key (matching tracking._resolve_outcome).
     before_tokens = agent_tokens(before)
     after_tokens = agent_tokens(after)
@@ -739,17 +738,15 @@ def resolve_agent_change(
         return ResolveResult(ResolveStatus.PARTIAL), after
     except Exception as exc:
         if is_disposal(exc) and not dispatched:
-            log.warning("inline_review: resolve_agent_change aborted on disposed document for %s", token)
+            log.warning("inline_review: _resolve_multi_text_change aborted on disposed document for %s", token)
             return ResolveResult(ResolveStatus.UNRELIABLE), before
-        log.exception("inline_review: resolve_agent_change failed")
+        log.exception("inline_review: _resolve_multi_text_change failed")
         return ResolveResult(ResolveStatus.PARTIAL if dispatched else ResolveStatus.UNRELIABLE), before
 
 
-@contextlib.contextmanager
-def _grouped_resolve_undo(model: Any) -> Generator[None, None, None]:
+def _grouped_resolve_undo(model: Any) -> WriterCompoundUndo:
     """Group dispatches into one undo step; keeps landed edits on failure."""
-    with WriterCompoundUndo(model, _("Resolve agent changes")):
-        yield
+    return WriterCompoundUndo(model, _("Resolve agent changes"))
 
 
 def _resolve_multi_text_change(
@@ -813,9 +810,9 @@ def _resolve_multi_text_change(
         return ResolveResult(ResolveStatus.PARTIAL), cur_view
     except Exception as exc:
         if is_disposal(exc) and not dispatched:
-            log.warning("inline_review: resolve_agent_change aborted on disposed document for %s", token)
+            log.warning("inline_review: _resolve_multi_text_change aborted on disposed document for %s", token)
             return ResolveResult(ResolveStatus.UNRELIABLE), before
-        log.exception("inline_review: resolve_agent_change failed")
+        log.exception("inline_review: _resolve_multi_text_change failed")
         return ResolveResult(ResolveStatus.PARTIAL if dispatched else ResolveStatus.UNRELIABLE), before
 
 
@@ -885,6 +882,7 @@ def _resolve_overlapping_agent_changes(
 
         controller = model.getCurrentController()
         view_cursor = controller.getViewCursor()
+        command = _tracked_change_command(accept)
         pending = group
         cur_view = before
 
@@ -905,24 +903,21 @@ def _resolve_overlapping_agent_changes(
                 view_cursor.gotoRange(right, True)
                 try:
                     dispatched = True
-                    command = _tracked_change_command(accept)
                     execute_dispatch(ctx, controller, command)
                 except Exception:
                     break
-                now = scan_redline_view(model)
-                cur_view = now
-                if not now.reliable:
+                cur_view = scan_redline_view(model)
+                if not cur_view.reliable:
                     break
-                now_tokens = agent_tokens(now)
+                now_tokens = agent_tokens(cur_view)
                 left_over = pending & now_tokens
                 if not left_over or left_over == pending:
                     break
                 pending = frozenset(left_over)
 
-        now = cur_view
-        removed, foreign_safe = _token_delta(before, now)
+        removed, foreign_safe = _token_delta(before, cur_view)
 
-        if removed == group and now.reliable and foreign_safe:
+        if removed == group and cur_view.reliable and foreign_safe:
             return ResolveResult(ResolveStatus.RESOLVED, len(group))
 
         if dispatched:

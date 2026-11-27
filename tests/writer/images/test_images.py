@@ -826,6 +826,7 @@ def test_download_failure_leaves_no_cache_file(tmp_path, monkeypatch, sync_outco
 
 def test_image_insert_downloads_before_main_thread():
     ctx = TestingFactory.create_context(doc_type="writer")
+    ctx.services.document = MagicMock()
     order = []
 
     def _mock_download(url, **kwargs):
@@ -886,6 +887,7 @@ def test_image_insert_url_unscoped_after_download():
     from plugin.framework.send_cancellation import SendCancelled
 
     ctx = TestingFactory.create_context(doc_type="writer")
+    ctx.services.document = MagicMock()
     graphic = MagicMock()
     graphic.getName.return_value = "Pic"
     calls = []
@@ -1035,6 +1037,7 @@ def test_image_get_info_disposal_propagates():
 
 def test_image_list_reports_unreadable_image():
     ctx = TestingFactory.create_context(doc_type="writer")
+    ctx.services.document = MagicMock()
     ctx.doc.getGraphicObjects = MagicMock()
     good = MagicMock()
     bad = MagicMock()
@@ -1066,6 +1069,7 @@ def test_image_list_writer_entry_copies_shape_index():
     from plugin.doc.visual_helpers import GraphicEntry
 
     ctx = TestingFactory.create_context(doc_type="writer")
+    ctx.services.document = MagicMock()
     ctx.doc.getGraphicObjects = MagicMock()
 
     def _make_graphic():
@@ -1097,6 +1101,7 @@ def test_image_list_disposal_is_not_a_short_list():
     import pytest
 
     ctx = TestingFactory.create_context(doc_type="writer")
+    ctx.services.document = MagicMock()
     ctx.doc.getGraphicObjects = MagicMock()
     good = MagicMock()
     good.getSize.side_effect = DocumentDisposedError("closed")
@@ -1388,6 +1393,7 @@ def test_image_list_disposed_anchor_type_raises_document_disposed():
     from plugin.framework.errors import DocumentDisposedError
 
     ctx = TestingFactory.create_context(doc_type="writer")
+    ctx.services.document = MagicMock()
     ctx.doc.getGraphicObjects = MagicMock()
     graphic = MagicMock()
     graphic.getSize.return_value = MagicMock(Width=1000, Height=1000)
@@ -1435,13 +1441,12 @@ def test_image_generate_rejects_huge_selection_export():
 
 
 def test_image_list_at_page_never_calls_gotorange():
-    from com.sun.star.text.TextContentAnchorType import AT_PAGE
-
     ctx = TestingFactory.create_context(doc_type="writer")
+    ctx.services.document = MagicMock()
     ctx.doc.getGraphicObjects = MagicMock()
     graphic = MagicMock()
     graphic.getSize.return_value = MagicMock(Width=1000, Height=1000)
-    graphic.getPropertyValue.side_effect = lambda name: AT_PAGE if name == "AnchorType" else 3 if name == "AnchorPageNo" else MagicMock()
+    graphic.getPropertyValue.side_effect = lambda name: 2 if name == "AnchorType" else 3 if name == "AnchorPageNo" else MagicMock()
     graphic.getAnchor.return_value = MagicMock()
 
     vc = MagicMock()
@@ -1462,13 +1467,12 @@ def test_image_list_at_page_never_calls_gotorange():
 
 
 def test_image_list_at_page_zero_not_reported_as_page():
-    from com.sun.star.text.TextContentAnchorType import AT_PAGE
-
     ctx = TestingFactory.create_context(doc_type="writer")
+    ctx.services.document = MagicMock()
     ctx.doc.getGraphicObjects = MagicMock()
     graphic = MagicMock()
     graphic.getSize.return_value = MagicMock(Width=1000, Height=1000)
-    graphic.getPropertyValue.side_effect = lambda name: AT_PAGE if name == "AnchorType" else 0 if name == "AnchorPageNo" else MagicMock()
+    graphic.getPropertyValue.side_effect = lambda name: 2 if name == "AnchorType" else 0 if name == "AnchorPageNo" else MagicMock()
     graphic.getAnchor.return_value = MagicMock()
 
     vc = MagicMock()
@@ -1491,6 +1495,7 @@ def test_image_list_at_page_zero_not_reported_as_page():
 def test_image_list_paragraph_anchor_restores_cloned_cursor():
 
     ctx = TestingFactory.create_context(doc_type="writer")
+    ctx.services.document = MagicMock()
     ctx.doc.getGraphicObjects = MagicMock()
     para_anchor_type = MagicMock()
     graphic = MagicMock()
@@ -1523,6 +1528,7 @@ def test_image_list_paragraph_anchor_restores_cloned_cursor():
 
 def test_image_list_cursor_save_fails_skips_gotorange_and_page():
     ctx = TestingFactory.create_context(doc_type="writer")
+    ctx.services.document = MagicMock()
     ctx.doc.getGraphicObjects = MagicMock()
     graphic = MagicMock()
     graphic.getSize.return_value = MagicMock(Width=1000, Height=1000)
@@ -1551,6 +1557,7 @@ def test_image_list_cursor_save_fails_skips_gotorange_and_page():
 
 def test_image_list_page_zero_omitted():
     ctx = TestingFactory.create_context(doc_type="writer")
+    ctx.services.document = MagicMock()
     ctx.doc.getGraphicObjects = MagicMock()
     graphic = MagicMock()
     graphic.getSize.return_value = MagicMock(Width=1000, Height=1000)
@@ -1979,6 +1986,7 @@ def test_image_generate_replaces_original_target_even_if_selection_changed():
 
 def test_image_insert_sizing_rules():
     ctx = TestingFactory.create_context(doc_type="writer")
+    ctx.services.document = MagicMock()
 
     def _run(fn, *args, timeout=60.0, bound_scope=None, **kwargs):
         return fn(*args, **kwargs)
@@ -2071,6 +2079,7 @@ def test_tools_reject_non_positive_sizes(tool_cls, kwargs):
 
 def test_image_insert_vector_proportional_fallback_from_100th_mm():
     ctx = TestingFactory.create_context(doc_type="writer")
+    ctx.services.document = MagicMock()
     inserted_sizes: list[tuple[Any, Any]] = []
 
     def _mock_insert(context, doc, path, width_mm=None, height_mm=None, **kwargs):
@@ -2456,6 +2465,7 @@ def test_image_insert_passes_pinned_selection_cursor_to_locator():
     from plugin.framework.tool import SelectionPin
 
     ctx = TestingFactory.create_context(doc_type="writer")
+    ctx.services.document = MagicMock()
     pinned_rng = MagicMock()
     pinned_cursor = MagicMock()
     pinned_cursor.getText.return_value.createTextCursorByRange.return_value = pinned_cursor

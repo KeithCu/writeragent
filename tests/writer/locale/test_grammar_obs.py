@@ -334,7 +334,7 @@ def test_status_bar_paint_skips_paint_when_frame_missing() -> None:
         patch("plugin.framework.uno_context.get_desktop") as mock_desktop,
         patch("plugin.framework.uno_context.get_active_document") as mock_doc,
     ):
-        sink._paint("request", "Downloading harper-ls v2.7.0…")
+        sink._paint("request", "Downloading harper-ls v2.7.0…", False)
         mock_desktop.assert_not_called()
         mock_doc.assert_not_called()
         assert sink._indicator is None
@@ -351,11 +351,11 @@ def test_status_bar_paint_ends_indicator_on_routine_done() -> None:
         patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
         patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
     ):
-        sink._paint("start", "Downloading harper-ls v2.7.0…")
+        sink._paint("start", "Downloading harper-ls v2.7.0…", False)
         assert sink._indicator is mock_indicator
         mock_indicator.setText.reset_mock()
 
-        sink._paint("done", "2 issues", routine=True)
+        sink._paint("done", "2 issues", True)
         mock_indicator.end.assert_called_once()
         mock_indicator.setText.assert_not_called()
         assert sink._indicator is None
@@ -365,7 +365,7 @@ def test_status_bar_paint_routine_done_without_indicator_does_nothing() -> None:
     sink = go.StatusBarGrammarStatus()
     mock_frame = MagicMock()
     with patch.object(go, "resolve_status_bar_frame", return_value=mock_frame) as mock_resolve:
-        sink._paint("done", "0 issues", routine=True)
+        sink._paint("done", "0 issues", True)
         mock_resolve.assert_not_called()
         mock_frame.createStatusIndicator.assert_not_called()
 
@@ -386,7 +386,7 @@ def test_status_bar_paint_shows_failure_without_indicator(result_text: str) -> N
         patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
         patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
     ):
-        sink._paint("failed", result_text)
+        sink._paint("failed", result_text, False)
         mock_indicator.start.assert_called_once()
         assert sink._indicator is mock_indicator
         mock_indicator.end.assert_not_called()
@@ -403,7 +403,7 @@ def test_status_bar_paint_failure_updates_active_indicator_without_ending() -> N
         patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
         patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
     ):
-        sink._paint("failed", "timed out")
+        sink._paint("failed", "timed out", False)
         mock_indicator.setText.assert_called_once()
         mock_indicator.setValue.assert_called_once_with(100)
         mock_indicator.end.assert_not_called()
@@ -421,17 +421,17 @@ def test_status_bar_paint_lifecycle() -> None:
         patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
     ):
         # 1. Start phase (progress, not the per-keystroke "queued" string)
-        sink._paint("start", "Downloading harper-ls v2.7.0…")
+        sink._paint("start", "Downloading harper-ls v2.7.0…", False)
         mock_frame.createStatusIndicator.assert_called_once()
         mock_indicator.start.assert_called_once()
 
         # 2. Request phase updates text/value
-        sink._paint("request", "Starting harper-ls…")
+        sink._paint("request", "Starting harper-ls…", False)
         mock_indicator.setText.assert_called()
         mock_indicator.setValue.assert_called_with(50)
 
         # 3. Done phase ends indicator
-        sink._paint("done", "done")
+        sink._paint("done", "done", False)
         mock_indicator.setText.assert_called()
         mock_indicator.end.assert_called_once()
         assert sink._indicator is None
@@ -451,9 +451,9 @@ def test_status_bar_paint_drops_dead_indicator() -> None:
         patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
         patch.object(go, "resolve_status_bar_frame", return_value=frame),
     ):
-        sink._paint("request", "Starting harper-ls…")
+        sink._paint("request", "Starting harper-ls…", False)
         assert sink._indicator is None
-        sink._paint("start", "Downloading harper-ls v2.7.0…")
+        sink._paint("start", "Downloading harper-ls v2.7.0…", False)
         frame.createStatusIndicator.assert_called_once()
         assert sink._indicator is fresh
 
@@ -694,14 +694,14 @@ def test_status_bar_paint_nested_request_during_start_keeps_one_indicator() -> N
     factory = _FakeIndicatorFactory()
     mock_frame = MagicMock()
     mock_frame.createStatusIndicator.side_effect = factory.create
-    factory.nested.append(lambda: sink._paint("request", "Harper ready"))
+    factory.nested.append(lambda: sink._paint("request", "Harper ready", False))
 
     with (
         patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
         patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
     ):
-        sink._paint("request", "Starting Harper…")
-        sink._paint("done", "1 issue", routine=True)
+        sink._paint("request", "Starting Harper…", False)
+        sink._paint("done", "1 issue", True)
 
     assert mock_frame.createStatusIndicator.call_count == 1
     assert factory.shown() is None
@@ -735,7 +735,7 @@ def test_status_bar_ready_without_indicator_creates_none() -> None:
         patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
         patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
     ):
-        sink._paint("ready", "Harper ready")
+        sink._paint("ready", "Harper ready", False)
 
     mock_frame.createStatusIndicator.assert_not_called()
 
@@ -748,7 +748,7 @@ def test_status_bar_paint_done_ends_indicator_when_frame_unresolvable() -> None:
         patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
         patch.object(go, "resolve_status_bar_frame", return_value=None),
     ):
-        sink._paint("done", "")
+        sink._paint("done", "", False)
 
     mock_indicator.end.assert_called_once()
     assert sink._indicator is None

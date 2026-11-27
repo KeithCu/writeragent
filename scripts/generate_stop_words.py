@@ -58,7 +58,7 @@ def main() -> None:
         "# Copyright (c) 2024 John Balis",
         "# Copyright (c) 2026 KeithCu (modifications and relicensing)",
         "#",
-        "# Grammar stop words keyed by Snowball algorithm name (linguistic index + web-research cache).",
+        "# Stop words keyed by Snowball algorithm name (linguistic index + web-research cache).",
         "# Generated from stopwords-iso (MIT): https://github.com/stopwords-iso/stopwords-iso",
         "# Regenerate: python scripts/generate_stop_words.py",
         "# Serbian -> Croatian (hr). Nepali, Tamil, Yiddish: hand-curated (not in stopwords-iso).",
@@ -77,7 +77,7 @@ def main() -> None:
         "",
         "",
         "def stop_words_for_snowball(snowball_lang: str) -> frozenset[str]:",
-        '    """Return grammar stop words for a Snowball algorithm name, or empty."""',
+        '    """Return stop words for a Snowball algorithm name, or empty."""',
         "    return STOP_WORDS.get(snowball_lang, _EMPTY)",
         "",
     ])

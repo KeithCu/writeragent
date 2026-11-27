@@ -136,7 +136,7 @@ def _abandon_image_paths(
     paths: list[str], cancel: SendCancellation | None, exc: Exception, log_message: str
 ) -> tuple[list[str], str]:
     unlink_temp_paths(paths)
-    if (isinstance(exc, NetworkError) and getattr(exc, "code", None) == "STOPPED") or is_cancelled(cancel):
+    if (isinstance(exc, NetworkError) and exc.code == "STOPPED") or is_cancelled(cancel):
         log.debug("Image generation cancelled by Stop: %s", exc)
         raise ToolExecutionError("Image generation stopped by user.", code="USER_STOPPED") from exc
     message = resolve_exception_message(exc)
@@ -263,10 +263,9 @@ class EndpointImageProvider:
             _method, _path, body, _headers = self.client.make_chat_request(messages, max_tokens=1000, model=model)
             body_dict = json.loads(body)
             body_dict["modalities"] = ["image"]
-            # Edit: source image already defines geometry. Sending sidebar
-            # Square / Base Size as image_config overrode the selection and
-            # mapped ~512 display px to image_size "512", which OpenRouter
-            # chat rejects (enum is 0.5K|1K|2K|4K).
+            # Edit: the source image defines geometry, so no image_config is sent. A sidebar
+            # Square / Base Size hint would override the selection and map ~512 display px
+            # to image_size "512", which OpenRouter chat rejects (enum is 0.5K|1K|2K|4K).
             if not source_image:
                 # Create: Gemini multimodal models need image_config hints;
                 # pixel size is not a chat-completions field
@@ -299,10 +298,11 @@ class EndpointImageProvider:
                 for img in chat_resp.get("images") or []:
                     url = None
                     if isinstance(img, dict):
-                        if "image_url" in img and isinstance(img["image_url"], dict):
-                            url = img["image_url"].get("url")
-                        elif "image_url" in img and isinstance(img["image_url"], str):
-                            url = img["image_url"]
+                        ref = img.get("image_url")
+                        if isinstance(ref, dict):
+                            url = ref.get("url")
+                        elif isinstance(ref, str):
+                            url = ref
 
                     if not url:
                         continue

@@ -35,7 +35,7 @@ import html as _html
 import re
 from dataclasses import dataclass
 from html.parser import HTMLParser
-from typing import Any, final
+from typing import final
 
 from plugin.framework.deal_shim import deal
 
@@ -172,7 +172,7 @@ def parse_fodt_autostyles(fodt: str) -> tuple[dict[str, str], dict[str, str]]:
     is_26_2_plus = gen is not None and (int(gen.group(1)), int(gen.group(2))) >= (26, 2)
     text_align = {} if is_26_2_plus else _PRE_26_2_TEXT_ALIGN
     for m in _FODT_PARA_STYLE_RE.finditer(text):
-        head = (m.group(1) or "") + (m.group(2) or "")
+        head = m.group(1) + m.group(2)
         name = re.search(r'style:name="([^"]*)"', head)
         if not name or not _AUTOSTYLE_RE.match(name.group(1)):
             continue
@@ -351,7 +351,7 @@ class _SemanticTransformer(HtmlPassthroughParser):
             return None  # not uniquely resolvable -> omit (write treats absence as body)
         token = compact_lo_style_name(decode_lo_css_class_suffix(suffix))
         if token in self._colliding_tokens:
-            return None  # ambiguous compact token -> omit (Issue 2)
+            return None  # ambiguous compact token -> omit
         return token
 
     def _rewrite_block(self, raw: str, attrs: list[tuple[str, str | None]]) -> str:
@@ -387,8 +387,7 @@ class _SemanticTransformer(HtmlPassthroughParser):
             return raw
         css_parts = [self._raw[c] for c in text_names if c in self._raw]
         remaining = [c for c in names if not c.startswith("text-")]
-        raw = re.sub(r'\s+class="[^"]*"', "", raw)
-        raw = re.sub(r"\s+class='[^']*'", "", raw)
+        raw = re.sub(r'\s+class=(["\']).*?\1', "", raw)
         ins = ""
         if css_parts:
             ins += ' style="%s"' % "; ".join(css_parts)
@@ -450,7 +449,7 @@ class _SemanticTransformer(HtmlPassthroughParser):
         elif t in BLOCK_TAGS or (t == "div" and _PARA_CLASS_RE.search(_attr_value(attrs, "class"))):
             # A paragraph that holds a frame (an image) is exported as <div class="paragraph-X">:
             # it is one Writer paragraph, so it gets its data-lo-style like a <p>. Without it the
-            # write side's positional styles skipped that paragraph and the next ones shifted.
+            # write side's positional styles would skip that paragraph and shift the next ones.
             self._block_stack.append(_OpenBlock(t, len(self._out)))
             self._out.append(self._rewrite_block(raw, attrs))
         elif t in ("ul", "ol"):
@@ -503,7 +502,7 @@ class _SemanticTransformer(HtmlPassthroughParser):
 def _strip_class_names(start_tag: str) -> str:
     """Remove class names matching _PARA_CLASS_RE from a start tag; drop the attr if it empties."""
     # crosshair: off
-    def _sub(m: Any) -> str:
+    def _sub(m: re.Match[str]) -> str:
         kept = [c for c in m.group(2).split() if not _PARA_CLASS_RE.fullmatch(c)]
         return (" class=%s%s%s" % (m.group(1), " ".join(kept), m.group(1))) if kept else ""
 

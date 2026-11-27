@@ -32,7 +32,7 @@ from plugin.calc.calc_utils import anchor_shape_at_cell, selection_top_left_cell
 from plugin.doc import visual_helpers
 from plugin.doc.compound_undo import WriterCompoundUndo
 from plugin.doc.text_helpers import clone_text_range
-from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_disposed
+from plugin.framework.errors import ToolExecutionError, best_effort
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import execute_dispatch, get_ctx
 from plugin.writer.record_changes import insert_recorded_content, is_recording_changes, record_changes
@@ -130,7 +130,7 @@ def _is_same_graphic(a: Any, b: Any) -> bool:
         return True
     a_name = a.getName()
     b_name = b.getName()
-    if isinstance(a_name, str) and isinstance(b_name, str) and a_name and a_name == b_name:
+    if a_name and a_name == b_name:
         return True
     return False
 
@@ -303,7 +303,7 @@ def insert_image_at_locator(ctx: Any, model: Any, img_path: str, width_mm: int |
 
     width_mm, height_mm: display size in millimetres.
     For Draw/Impress, optional page_index (0-based) and x_mm/y_mm; omitted x/y centers on the page.
-    Returns the inserted graphic object, or None on failure.
+    Returns the inserted graphic object. Insert failures raise.
     """
     width_units, height_units = visual_helpers.mm_to_units(width_mm, height_mm)
     return _dispatch_insert_image(
@@ -395,13 +395,8 @@ def insert_image_into_header_footer(
 
 def _page_style_name(style: Any, requested: str) -> str:
     """Programmatic name of the resolved page style (a display name like
-    "Default Page Style" resolves to "Standard"); *requested* if unreadable."""
-    try:
-        name = style.getName()
-    except Exception as exc:
-        reraise_if_disposed(exc)
-        return requested
-    return name if isinstance(name, str) and name else requested
+    "Default Page Style" resolves to "Standard"); *requested* if empty."""
+    return style.getName() or requested
 
 
 def cursor_for_writer_view(vc: Any) -> tuple[Any, Any]:
@@ -500,7 +495,7 @@ def _insert_writer_graphic(
             model.CurrentController.ViewCursor.gotoRange(text_cursor.getStart(), False)
             return True
 
-        if not best_effort(_place, "_place_view_cursor_at_text_range failed", default=False):
+        if not best_effort(_place, "_insert_writer_graphic: could not place view cursor", default=False):
             linking = False
 
     if linking:
@@ -622,7 +617,7 @@ def _ensure_embedded_calc_shape_name(model: Any, image: Any) -> None:
     Linked Calc inserts get ``Picture N`` from LibreOffice's insert dispatch,
     whereas UNO-created ``GraphicObjectShape`` instances start with ``""``.
     """
-    existing_name = visual_helpers.uno_read(lambda: str(image.getName() or "").strip(), "")
+    existing_name = visual_helpers.uno_read(lambda: image.getName().strip(), "")
     if existing_name:
         return
     used = {name for name, _obj in visual_helpers.list_graphic_objects(model, doc_type="calc") if name}
@@ -700,8 +695,8 @@ def replace_graphic_source(
     model: Any,
     graphic: Any,
     img_path: str,
-    width_units: Any = None,
-    height_units: Any = None,
+    width_units: int | None = None,
+    height_units: int | None = None,
     title: str | None = None,
     description: str | None = None,
 ) -> bool:
@@ -750,13 +745,13 @@ def export_graphic_object_to_bytes(ctx: Any, obj: Any) -> bytes | None:
         # and is main-thread-only.
         ctx = get_ctx()
     if ctx is None:
-        raise RuntimeError("export_graphic_to_bytes: no component context")
+        raise RuntimeError("export_graphic_object_to_bytes: no component context")
     sm = ctx.ServiceManager
     if sm is None:
-        raise RuntimeError("export_graphic_to_bytes: ServiceManager is missing")
+        raise RuntimeError("export_graphic_object_to_bytes: ServiceManager is missing")
     gp = sm.createInstanceWithContext("com.sun.star.graphic.GraphicProvider", ctx)
     if gp is None:
-        raise RuntimeError("export_graphic_to_bytes: GraphicProvider is missing")
+        raise RuntimeError("export_graphic_object_to_bytes: GraphicProvider is missing")
     # Windows cannot reopen a still-open NamedTemporaryFile (sharing /
     # DeleteOnClose). mkstemp + unlink matches image_utils / payload_codec.
     fd, tmp_name = tempfile.mkstemp(suffix=".png")

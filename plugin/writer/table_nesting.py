@@ -16,16 +16,12 @@ from plugin.doc.text_helpers import (
     FAILED,
     DeletionState,
     get_string_without_tracked_deletions,
+    is_text_table,
     iter_elements,
     iter_portions,
 )
 from plugin.framework.errors import ToolExecutionError, uno_read
 from plugin.framework.uno_context import supports_service
-
-
-def _is_text_table(obj: Any) -> bool:
-    """True for a Writer TextTable."""
-    return supports_service(obj, "com.sun.star.text.TextTable")
 
 
 def _container_xtext(obj: Any) -> Any | None:
@@ -65,7 +61,7 @@ def _iter_nested_tables(xtext: Any, *, into_containers: bool = True) -> Iterator
     new proxy each time).
     """
     for element in iter_elements(uno_read(lambda: xtext.createEnumeration(), None)):
-        if _is_text_table(element):
+        if is_text_table(element):
             yield element
             continue
         if not into_containers:
@@ -83,12 +79,12 @@ def _iter_nested_tables(xtext: Any, *, into_containers: bool = True) -> Iterator
 def _host_paragraphs(cell: Any) -> Iterator[Any]:
     """Direct paragraph children of a host cell (frame text is a different XText)."""
     for element in iter_elements(uno_read(lambda: cell.createEnumeration(), None)):
-        if not _is_text_table(element) and supports_service(element, "com.sun.star.text.Paragraph"):
+        if supports_service(element, "com.sun.star.text.Paragraph"):
             yield element
 
 
 def cell_hosted_table_names(cell: Any) -> list[str]:
-    """Names of TextTables hosted in *cell* (direct or via frame/section).
+    """Names of TextTables hosted in *cell* (direct, or inside a frame in the cell).
 
     Writer nests a TextTable as a sibling of the cell's paragraphs — not via
     anchors or geometry. Empty if the cell cannot be enumerated (plain fakes,
