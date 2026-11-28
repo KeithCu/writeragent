@@ -32,6 +32,7 @@ from typing import Any, Callable, cast
 import uno
 from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK  # type: ignore
 
+from plugin.doc.compound_undo import WriterCompoundUndo
 from plugin.doc.text_helpers import TrackedDeletions, iter_elements, iter_portions
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.framework.errors import make_tool_error, reraise_if_disposed, uno_read
@@ -341,9 +342,11 @@ class IndexesUpdateAll(ToolWriterIndexBase):
                 code="INDEX_HAS_TRACKED_CHANGES",
             )
         refreshed = []
-        for idx, name in entries:
-            idx.update()
-            refreshed.append(name)
+        # Each update() adds its own undo actions; one group keeps the rebuild one Ctrl+Z.
+        with WriterCompoundUndo(doc, _("WriterAgent: Update indexes")):
+            for idx, name in entries:
+                idx.update()
+                refreshed.append(name)
         result: dict[str, Any] = {"status": "ok", "refreshed": refreshed, "count": count}
         # The indexes themselves hold no Insert/Delete (refused above), so any found are in the indexed text.
         if count > 0 and document_has_tracked_insert_or_delete(doc):

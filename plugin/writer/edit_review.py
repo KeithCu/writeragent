@@ -55,7 +55,15 @@ from typing import Any, Callable, ClassVar, TypeVar
 
 from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK  # type: ignore
 
-from plugin.doc.compound_undo import UndoLock, UndoOutcome, UndoUnavailable, WriterCompoundUndo, commit_or_rollback
+from plugin.doc.compound_undo import (
+    UndoLock,
+    UndoOutcome,
+    UndoStepOrRollback,
+    UndoUnavailable,
+    WriterCompoundUndo,
+    commit_or_rollback,
+    rollback_failed_error,
+)
 from plugin.doc.text_helpers import (
     FAILED,
     TrackedDeletions,
@@ -653,93 +661,112 @@ class EditReviewSession:
 
         Call once per logical change (per replaced match, per inserted block) so each gets
         its own accept/reject outcome. Returns ``apply_fn``'s return value.
+
+        The edit is one undo step in every review mode, so one Ctrl+Z removes it whether or
+        not a session is active. When ``apply_fn`` raises, the step is undone while it is still
+        the newest one (``UndoStepOrRollback``); otherwise a helper's own rollback nested inside
+        this group could not run, because ``XUndoManager.undo`` refuses while a context is open
+        (``UndoManagerHelper_Impl::impl_doUndoRedo``, framework/source/fwe/helper/undomanagerhelper.cxx).
+        Inside a caller's undo group the step joins that group and the caller's rollback applies.
+        A rollback inside ``apply_fn`` must therefore raise: an error dict returned after a
+        partial write leaves that write in the document.
         """
-        if not self._active:
-            # The user's own Track Changes recording still makes redlines; note them so
-            # left_tracked_changes can report the edit whatever the review mode.
-            if self._first_snapshot is None and is_recording_changes(self.doc):
-                self._first_snapshot = self._redline_idents()
-            return apply_fn()
-
-        group = WriterCompoundUndo.try_enter(self.doc, _AGENT_EDIT_UNDO_TITLE)
+        group = UndoStepOrRollback(self.doc, _AGENT_EDIT_UNDO_TITLE, warn=False)
         try:
-            # Every edit rescans all redlines instead of tracking deltas, because only a complete
-            # scan can fail closed; batches are capped at doc.agent_edit_max_surgical_runs.
-            before, before_ok = self._redline_idents()
-            if self._first_snapshot is None:
-                self._first_snapshot = (before, before_ok)
-            result = apply_fn()
+            with group:
+                if not self._active:
+                    # The user's own Track Changes recording still makes redlines; note them so
+                    # left_tracked_changes can report the edit whatever the review mode.
+                    if self._first_snapshot is None and is_recording_changes(self.doc):
+                        self._first_snapshot = self._redline_idents()
+                    return apply_fn()
+                return self._record_tagged(apply_fn, original_preview, proposed_preview)
+        except Exception as exc:
+            if group.rollback_error is not None:
+                raise rollback_failed_error(group.rollback_error, exc) from exc
+            raise
 
-            # A failed tag or a failed missing-anchor clear can leave
-            # wa-review:<session>:<n> on a redline without appending a ChangeRecord.
-            # len(self.changes) would mint that same n again, so the leftover becomes
-            # the next registered token and wait_for_review stays blocked after the
-            # user resolves the new change.
-            n = self._next_change
-            def mint() -> str:
-                self._next_change = n + 1
-                return _review_scan.make_agent_token(self.session_id, n)
+    def _record_tagged(self, apply_fn: Callable[[], Any], original_preview: str, proposed_preview: str) -> Any:
+        """Run *apply_fn* in an active session, then tag and anchor what it recorded.
 
-            tagged = _tag_new_change(self.doc, before, before_ok, mint, "EditReviewSession")
-            if tagged is None:
-                return result
-            token, new_redlines = tagged
+        Runs inside the undo group ``record_mutation`` opened, so anything the tagging pass
+        records joins the edit's one step. ``_tag_new_change`` writes ``RedlineComment``, which adds
+        no undo action of its own, so Undo then Redo brings the redline back untagged.
+        """
+        # Every edit rescans all redlines instead of tracking deltas, because only a complete
+        # scan can fail closed; batches are capped at doc.agent_edit_max_surgical_runs.
+        before, before_ok = self._redline_idents()
+        if self._first_snapshot is None:
+            self._first_snapshot = (before, before_ok)
+        result = apply_fn()
 
-            # Bounding span across the new redlines -> anchor cursor + expected end states.
-            # Built with cursor.gotoRange(range, expand=True): XTextRangeCompare is unreliable on
-            # redline ranges (a tracked DELETE's text sits outside the normal flow), so comparing
-            # starts/ends can collapse the span for replace changes.
-            groups: list[list[Any]] = []
-            at_table = False
-            for rl in new_redlines:
-                try:
-                    ends = (rl.getPropertyValue("RedlineStart"), rl.getPropertyValue("RedlineEnd"))
-                except Exception:
-                    log.debug("EditReviewSession: redline span unreadable", exc_info=True)
+        # A failed tag or a failed missing-anchor clear can leave
+        # wa-review:<session>:<n> on a redline without appending a ChangeRecord.
+        # len(self.changes) would mint that same n again, so the leftover becomes
+        # the next registered token and wait_for_review stays blocked after the
+        # user resolves the new change.
+        n = self._next_change
+        def mint() -> str:
+            self._next_change = n + 1
+            return _review_scan.make_agent_token(self.session_id, n)
+
+        tagged = _tag_new_change(self.doc, before, before_ok, mint, "EditReviewSession")
+        if tagged is None:
+            return result
+        token, new_redlines = tagged
+
+        # Bounding span across the new redlines -> anchor cursor + expected end states.
+        # Built with cursor.gotoRange(range, expand=True): XTextRangeCompare is unreliable on
+        # redline ranges (a tracked DELETE's text sits outside the normal flow), so comparing
+        # starts/ends can collapse the span for replace changes.
+        groups: list[list[Any]] = []
+        at_table = False
+        for rl in new_redlines:
+            try:
+                ends = (rl.getPropertyValue("RedlineStart"), rl.getPropertyValue("RedlineEnd"))
+            except Exception:
+                log.debug("EditReviewSession: redline span unreadable", exc_info=True)
+                continue
+            for end in ends:
+                # An end that sits on a table or section is an SwXTextTable/SwXTextSection, not a text range.
+                host = uno_read(lambda: end.getText(), None)
+                if host is None:
+                    at_table = True
                     continue
-                for end in ends:
-                    # An end that sits on a table or section is an SwXTextTable/SwXTextSection, not a text range.
-                    host = uno_read(lambda: end.getText(), None)
-                    if host is None:
-                        at_table = True
-                        continue
-                    for text_group in groups:
-                        if text_group[0].getText() == host:
-                            text_group.append(end)
-                            break
-                    else:
-                        groups.append([end])
-            anchor: Any = None
-            accepted_text = rejected_text = ""
-            accepted_all: list[str] = []
-            rejected_all: list[str] = []
-            if groups:
-                try:
-                    anchor_span = None
-                    for text_group in groups:
-                        span = text_group[0].getText().createTextCursorByRange(text_group[0])
-                        for point in text_group[1:]:
-                            span.gotoRange(point, True)  # expand=True grows the span in either direction
-                        # Scope the captured states AND the anchor cursor to the CHANGE's own redline
-                        # span, not the whole paragraph -- so when several changes share a paragraph each
-                        # one's outcome/final_text reflects only itself, and a change deep in a long
-                        # paragraph is never truncated out of the preview.
-                        acc = _string_skipping_redline(span, "Delete")
-                        rej = _string_skipping_redline(span, "Insert")
-                        accepted_all.append(acc)
-                        rejected_all.append(rej)
-                        # The anchored text omits the table, so a table-only insert reads the same
-                        # after Accept and Reject and must stay untagged; with several texts, only
-                        # one that changes can tell Accept from Reject.
-                        if anchor_span is None and (acc != rej or (len(groups) == 1 and not at_table)):
-                            anchor_span, accepted_text, rejected_text = span, acc, rej
-                    anchor = anchor_span
-                except Exception:
-                    anchor = None
-                    log.debug("EditReviewSession: anchoring failed for change %d", n, exc_info=True)
-        finally:
-            if group is not None:
-                group.close()
+                for text_group in groups:
+                    if text_group[0].getText() == host:
+                        text_group.append(end)
+                        break
+                else:
+                    groups.append([end])
+        anchor: Any = None
+        accepted_text = rejected_text = ""
+        accepted_all: list[str] = []
+        rejected_all: list[str] = []
+        if groups:
+            try:
+                anchor_span = None
+                for text_group in groups:
+                    span = text_group[0].getText().createTextCursorByRange(text_group[0])
+                    for point in text_group[1:]:
+                        span.gotoRange(point, True)  # expand=True grows the span in either direction
+                    # Scope the captured states AND the anchor cursor to the CHANGE's own redline
+                    # span, not the whole paragraph -- so when several changes share a paragraph each
+                    # one's outcome/final_text reflects only itself, and a change deep in a long
+                    # paragraph is never truncated out of the preview.
+                    acc = _string_skipping_redline(span, "Delete")
+                    rej = _string_skipping_redline(span, "Insert")
+                    accepted_all.append(acc)
+                    rejected_all.append(rej)
+                    # The anchored text omits the table, so a table-only insert reads the same
+                    # after Accept and Reject and must stay untagged; with several texts, only
+                    # one that changes can tell Accept from Reject.
+                    if anchor_span is None and (acc != rej or (len(groups) == 1 and not at_table)):
+                        anchor_span, accepted_text, rejected_text = span, acc, rej
+                anchor = anchor_span
+            except Exception:
+                anchor = None
+                log.debug("EditReviewSession: anchoring failed for change %d", n, exc_info=True)
 
         # No anchor → do not register. ChangeRecord with anchor=None makes _outcome guess
         # rejected/modified (current is None). That is a lie to the model. Same as failed tagging:

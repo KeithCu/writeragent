@@ -566,3 +566,33 @@ def test_form_generate_recorded_over_selection_keeps_text_uno(ctx, doc):
         assert any(dp.getByIndex(i).Name == "g1" for i in range(dp.getCount()))
     finally:
         doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_create_form_control_is_one_undo_step_while_user_records_uno(ctx, doc):
+    """With review Off and the user recording, the control insert adds one undo step, and one Undo removes it."""
+    from plugin.app import get_tools
+    from plugin.framework.config import get_config, save
+
+    doc.getText().setString("Field: ")
+    doc.getCurrentController().getViewCursor().gotoEnd(False)
+    um = doc.getUndoManager()
+    um.clear()
+    prev = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "off"})
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = get_tools().get("form_create_control").execute(MockCtx(doc, ctx), control="text", name="f_txt", default_value="hi")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        save({"doc.agent_edit_review_mode": prev})
+    assert res["status"] == "ok", res
+    assert doc.getDrawPage().getCount() == 1
+    assert len(um.getAllUndoActionTitles()) == 1, um.getAllUndoActionTitles()
+
+    um.undo()
+
+    assert doc.getDrawPage().getCount() == 0
+    assert doc.getRedlines().getCount() == 0
+    assert doc.getText().getString() == "Field: "

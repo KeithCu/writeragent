@@ -1495,3 +1495,49 @@ def test_index_built_over_pending_heading_changes_warns_uno(ctx, doc):
     assert created["status"] == "ok" and created.get("warning"), created
     updated = IndexesUpdateAll().execute(tctx)
     assert updated["status"] == "ok" and updated.get("warning"), updated
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_index_update_all_is_one_undo_step_uno(ctx, doc):
+    """One Undo puts back the whole table of contents as it was before index_update_all."""
+    text = doc.getText()
+    cursor = text.createTextCursor()
+    cursor.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cursor, "Intro para.", False)
+    for title in ("Heading A", "Heading B"):
+        text.insertControlCharacter(cursor, 0, False)  # PARAGRAPH_BREAK
+        cursor.setPropertyValue("ParaStyleName", "Heading 1")
+        text.insertString(cursor, title, False)
+        text.insertControlCharacter(cursor, 0, False)
+        cursor.setPropertyValue("ParaStyleName", "Standard")
+        text.insertString(cursor, "Body of %s." % title, False)
+    toc = doc.createInstance("com.sun.star.text.ContentIndex")
+    toc.CreateFromOutline = True
+    intro = text.createTextCursor()
+    intro.gotoStart(False)
+    intro.gotoEndOfParagraph(False)
+    text.insertTextContent(intro, toc, False)
+    toc.update()
+
+    def toc_rows() -> list[str]:
+        enum = toc.getAnchor().createEnumeration()
+        rows = []
+        while enum_has_more(enum):
+            rows.append(enum.nextElement().getString())
+        return rows
+
+    paras = text.createEnumeration()
+    while enum_has_more(paras):
+        para = paras.nextElement()
+        if para.getPropertyValue("ParaStyleName") == "Heading 1" and para.getString() == "Heading B":
+            para.setString("Heading Bee")
+    before = toc_rows()
+
+    res = IndexesUpdateAll().execute(native_writer_tool_context(doc, ctx))
+    assert res.get("status") == "ok", res
+    assert any("Heading Bee" in row for row in toc_rows())
+
+    doc.getUndoManager().undo()
+
+    assert toc_rows() == before

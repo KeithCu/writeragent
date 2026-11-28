@@ -364,10 +364,13 @@ def insert_image_into_header_footer(
         style = resolve_page_style(model, style_name)
         before = header_footer_layout(style, region)
         is_on_prop, text_prop = REGION_PROPS[region]
-        if not style.getPropertyValue(is_on_prop):
+        # Every page-style write empties the undo stack (set_header_footer_auto_height), so the
+        # writes happen only when needed and the result says when one did.
+        undo_cleared = not style.getPropertyValue(is_on_prop)
+        if undo_cleared:
             style.setPropertyValue(is_on_prop, True)
-        if auto_height:
-            set_header_footer_auto_height(style, region, True)
+        if auto_height and set_header_footer_auto_height(style, region, True):
+            undo_cleared = True
         after = header_footer_layout(style, region)
 
         region_text = style.getPropertyValue(text_prop)
@@ -390,6 +393,7 @@ def insert_image_into_header_footer(
             "region": region,
             "auto_height": bool(auto_height),
             "layout_changed": before != after,
+            "undo_cleared": undo_cleared,
         }
 
 

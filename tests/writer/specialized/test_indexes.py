@@ -455,12 +455,19 @@ def _one_toc_context():
     idx.getPropertyValue.side_effect = lambda name: name == "IsProtected"
     mgr = MagicMock()
     mgr.isLocked.return_value = False
-    entered = {}
+    entered = {"depth": 0}
 
+    # While a group is open the stack's top entry is the outermost group; nested groups merge into it.
     def enter(title):
-        entered["title"] = title
+        if entered["depth"] == 0:
+            entered["title"] = title
+        entered["depth"] += 1
+
+    def leave():
+        entered["depth"] -= 1
 
     mgr.enterUndoContext.side_effect = enter
+    mgr.leaveUndoContext.side_effect = leave
     mgr.getAllUndoActionTitles.side_effect = lambda: (entered.get("title"),)
     doc.getUndoManager.return_value = mgr
     return ctx, doc, idx, mgr
@@ -1198,7 +1205,8 @@ def _search_create_undo(locked=False, insert_error=None, undo_error=None):
     entered = {}
 
     def enter(title):
-        entered["title"] = title
+        # While a group is open the stack's top entry is that outermost group; nested groups merge into it.
+        entered.setdefault("title", title)
 
     mgr.enterUndoContext.side_effect = enter
     mgr.getAllUndoActionTitles.side_effect = lambda: (entered.get("title"),)

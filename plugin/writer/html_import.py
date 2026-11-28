@@ -1772,6 +1772,11 @@ def replace_single_range_with_content(
             from .styles import apply_paragraph_style_preserving_direct_char
             with _deletion_author():  # author the deletion distinctly (split by-author coloring)
                 cursor.setString("")
+            # While recording, the cursor still spans the struck text, and InsertFile
+            # (SwUnoCursorHelper::InsertFile, sw/source/core/unocore/unocrsrhelper.cxx) runs
+            # DeleteAndJoin on a selection before it reads the file. That second recorded deletion
+            # over a struck paragraph mark makes one Undo drop the next list item out of its list.
+            cursor.collapseToEnd()
             anchor = text_obj.createTextCursorByRange(cursor.getStart())
             # Insert the inline fragment RAW (do not route through ensure_html_linebreaks:
             # it does not recognise <span> as HTML and would wrap it in <p>, creating an

@@ -1154,6 +1154,12 @@ _TEXT_PROPERTY_PREFIXES = ("Char", "HyperLink", "Ruby", "Visited", "Unvisited")
 # Paragraph properties whose change Reject undoes. Reject keeps a direct page break, page
 # style, or writing direction (lcl_RstAttr in docfmt.cxx), so those changes stay untracked.
 _RECORDABLE_PARA_PROPERTIES = frozenset({*_REVERT_PARA_PROPERTIES, "NumberingStyleName"} - {"BreakType", "WritingMode"})
+# SwUnoCursorHelper::SetCursorPropertyValue (sw/source/core/unocore/unoobj.cxx) writes these straight
+# to the text node (SwTextNode::SetAttrListLevel, SetCountedInList) without an undo action, so
+# commit_or_rollback's undo group holds nothing that restores them. ParaIsNumberingRestart is not
+# listed: it goes through SwDoc::SetNumRuleStart (sw/source/core/doc/docnum.cxx), which appends
+# SwUndoNumRuleStart, so the tool's single undo step restores it.
+_NOT_UNDOABLE_PARA_PROPERTIES = frozenset({"NumberingLevel", "NumberingIsNumber"})
 
 
 def _records_char_format(doc: Any, cursors: list[Any]) -> bool:
@@ -2279,6 +2285,11 @@ class StyleFormatText(ToolWriterStyleBase):
             )
         if unrestorable:
             warnings.append(_unrestorable_note(unrestorable))
+        not_undoable = [n for n in updates if n in _NOT_UNDOABLE_PARA_PROPERTIES]
+        if not_undoable:
+            warnings.append(
+                "Ctrl+Z cannot undo %s; tell the user to change it back by hand if needed." % ", ".join(not_undoable)
+            )
         if not_reset:
             warnings.append(
                 "Could not reset as direct formatting: %s." % ", ".join(not_reset)

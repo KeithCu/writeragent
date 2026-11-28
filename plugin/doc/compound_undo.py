@@ -110,7 +110,9 @@ class WriterCompoundUndo:
     left_no_entry: bool
     _titles_before: tuple[str, ...] | None
 
-    def __init__(self, doc: Any, title: str, *, _warn: bool = True) -> None:
+    def __init__(self, doc: Any, title: str, *, warn: bool = True) -> None:
+        # warn=False keeps a missing or locked undo manager out of the log, for callers that
+        # run on every edit and treat a body without a group as normal.
         self._title = title
         self._undo_manager = None
         self._open = False
@@ -121,16 +123,16 @@ class WriterCompoundUndo:
         self._titles_before = None
         try:
             if not hasattr(doc, "getUndoManager"):
-                if _warn:
+                if warn:
                     log.warning("WriterCompoundUndo: doc has no getUndoManager, undo grouping skipped (title=%r)", title)
                 return
             um = doc.getUndoManager()
             if um is None:
-                if _warn:
+                if warn:
                     log.warning("WriterCompoundUndo: getUndoManager() returned None, undo grouping skipped (title=%r)", title)
                 return
             if _is_undo_locked(um):
-                if _warn:
+                if warn:
                     log.warning("WriterCompoundUndo: undo manager is locked, undo grouping skipped (title=%r)", title)
                 return
             self._titles_before = undo_titles(doc)
@@ -141,12 +143,12 @@ class WriterCompoundUndo:
             log.debug("WriterCompoundUndo: context entered %r", title)
         except Exception as e:
             reraise_if_disposed(e)
-            if _warn:
+            if warn:
                 log.warning("WriterCompoundUndo: enterUndoContext failed, undo grouping disabled (title=%r): %s", title, e)
 
     @classmethod
     def try_enter(cls, doc: Any, title: str) -> WriterCompoundUndo | None:
-        inst = cls(doc, title, _warn=False)
+        inst = cls(doc, title, warn=False)
         return inst if inst.entered else None
 
     def __enter__(self) -> WriterCompoundUndo:
@@ -251,8 +253,8 @@ class UndoStepOrRollback(WriterCompoundUndo):
 
     rolled_back: bool
 
-    def __init__(self, doc: Any, title: str) -> None:
-        super().__init__(doc, title)
+    def __init__(self, doc: Any, title: str, *, warn: bool = True) -> None:
+        super().__init__(doc, title, warn=warn)
         self.rolled_back = False
 
     def __enter__(self) -> UndoStepOrRollback:

@@ -131,6 +131,7 @@ def test_image_insert_routes_first_page_target_to_region_helper(target: str):
         "region": target,
         "auto_height": True,
         "layout_changed": False,
+        "undo_cleared": False,
     }
     ctx = TestingFactory.create_context(doc_type="writer")
     with (
@@ -154,6 +155,7 @@ def test_image_insert_header_flags_style_unreviewed_when_layout_changed():
         "region": "header",
         "auto_height": True,
         "layout_changed": True,
+        "undo_cleared": True,
     }
     ctx = TestingFactory.create_context(doc_type="writer")
     with (

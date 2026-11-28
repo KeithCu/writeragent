@@ -985,3 +985,31 @@ def test_streamed_rewrite_abort_clears_redo_uno(ctx, doc):
     session.abort_and_restore()
     assert text.getString() == "Original text."
     assert doc.getUndoManager().isRedoPossible() is False
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_record_mutation_with_review_off_is_one_undo_step_and_rolls_back_on_raise_uno(ctx, doc):
+    """An inactive session still groups one logical edit into one Ctrl+Z, and undoes it when the edit raises."""
+    reset_body(doc, ctx, "Alpha.")
+    text = doc.getText()
+
+    def two_writes() -> None:
+        text.insertString(text.getEnd(), " one", False)
+        text.insertControlCharacter(text.getEnd(), 0, False)  # PARAGRAPH_BREAK
+        text.insertString(text.getEnd(), "two", False)
+
+    with EditReviewSession(doc, ctx, enabled=False) as session:
+        session.record_mutation(two_writes)
+    assert text.getString().endswith("two")
+    doc.getUndoManager().undo()
+    assert text.getString() == "Alpha."
+
+    def write_then_fail() -> None:
+        two_writes()
+        raise ValueError("edit failed")
+
+    with EditReviewSession(doc, ctx, enabled=False) as session:
+        with unittest.TestCase().assertRaises(ValueError):
+            session.record_mutation(write_then_fail)
+    assert text.getString() == "Alpha."
