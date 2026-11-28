@@ -476,9 +476,11 @@ def _pending_without_token(records: list[ChangeRecord], spans: list[tuple[Any, A
     keeps it pending until the user resolves that part in Edit > Track Changes > Manage.
     """
     pending: set[str] = set()
+    if not spans:
+        return pending
     for record in records:
         # A cursor whose table cell or frame was deleted cannot be read; that change is not pending.
-        text = uno_read(lambda record=record: record.anchor.getText(), None)
+        text = uno_read(record.anchor.getText, None)
         if text is None:
             continue
         if any(starts_at_or_after(text, record.anchor.getEnd(), start)
