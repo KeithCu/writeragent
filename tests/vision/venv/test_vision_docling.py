@@ -1253,7 +1253,8 @@ def test_missing_model_files_map_to_ocr_models_missing(exc):
 
 
 def test_artifacts_path_not_a_folder_is_models_missing(tmp_path):
-    missing_dir = tmp_path / "does_not_exist"
+    # Backslash catches !r escaping on POSIX as well as Windows paths.
+    missing_dir = tmp_path / "models\\missing"
     norm = docling_mod.DoclingPipelineParams.from_params({"artifacts_path": str(missing_dir)})
     with pytest.raises(FileNotFoundError) as exc_info:
         docling_mod._apply_pipeline_params(MagicMock(), norm)

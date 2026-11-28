@@ -154,6 +154,9 @@ class FakeUndoManager:
         if self.stack:
             self.stack.pop()
 
+    def clearRedo(self):
+        return None
+
 
 class FakeDoc:
     def __init__(self, undo_mgr):

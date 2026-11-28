@@ -153,6 +153,8 @@ class _Portion:
             return self._redline_type
         if name == "IsStart":
             return self._is_start
+        if name == "IsCollapsed":
+            return False
         raise Exception(name)
 
     def getString(self):
@@ -1292,6 +1294,23 @@ def test_deletion_state_across_three_paragraphs():
     assert state.in_delete is False
 
 
+def test_collapsed_deletion_marker_does_not_hide_following_paragraphs():
+    """With deletions hidden a Delete shows one collapsed start marker and no end marker."""
+    from plugin.doc.text_helpers import DeletionState
+    from tests.testing_utils import FakeUnoPara, FakeUnoPortion
+
+    p1 = FakeUnoPara([
+        FakeUnoPortion("Text", "Alpha "),
+        FakeUnoPortion("Redline", redline_type="Delete", is_start=True, collapsed=True),
+        FakeUnoPortion("Text", "three."),
+    ])
+    p2 = FakeUnoPara([FakeUnoPortion("Text", "Beta four.")])
+    state = DeletionState()
+    assert get_string_without_tracked_deletions(p1, state) == "Alpha three."
+    assert get_string_without_tracked_deletions(p2, state) == "Beta four."
+    assert state.saw_delete is True
+
+
 def test_struck_table_in_multi_paragraph_range_reads_empty():
     from tests.testing_utils import FakeUnoPara, FakeUnoPortion
 
@@ -2221,7 +2240,7 @@ def test_visible_portions_yields_kept_frame_inside_deletion():
         p = MagicMock()
         p.getPropertyValue.side_effect = lambda name: (
             "Redline" if name == "TextPortionType"
-            else ("Delete" if name == "RedlineType" else is_start)
+            else ("Delete" if name == "RedlineType" else (False if name == "IsCollapsed" else is_start))
         )
         return p
 

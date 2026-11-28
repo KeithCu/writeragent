@@ -82,3 +82,23 @@ def test_edit_that_clears_the_undo_stack_is_not_nothing_landed_uno(ctx, doc):
     assert outcome.rolled_back is False
     assert outcome.nothing_landed is False
     assert "PARTIAL" in text.getString()
+
+
+@native_test
+@with_native_doc("writer")
+def test_rollback_clears_redo_uno(ctx, doc):
+    text = doc.getText()
+    text.setString("Initial")
+    um = doc.getUndoManager()
+    assert um is not None
+
+    def write_and_fail():
+        cur = text.createTextCursor()
+        cur.gotoEnd(False)
+        text.insertString(cur, " Added", False)
+        raise RuntimeError("boom")
+
+    outcome = commit_or_rollback(doc, "WriterAgent: RollbackRedo", write_and_fail)
+    assert outcome.rolled_back is True
+    assert text.getString() == "Initial"
+    assert um.isRedoPossible() is False

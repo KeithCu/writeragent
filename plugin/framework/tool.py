@@ -419,7 +419,7 @@ class ToolBase(_ToolErrorMixin, ABC):
                     if document_is_disposed(ctx.doc):
                         return self._tool_error("Document was closed or disposed by LibreOffice", code="DOCUMENT_DISPOSED")
             # Async / review-wait tools skip this probe so wait can run off the main thread.
-            # EditReviewSession.wait_for_review must detect dispose itself. Do not "fix" by
+            # EditReviewSession._pending_tokens must detect dispose itself. Do not "fix" by
             # running this check when is_async() is True.
 
             return self.execute(ctx, **kwargs)

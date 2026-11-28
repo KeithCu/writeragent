@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import http.server
 import io
+import os
 import threading
 import urllib.error
 import zipfile
@@ -84,7 +85,8 @@ def test_install_opengrep_posix_and_resolver_agree(tmp_path: Path) -> None:
     assert requested_paths == [f"/{install_opengrep.OPENGREP_VERSION}/opengrep_linux_x86"]
     assert exe == tmp_path / ".local" / "bin" / "opengrep"
     assert exe.read_bytes() == payload
-    assert exe.stat().st_mode & 0o111
+    # Match opengrep_path._usable_file: checks x-bit on POSIX and existence on Windows.
+    assert os.access(exe, os.X_OK)
 
     # Resolver must find the installed binary even when ~/.local/bin is not on PATH.
     resolved = opengrep_path.resolve_opengrep(

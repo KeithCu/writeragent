@@ -3,7 +3,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
-from urllib.parse import urlparse
 
 import pytest
 
@@ -18,6 +17,7 @@ from plugin.doc.document_file_tools import (
 from plugin.doc.document_research import resolve_file_target
 from plugin.framework.doc_type import TEXT_DOCUMENT_SERVICE, DocumentType
 from plugin.framework.tool import ToolRegistry
+from plugin.scripting.sandbox import path_from_file_url
 
 
 def _make_model(url: str = "file:///tmp/test.odt", uid: str = "uid-1", *, modified: bool = False, read_only: bool = False):
@@ -359,7 +359,9 @@ def test_multisheet_csv_save_refuses_and_export_uses_active_sheet(tmp_path):
 
     def _fake_store_to_url(url: str, props: tuple[Any, ...]) -> None:
         recorded_props.append((url, props))
-        temp_dir = Path(urlparse(url).path).parent
+        local = path_from_file_url(url)
+        assert local is not None
+        temp_dir = Path(local).parent
         (temp_dir / "sheet-Detail.csv").write_text("col1,col2\n", encoding="utf-8")
 
     doc.storeToURL.side_effect = _fake_store_to_url

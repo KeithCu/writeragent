@@ -50,8 +50,8 @@ from plugin.framework.errors import (
 from plugin.framework.uno_context import supports_service, uno_same
 from .edit_review import flag_style_unreviewed, flag_tracked, next_agent_edit_undo_title, record_write
 from .html_export import PAGE_NUMBER_NUMBERING_TYPE_NAMES, xtext_to_content
-from .html_import import replace_xtext_with_html
-from .html_import_styles import attach_write_report
+from .html_import import raise_if_pending_changes_untracked, replace_xtext_with_html
+from .html_import_styles import WriteReport, attach_write_report
 from .range_copy import copy_flow_into_xtext, iter_nested_texts, table_is_struck
 from .search import (
     LADDER_CASE_SENSITIVE_DESCRIPTION,
@@ -1018,9 +1018,19 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
             if not text_obj:
                 raise RuntimeError(f"Could not retrieve text object for {region} on style '{style_name}'.")
 
-            report, recorded = record_write(
-                ctx.doc, ctx.ctx, lambda: replace_xtext_with_html(text_obj, content, model=ctx.doc)
-            )
+            def write() -> WriteReport:
+                raise_if_pending_changes_untracked(
+                    ctx.doc,
+                    text_obj,
+                    rewrite="rewriting the header or footer",
+                    advice=(
+                        "To change one piece of it, use page_replace_header_footer_text, which leaves tracked changes alone. "
+                        "To rewrite all of it, ask the user to turn on Track Changes or the record/wait review mode first, or to resolve those changes."
+                    ),
+                )
+                return replace_xtext_with_html(text_obj, content, model=ctx.doc)
+
+            report, recording = record_write(ctx.doc, ctx.ctx, write)
             result: dict[str, Any] = {
                 "status": "ok",
                 "style_name": style_name,
@@ -1030,13 +1040,14 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
             }
             if auto_height is not None:
                 result["auto_height"] = auto_height
-            attach_write_report(result, report)
-            if recorded:
-                flag_tracked(result)
-            # Enabling the region or changing auto_height is a page-style change no redline covers.
+            # Enabling the region or changing auto_height is a page-style layout change;
+            # the text rewrite itself is recorded by Writer when recording is active.
             if before != after:
                 flag_style_unreviewed(result, ctx.doc)
-            return result
+            res = attach_write_report(result, report)
+            if recording:
+                flag_tracked(res)
+            return res
         except Exception as e:
             if is_disposal(e):
                 raise
@@ -1206,11 +1217,8 @@ _PARTIAL_WRITE_MSG = (
 )
 
 
-def _apply_match_cursors(doc: Any, uno_ctx: Any, text_obj: Any, cursors: list[Any], new_text: str) -> tuple[int, int, bool]:
-    """setString from the last match backward. Returns (fields, shapes, recorded).
-
-    The writes run through ``record_write``, so they are one tracked change in Record/Wait and
-    while the user records; *recorded* says whether LibreOffice recorded them.
+def _apply_match_cursors(doc: Any, text_obj: Any, cursors: list[Any], new_text: str) -> tuple[int, int]:
+    """setString from the last match backward. Returns (fields, shapes).
 
     A failed replace raises ToolExecutionError with the undo layer's code.
     A refused write that changed nothing raises the plain error.
@@ -1220,15 +1228,10 @@ def _apply_match_cursors(doc: Any, uno_ctx: Any, text_obj: Any, cursors: list[An
     before = _scan_region_content(doc, text_obj)
     after_box: list[dict[str, Any]] = [before]
     title = next_agent_edit_undo_title()
-    recorded = False
-
-    def write() -> None:
-        for cursor in reversed(cursors):
-            cursor.setString(new_text)
 
     def mutate() -> None:
-        nonlocal recorded
-        _unused, recorded = record_write(doc, uno_ctx, write)
+        for cursor in reversed(cursors):
+            cursor.setString(new_text)
         after = _scan_region_content(doc, text_obj)
         after_box[0] = after
         if len(after["fields"]) < len(before["fields"]) or len(after["images"]) < len(before["images"]):
@@ -1263,7 +1266,7 @@ def _apply_match_cursors(doc: Any, uno_ctx: Any, text_obj: Any, cursors: list[An
                 message = _PARTIAL_WRITE_MSG + err["message"]
             raise ToolExecutionError(message, code=err["code"])
     after = after_box[0]
-    return len(after["fields"]), len(after["images"]), recorded
+    return len(after["fields"]), len(after["images"])
 
 
 class PageReplaceHeaderFooterText(ToolWriterPageBase):
@@ -1366,15 +1369,14 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
             if hits:
                 break
         res = self._replace_in_region_text(
-            ctx.doc, ctx.ctx, style_name, region, text_obj, old_content, new_text, occurrence, all_matches, cs, hits, notes
+            ctx, style_name, region, text_obj, old_content, new_text, occurrence, all_matches, cs, hits, notes
         )
         res.update(MatchMode(cs, False).result_fields())
         return res
 
     def _replace_in_region_text(
         self,
-        doc: Any,
-        uno_ctx: Any,
+        ctx: ToolContext,
         style_name: str,
         region: str,
         text_obj: Any,
@@ -1386,6 +1388,7 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
         hits: list[tuple[Any, int]],
         notes: list[str],
     ) -> dict[str, Any]:
+        doc = ctx.doc
         if not hits:
             message = "'%s' was not found in the %s of page style '%s'." % (old_content, region, style_name)
             if notes:
@@ -1426,8 +1429,8 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
             )
 
         try:
-            fields_preserved, shapes_preserved, recorded = _apply_match_cursors(
-                doc, uno_ctx, text_obj, cursors, new_text,
+            (fields_preserved, shapes_preserved), recording = record_write(
+                doc, ctx.ctx, lambda: _apply_match_cursors(doc, text_obj, cursors, new_text)
             )
         except ToolExecutionError as e:
             return self._tool_error(
@@ -1443,7 +1446,7 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
         }
         if notes:
             result["warning"] = notes[0]
-        if recorded:
+        if recording:
             flag_tracked(result)
         return result
 

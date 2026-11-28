@@ -972,3 +972,29 @@ def test_text_of_reads_raw_unless_deletion_overlaps_uno(ctx, doc):
     hit = doc.findFirst(sd)
     assert hit is not None
     assert deletions.text_of(hit) == hit.getString()
+
+
+@native_test
+@with_native_doc("writer")
+def test_reads_with_deletions_hidden_match_shown_uno(ctx, doc):
+    """RedlineDisplayType 1 (what tracking_show(show=False) sets) collapses each Delete; reads go on past it."""
+    from plugin.doc.text_helpers import get_document_length, read_visible_body
+    from tests.writer.doc_builders import find_first, reset_body
+
+    reset_body(doc, ctx, "Intro.", "Alpha one two three.", "Beta four five six.", "Gamma seven.")
+    struck = find_first(doc, "one two ")
+    doc.setPropertyValue("RecordChanges", True)
+    struck.setString("")
+    doc.setPropertyValue("RecordChanges", False)
+    text = doc.getText()
+    expected = "Intro.\nAlpha three.\nBeta four five six.\nGamma seven."
+    assert get_string_without_tracked_deletions(text) == expected
+    try:
+        doc.setPropertyValue("RedlineDisplayType", 1)
+        assert get_string_without_tracked_deletions(text) == expected
+        assert get_document_length(doc) == len(expected)
+        body, offsets, _struck = read_visible_body(doc, [find_first(doc, "Beta").getStart()])
+        assert body == expected
+        assert offsets == [expected.index("Beta")]
+    finally:
+        doc.setPropertyValue("RedlineDisplayType", 2)

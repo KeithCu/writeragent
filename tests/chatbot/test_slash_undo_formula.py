@@ -143,6 +143,9 @@ class _InsertUndoManager:
         if self._titles:
             self._titles.pop(0)
 
+    def clearRedo(self) -> None:
+        return None
+
 
 def test_insert_slash_formula_records_undo_and_undo_reverts():
     um = _InsertUndoManager()

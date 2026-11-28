@@ -36,30 +36,26 @@ What is implemented today (not every Writer mutation tool):
 | Vision / `python_runner` (text results and Run Python Script plot pictures) / units / text-analytics / symbolic-math Writer insert, "Insert LaTeX Math" dialog insert | Yes (editing an existing formula from the dialog is not recorded) | No | No |
 | `table_delete`, `table_manage_structure` (row/column insert and delete), `table_split_cell` into rows | Yes (row and column inserts and a split into rows go through `record_write` and return `tracked: true` and `pending_review: true` when LibreOffice recorded them; Accept leaves a U+200D in each new cell, as LibreOffice's own Insert Rows does; deleting a row or table that a pending tracked deletion already strikes returns `pending_review: true` and an "already marked for deletion" message without `tracked`; single-cell and multi-cell deletes are anchored as one agent change; both tracked and untracked `table_delete` and row/column deletes refuse with `CELLS_PROTECTED` when the table or band has, or the table is nested in, a protected cell; row deletes refuse a row where a non-empty cell spanning multiple rows starts, both tracked and untracked; a tracked row delete also refuses when an empty spanning cell is the row's first or last cell, because LibreOffice would strike the rows it spans; column deletes refuse any column covered by a wider merged cell, both tracked and untracked; tracked `table_delete` returns `tracked: true` and `pending_review: true`) | No | No |
 | `table_set_cell` | Yes while the document is recording and in Record/Wait (`tracked: true` and `pending_review: true` when Writer recorded it, with `review_mode` only in Record/Wait; refuses `CELLS_PROTECTED`, `MATCH_CROSSES_DELETION` while Track Changes is off, and `CELL_TEXT_IS_PENDING_DELETION` when the new text equals the cell's raw text with a pending deletion in it, since nothing would be written; `apply_content` on a match in a protected cell, or in a table nested in one, refuses with `CELLS_PROTECTED` too) | No | No |
-| `style_format_text` | Yes for `properties` and recordable `reset` (`Char*` via Format redline on non-collapsed targets, `Para*` / `NumberingStyleName` via `ParagraphFormat` redline; `Char*` at a caret, headings, list items, empty paragraphs, `BreakType`, `WritingMode`, `PageDescName`, `NumberingLevel`, `CharAutoStyleName`, `CharInteropGrabBag`, and `Char*` border complex-colour resets are not tracked and report `style_unreviewed`; with review Off while the user records, a tracked result carries `tracked: true` and `pending_review: true` without `review_mode`) | No | No |
+| `style_format_text` | Yes for `properties` and recordable `reset` (`Char*` via Format redline on non-collapsed targets, `Para*` / `NumberingStyleName` via `ParagraphFormat` redline; `Char*` at a caret, headings, list items, empty paragraphs, `BreakType`, `WritingMode`, `PageDescName`, `NumberingLevel`, `CharAutoStyleName`, `CharInteropGrabBag`, and `Char*` border complex-colour resets are not tracked and report `style_unreviewed`; with review Off while the user records, a tracked result carries `tracked: true` and `pending_review: true` without `review_mode`; refuses `MATCH_CROSSES_DELETION` when `target="search"` or a non-collapsed `target="selection"` overlaps a pending deletion while recording) | No | No |
+
 | `apply_style` (paragraphs) | Yes while the document is recording and in Record/Wait (`ParagraphFormat` redline via `makeRedline`, authored `WriterAgent` in Record/Wait or office user when Off; with review Off while the user records, a tracked result carries `tracked: true` and `pending_review: true` without `review_mode`) | No | No |
-| `apply_style` (character) | Yes in Record/Wait or while the document is recording (Format redline on non-collapsed targets; a caret target is not tracked and reports `style_unreviewed`; with review Off while the user records, a tracked result carries `tracked: true` and `pending_review: true` without `review_mode`) | No | No |
+| `apply_style` (character) | Yes in Record/Wait or while the document is recording (Format redline on non-collapsed targets; a caret target is not tracked and reports `style_unreviewed`; with review Off while the user records, a tracked result carries `tracked: true` and `pending_review: true` without `review_mode`; refuses `MATCH_CROSSES_DELETION` when `target="search"` or a non-collapsed `target="selection"` overlaps a pending deletion while recording) | No | No |
 | `image_insert`, `image_generate`, `image_delete`, `shape_delete` (Writer `TextGraphicObject`), OCR `delete_image_after_insert` | Yes (both while the document is recording and in Record/Wait via `record_write`; embedded `image_insert` and `AS_CHARACTER` frames while recording use `insert_recorded_content` with frame content unrecorded; `image_insert target=header/footer` flags `style_unreviewed` when it turns the region on or changes `auto_height`; `image_insert` and `image_generate` inserts return `tracked: true` and `pending_review: true` whenever Writer recorded the insert, including the user's own recording with review Off, and tracked deletes return `tracked: true` and `pending_review: true`) | No | No |
-| `footnote_insert`, `footnote_edit`, `footnote_delete` | Yes (in Record/Wait and while the document is recording via `record_write`; results carry `tracked: true` and `pending_review: true` when LibreOffice recorded the write; a custom-mark `label` change is not recorded by LibreOffice and adds a warning, with `tracked: false` when only the label changed) | No | No |
+| `footnote_insert`, `footnote_edit`, `footnote_delete` | Yes (in Record/Wait and while the document is recording via `record_write`; results carry `tracked: true` and `pending_review: true` when LibreOffice recorded the write; a custom-mark `label` change is not recorded by LibreOffice and adds a warning, with `tracked: false` when only the label changed; `footnote_edit` text writes refuse `PENDING_TRACKED_CHANGES` while Track Changes is off and the note holds pending insertions or deletions) | No | No |
 | `field_delete`, `index_refresh_toc_entry`, `index_insert_toc_entry`, `index_delete_toc_entry` | Yes (in Record/Wait and while the document is recording via `record_write`; `tracked: true` and `pending_review: true` when LibreOffice recorded the write; a recorded delete says the field or entry is marked for deletion and stays until the user resolves it; a field inside the agent's own pending insertion is removed outright) | No | No |
-| `page_set_header_footer_text`, `page_replace_header_footer_text` (the text) | Yes (in Record/Wait and while the document is recording via `record_write`; `tracked: true` and `pending_review: true` when recorded; turning the region on or changing `auto_height` is flagged `style_unreviewed`; Accept of a whole-region rewrite leaves one empty paragraph, the documented whole-paragraph replace case) | No | No |
+| `page_set_header_footer_text`, `page_replace_header_footer_text` | Yes (in Record/Wait and while the document is recording via `record_write`; results carry `tracked: true` and `pending_review: true` when LibreOffice recorded the write; `page_set_header_footer_text` also flags `style_unreviewed` when turning the region on or changing `auto_height`, and refuses `PENDING_TRACKED_CHANGES` while Track Changes is off and the region holds pending insertions or deletions) | No | No |
 | Comment tools (`comment_add` and replies, `comment_delete`, `comment_resolve`, `comment_edit`) | No in Record/Wait (`tracked: false` plus a warning). While the user records with review Off, LibreOffice records a comment add, reply or delete and the result says `tracked: true`, `pending_review: true` (a delete stays listed, marked for deletion); editing or resolving a comment is never recorded and warns | No | No |
 | `clone_heading_block` | No in Record/Wait (`tracked: false` plus a warning); while the user records, LibreOffice records the clone and the result says `tracked: true`, `pending_review: true` | No | No |
 | `chart_upsert` (Writer), `frame_insert` (`AS_CHARACTER`), `embedded_insert` (Writer), `table_insert`, `field_insert`, `index_add_mark`, `mail_merge_insert_field`, `form_create`, `form_create_control`, `form_generate` (Writer), math formula insert (`apply_content` math and the LaTeX dialog) | Yes while recording and in Record/Wait (for `frame_insert`, inline records in Record/Wait and its search-match deletion is recorded for every anchor type; `insert_recorded_content` wraps inline objects and Input fields in recorded placeholders; `table_insert`, `field_insert`, `index_add_mark` and `mail_merge_insert_field` return `tracked: true` and `pending_review: true` when LibreOffice recorded the insert, the same as `frame_insert` inline and `embedded_insert`) | No | No |
-| Style tools and page layout (`page_set_style_properties`, `page_set_columns`, `page_set_watermark`, and the region and `auto_height` part of `page_set_header_footer_text`) | No (`style_unreviewed: true`, also when the user is recording with review Off — except character `apply_style` and paragraph `apply_style`; `page_insert_break` is not in this set) | No | No |
+| Style tools and page layout (`page_set_style_properties`, `page_set_columns`, `page_set_watermark`) | No (`style_unreviewed: true`, also when the user is recording with review Off; `page_insert_break` is not in this set) | No | No |
+
 | `section_create` | No (inserted untracked so `SwDoc::InsertSwSection` does not mark the wrapped text as a tracked insertion; flags `style_unreviewed: true`; refuses with `SECTION_IN_TRACKED_CHANGE` when a pending Insert or Delete redline spans past both ends) | No | No |
 | `frame_delete`, `chart_delete`, `shape_delete` (non-picture), `form_delete_control`, `shape_upsert` (create and edit), `shape_connect`, `diagram_create`, `table_merge_cells`, `table_split_cell` into columns, `image_crop_and_highlight`, `frame_insert` (non-inline; with `target="search"`, also returns `pending_review: true` when the replaced text is a pending tracked deletion), `image_replace` / `image_generate` (in-place replace), `index_create`, `index_update_all` | No (`tracked: false` with a `warning` when recording or review is on; `index_create` refuses with `INDEX_IN_TRACKED_CHANGE` if it would split a pending tracked change, and while the document is recording or in Record/Wait its `target='search'` deletion is recorded — tagged as an agent change only in Record/Wait — and the result carries `pending_review: true` while the index itself is not tracked; `index_update_all` refuses with `INDEX_HAS_TRACKED_CHANGES` if any index holds pending insertions or deletions) | No | No |
 | Other Writer tools: property tools (`frame_set_properties`, `image_set_properties`, `footnote_update_settings`, `form_edit_control`, `shape_align`, `shape_group`, `document_set_properties`, the bookmark tools), `page_insert_break` | No (no flag in any recording state; `document_set_properties` also changes what a Title or Subject field in the body shows) | No | No |
 
-Search matches and `start_anchor`/`end_anchor` ranges (including chained multi-paragraph matches) that overlap a pending tracked deletion are refused with `MATCH_CROSSES_DELETION` when the edit is not recorded on `apply_content` replace, `insert_at_target` replacements, `index_refresh_toc_entry`, and `table_set_cell`; while recording (Record/Wait or Track Changes > Record), LibreOffice keeps the other author's deletion as its own redline beside the new change. `index_create target="search"` refuses whether recording is on or not, and `apply_style` (character styles) / `style_format_text` with `target="search"` refuse only while recording or in review mode.
+Search matches (literal and regex), `start_anchor`/`end_anchor` ranges (including chained multi-paragraph matches), and non-collapsed `target="selection"` replacements that overlap a pending tracked deletion are refused with `MATCH_CROSSES_DELETION` when the edit is not recorded on `apply_content` replace, `insert_at_target` replacements, `index_refresh_toc_entry`, and `table_set_cell`; while recording (Record/Wait or Track Changes > Record), LibreOffice keeps the other author's deletion as its own redline beside the new change. Unrecorded `start_anchor`/`end_anchor` replaces also refuse `OBJECT_IN_ANCHOR_RANGE` when the range contains a footnote, endnote or field. `page_set_header_footer_text` and `footnote_edit` text writes refuse `PENDING_TRACKED_CHANGES` while Track Changes is off and the region or note holds pending insertions or deletions. `index_create target="search"` refuses whether recording is on or not, and `apply_style` (character styles) / `style_format_text` with `target="search"` or a non-collapsed `target="selection"` refuse only while recording or in review mode.
 
-Extend / Edit Selection stop when the selection contains, or lies wholly inside, a tracked insertion or deletion.
-`WriterStreamedRewriteSession` and `WriterStreamedAppendSession` raise before the undo context,
-before `RecordChanges` changes, and before the first `setString`, and the menu shows a message.
-The redlines stay as they are. A selection with no Insert/Delete redlines keeps the rewrite.
-Edit selection clears the range while tokens stream. If the model returns no text,
-`WriterStreamedRewriteSession.finish()` writes the original back and does not record an empty
-replacement. Whitespace the model actually sent is kept.
+Extend / Edit Selection stop when the selection contains, touches, or lies inside any tracked change (Insert, Delete, Format, ParagraphFormat, table changes), or includes a table; the slash whole-document rewrite refuses when the document holds any tracked change or a table. `WriterStreamedRewriteSession` and `WriterStreamedAppendSession` raise before the undo context and before any write, and the menu shows a message. The redlines and tables stay as they are. In Record/Wait and while the user records, Edit Selection strikes the selection as one tracked deletion when streaming starts and streams the new text in front of it; Reject restores paragraphs, styles, list levels, cell paragraphs, and inline objects. With Track Changes off it clears the range and streams in place. Empty or scaffold-only model output leaves the document unchanged and records nothing. Whitespace the model actually sent is kept. The user's own Record stays on during a stream and their typing is recorded; a stream that started with recording off finishes untracked even if Record is turned on meanwhile. `\n` in model output becomes a line break and `\r\n` a paragraph break plus line break; output identical to the selection still records an Insert and Delete pair; the view selection is collapsed afterwards.
 
 Extend/Edit read `extend_selection_system_prompt` / `edit_selection_system_prompt` from `writeragent.json`; `additional_instructions` stays the chat prompt (the shared Edit dialog still saves its Extra instructions there for Calc and Settings, but Writer does not use it as its system prompt).
 
@@ -84,10 +80,8 @@ Blocking wait applies only to **`apply_content`** from a **background thread** (
 chat worker or MCP HTTP thread). The main thread never block-waits so the user can click accept/reject.
 
 The edit runs on the main thread in `_do_edit`. Checks finish before `EditReviewSession` is
-constructed. That object is appended to a one-element list before the target method runs, because
-`MainThread.call` re-raises and drops the return value; the list is how anchor bookmarks are released
-when the edit raises. Wait mode keeps the returned session and `wait_for_review` cleans it up. Every
-other path releases it, including a successful non-wait edit.
+constructed. Wait mode keeps the returned session to poll `wait_for_review`; the session holds
+no document state that needs releasing when an edit raises or completes.
 
 ## How a change is tracked
 
@@ -95,14 +89,20 @@ other path releases it, including a successful non-wait edit.
 
 * `record_mutation()` snapshots the document's redline identifiers, runs the edit, and tags every
   **new** redline's `RedlineComment` with a per-change token `wa-review:<session>:<n>`. Only an exact
-  `wa-review:<session>:<n>` comment (no whitespace, no extra colons, numeric `<n>`) counts as an
-  agent token; a user comment that merely starts with `wa-review:` does not. `<n>` is the session's
-  per-attempt counter, not the number of registered changes, so a tag left behind on an unregistered
-  edit cannot be the token of the next registered change.
+  `wa-review:<session>:<n>` comment (no whitespace, no extra colons, numeric `<n>`) on a redline
+  authored by `WriterAgent` or `WriterAgent (deletions)` counts as an agent token; a user comment
+  that merely starts with `wa-review:` or a token-shaped comment on another author's redline does not.
+  `<n>` is the session's per-attempt counter, not the number of registered changes, so a tag left
+  behind on an unregistered edit cannot be the token of the next registered change.
 * Tagging is **fail-closed**: if the pre- or post-edit redline scan is incomplete, the edit still
   applies but its redlines are **not** tagged — they stay untagged (treated as the user's own) so
   Accept/Reject All never touches a misclassified user redline; an unreadable `RedlineDateTime` or
   `RedlineSuccessorData` also makes tagging refuse (fail closed).
+* The **split-piece rule** skips any new-identifier redline whose `(type, author, date, comment)`
+  matches an old redline, because splitting an existing insertion creates a tail piece with a new
+  identifier and the old metadata. Exception: an untagged agent-authored redline dated within the
+  last 10 s belongs to the current edit rather than an older split piece, so a new edit in the same
+  clock second as an untagged agent redline is still tagged completely.
 * Completion is a reliable empty intersection of redline comments with tokens on **registered**
   changes — **not** "zero redlines in the document", and **not** "every `wa-review:<session>:`
   comment is gone". A tag left behind when the change was not registered (tagging failed, or the
@@ -143,6 +143,15 @@ other path releases it, including a successful non-wait edit.
   `WriterAgent` (not `WriterAgent (deletions)`). When the user records changes with review off,
   the link redlines are still authored `WriterAgent` so they do not merge with the user's own
   redlines across a paragraph mark.
+
+**Agent identity:** `tracking_manage` refuses any redline authored by `WriterAgent` or
+`WriterAgent (deletions)` in every review mode, tagged or not. This covers DOCX/DOC/RTF reloads
+(which drop the comment on a tracked change), style `Format`/`ParagraphFormat` redlines,
+table-only inserts, a deletion stacked on another author's insertion, and an agent change whose
+comment the user edited. Those untagged redlines are not in the review toolbar, popup, or Reject
+all; resolve them in *Edit ▸ Track Changes ▸ Manage*. A user whose office name is exactly
+`WriterAgent` or `WriterAgent (deletions)` is treated as the agent by `tracking_manage`. RTF
+stores header and footnote change authors as `0`, which loses the identity.
 
 ### Surgical word-level edits
 
@@ -286,14 +295,14 @@ Delete and Insert as two independent rows. WriterAgent adds:
    agent changes exist; hidden when the count drops to zero. Toolbar visibility uses
    `agent_change_presence(model, stop_at_first=True)`: if the scan is unreliable, visibility is left
    unchanged. Menu actions `review_prev` / `review_next` call `goto_adjacent_agent_change`. Counting
-   follows the count-without-previews rule: `agent_change_presence` returns this distinct-comment
-   count without reading text previews with `XTextCursor.getString()`. The toolbar's per-document
+   follows the count-without-previews rule: `agent_change_presence` returns the distinct-token
+   count on agent-authored redlines without reading text previews with `XTextCursor.getString()`. The toolbar's per-document
    modify listener (`review_view_attachment.schedule_toolbar_refresh` → `refresh_review_toolbar`) queues recount per burst with `main.post`, which runs on a later main-loop
    turn so it does not walk redlines inside the modify notification. The listener makes no UNO
    call per keystroke; the queued run looks up the LayoutManager and skips the recount while the
    toolbar is hidden.
 
-It is strictly token-scoped — only `wa-review` changes are listed or resolved.
+The inline review UI lists and resolves only redlines that carry a `wa-review` token and an agent author.
 
 ### Exact-bounds resolve (modern LibreOffice)
 
@@ -329,6 +338,31 @@ sibling changes share those paragraphs.
 All safety scans are **fail-closed**: incomplete redline enumeration never backs a success claim;
 resolve-all returns user-facing messages when verification fails.
 
+### Hidden markup (`RedlineDisplayType` 1 or 3)
+
+`tracking_show(show=false)` sets `RedlineDisplayType` 1. That is a model-level hide
+(`SwXTextDocument::setPropertyValue`, `WID_DOC_REDLINE_DISPLAY` → `SetRedlineFlags`): LibreOffice
+moves each Delete's text out of the paragraph, so the redline has no span and its portion walk shows
+one collapsed start marker with no end marker (`lcl_FillRedlineArray`, `unoportenum.cxx`). The
+View ▸ Track Changes ▸ Show toggle is layout-only and leaves the type at 2.
+
+* **Reads:** `DeletionState.apply_marker` skips a collapsed marker, so every portion-walk read
+  (chat context, `search return_offsets`, `get_content` ranges, surroundings) sees the same visible
+  text as with markup shown.
+* **Resolves:** a selection over a replace covers only its visible half, and Writer switches to
+  type 2 before resolving (`DocumentRedlineManager::AcceptRedline` / `RejectRedline`), so it would
+  resolve only that half. Inline resolve, resolve-all and `tracking_manage` therefore run inside
+  `review_scan.RedlinesShown`: they set type 2, read the redlines again, resolve, and put the user's
+  type back. The "nothing to resolve here" answers (cursor off any change, no agent changes) come
+  first, so they never toggle the display. `tracking_manage` finds the change at the listed index
+  again by its identity key, because showing deletions resorts the redline table.
+* **Navigation:** Next/Previous and the click popup cannot land on an agent change that is only a
+  deletion while deletions are hidden, because it has no span; a replace is reached through its
+  insertion.
+* **Toggles:** `tracking_start`, `tracking_stop` and `tracking_show` change the user's own
+  settings; when the document holds pending tracked changes their result carries a `warning`
+  telling the model to say what it changed.
+
 ### When the user records changes and agent review is Off
 
 When the user turns on Track Changes > Record while agent review is Off, operations that Writer cannot natively record are either flagged (`style_unreviewed: true`) or left undone with a reason:
@@ -336,14 +370,13 @@ When the user turns on Track Changes > Record while agent review is Off, operati
 * **Character and paragraph resets (`style_format_text` `reset`):** `SwDoc::ResetAttrs` (`docfmt.cxx`) has no redline branch, so `style_format_text` writes each recordable `Char*` property's pool default (`_recordable_reset_values`, or `"Standard"` for `CharStyleName`) before resetting it; `lcl_SetRedline` (`DocumentContentOperationsManager.cxx`) records the old attributes in a Format redline, and the reset drops the temporary value. Recordable `Para*` and `NumberingStyleName` changes (set or reset) record a `ParagraphFormat` redline via `makeRedline` after the character write; headings, list items, empty paragraphs, `BreakType`, `WritingMode`, `PageDescName`, `NumberingLevel`, `CharAutoStyleName`, `CharInteropGrabBag`, and `Char*` border complex-colour resets cannot be recorded this way and set `style_unreviewed`.
 * **Picture deletes (`image_delete`, OCR `delete_image_after_insert`):** `SwXFrame::dispose` leaves no redline, so `delete_graphic` selects a `TextGraphicObject` and dispatches `.uno:Delete` (`SwWrtShell::DelRight`, Graphic case). Pictures Writer cannot record (drawing-shape `GraphicObjectShape`s, `ContentProtected` pictures, or documents with no view) fail closed: `image_delete` raises `IMAGE_DELETE_NOT_TRACKABLE` and OCR keeps the image (`"image_kept"`, listed in `kept_images_delete_not_trackable` on the agent result). Rejecting a non-as-character picture delete leaves a U+200D anchor pair (`delete.cxx`) where Writer moved the anchor to the character.
 * **Paragraph `apply_style` (`SwUnoCursorHelper::makeRedline`):** Applying a paragraph style while `RecordChanges` is on or in Record/Wait temporarily turns recording off so the `Char*` restore does not create `Format` redlines whose Reject drops the run's formatting, then records one `ParagraphFormat` redline per changed non-empty paragraph (authored `WriterAgent` in Record/Wait, or the current office user when review is Off) carrying `ParaStyleName`, direct paragraph properties, and `NumberingRules`. If the paragraph already has a `ParagraphFormat` redline, no second one is added so Reject restores the state before both changes.
-* **Known paths that still bypass recording:** `frame_delete`, `chart_delete`, `shape_delete` (non-picture; a group member's delete also has no undo step and always warns), `form_delete_control`, `shape_upsert` (create), `shape_connect`, `diagram_create`, non-inline `frame_insert`, picture replace (`image_replace` and in-place `image_generate`), and `index_update_all` (these return `tracked: false` with a `warning` when recording or review is on; `index_update_all` refuses with `INDEX_HAS_TRACKED_CHANGES` when any index holds pending insertions or deletions), the comment tools in Record/Wait, `clone_heading_block` in Record/Wait, `shape_upsert` (edit), `table_merge_cells`, `table_split_cell` into columns and `image_crop_and_highlight` (all of these warn the same way), and, with no flag, the property tools (`frame_set_properties`, `image_set_properties`, `footnote_update_settings`, `form_edit_control`, `shape_align`, `shape_group`, `document_set_properties`, bookmark tools), table formatting, page break, removing a hyperlink, and the `_finish_collapse` failure fallback (`WriterStreamedAppendSession.abort_and_restore` now collapses the partial continuation via `finish()`).
+* **Known paths that still bypass recording:** `frame_delete`, `chart_delete`, `shape_delete` (non-picture; a group member's delete also has no undo step and always warns), `form_delete_control`, `shape_upsert` (create), `shape_connect`, `diagram_create`, non-inline `frame_insert`, picture replace (`image_replace` and in-place `image_generate`), and `index_update_all` (these return `tracked: false` with a `warning` when recording or review is on; `index_update_all` refuses with `INDEX_HAS_TRACKED_CHANGES` when any index holds pending insertions or deletions), the comment tools in Record/Wait, `clone_heading_block` in Record/Wait, `shape_upsert` (edit), `table_merge_cells`, `table_split_cell` into columns and `image_crop_and_highlight` (all of these warn the same way), and, with no flag, the property tools (`frame_set_properties`, `image_set_properties`, `footnote_update_settings`, `form_edit_control`, `shape_align`, `shape_group`, `document_set_properties`, bookmark tools), table formatting, page break, removing a hyperlink, and the streamed sessions' failure fallback, which keeps the generated text untracked (`WriterStreamedAppendSession.abort_and_restore` now collapses the partial continuation via `finish()`).
 
 ### Limitations
 
 * **Most style and page layout changes are not reviewable.** `style_update`, `style_create`, `style_clone`,
-  `style_import`, `section_*`, `page_set_style_properties`, `page_set_header_footer_text`,
-  `page_replace_header_footer_text`, `page_set_columns`, and `page_set_watermark` apply directly and return
-  `style_unreviewed: true` when review recording is active (and, except for header/footer text and character `apply_style`, when the user has Track Changes > Record on with review Off); the agent is prompted to tell the user which change they cannot accept/reject like a text edit (they don't produce redlines). `page_insert_break` is not in that set. `section_create` inserts untracked so Reject does not delete the wrapped text, and refuses with `SECTION_IN_TRACKED_CHANGE` when a pending Insert or Delete redline spans past both ends.
+  `style_import`, `section_*`, `page_set_style_properties`, `page_set_columns`, and `page_set_watermark` apply directly and return
+  `style_unreviewed: true` when review recording is active (and, except for character and paragraph `apply_style`, when the user has Track Changes > Record on with review Off); the agent is prompted to tell the user which change they cannot accept/reject like a text edit (they don't produce redlines). `page_insert_break` is not in that set. `page_set_header_footer_text` and `page_replace_header_footer_text` record text writes through `record_write` (`tracked: true`, `pending_review: true`), and only region enable / `auto_height` is flagged `style_unreviewed`. `section_create` inserts untracked so Reject does not delete the wrapped text, and refuses with `SECTION_IN_TRACKED_CHANGE` when a pending Insert or Delete redline spans past both ends.
 * **Paragraph `apply_style` tracking limits:**
   * Cleared character formatting (`clear_direct="style_props"` or `"all"`) is not restored on Reject and sets `style_unreviewed: true`.
   * List levels, and numbers under an outline-numbered heading style, are not restored on Reject and set `style_unreviewed: true`. Unlike `apply_style`, `style_format_text` leaves list items and headings without a `ParagraphFormat` redline (reported `style_unreviewed`): its change is a direct property, so skipping costs only that property's Reject, whereas `apply_style`'s redline is the only Reject for the style change.
@@ -356,9 +389,10 @@ When the user turns on Track Changes > Record while agent review is Off, operati
   * Reject restores the direct paragraph properties listed in `_REVERT_PARA_PROPERTIES` (`styles.py`). Any other hand-set one (for example `DropCapCharStyleName`, `FillBitmapSizeX/Y`) is dropped by `lcl_RejectRedline`'s `ResetAttrs`; the result sets `style_unreviewed: true` and the warning names it. Import metadata (`ParaInteropGrabBag`, `ParRsid`, foreign XML attributes) is dropped without a warning.
 * **Recorded inserts at an empty paragraph:** When recording is on, inserting at a caret in an empty paragraph or at `beginning` when the first paragraph is empty places the imported content after that empty paragraph (so Reject restores the paragraph's style and direct formatting); content ending in a table keeps one extra empty paragraph after the table. The whole insert is one Ctrl+Z step.
 * **Undo of a recorded replace:** While recording, Undo (not Reject) of a `full_document` or whole-paragraph replace loses direct character formatting when whole-paragraph direct formatting is combined with a character style at the paragraph start, because `SwUndoSplitNode::UndoImpl` restores only text hints; the alternatives tried lose other formatting on Undo (a first-word-bold paragraph comes back all bold). Reject restores it.
-* **Formatting across a foreign pending insertion** is flagged: `style_format_text` and character
-  `apply_style` check for it before the write (`format_overlaps_foreign_insertion`) and return
-  `style_unreviewed: true` with a warning (the limitation itself is listed below).
+* **Formatting across a foreign pending insertion** (or across both the user's and the agent's) still
+  lets LibreOffice turn one of them into a Format redline; rejecting then keeps that text.
+  `style_format_text` and character `apply_style` check for this before the write
+  (`format_overlaps_foreign_insertion`) and return `style_unreviewed: true` with a warning.
 * **Changing the target of an existing hyperlink** while recording leaves a Format redline whose
   Reject removes the link (`lcl_SetRedline` does not save `RES_TXTATR_INETFMT`), so
   `style_format_text` lists the `HyperLink*` names as not recorded and sets `style_unreviewed: true`.
@@ -370,17 +404,22 @@ When the user turns on Track Changes > Record while agent review is Off, operati
   Accept instead of "(formatting preserved)" (`recorded_replace_keeps_formatting`).
 * **Grammar language detection** (`doc.grammar_proofreader_detect_language`) writes `CharLocale`
   with recording suspended, so it never adds a Format redline or changes another author's insertion.
-* **Extend selection** records only the appended continuation as a single tracked **insertion**
-  (the original is never struck); it streams live with tracking off, then collapses to one redline
-  at the end. Streamed collapse may show both marks under the INSERT author instead of split
-  insert/delete colors.
+* **Extend selection** streams the continuation at a cursor after the selection and never writes the selection; at the end it removes the untracked continuation and inserts it once as a recorded insertion.
 * **`ShowChanges` is forced on** during review and is not restored afterward; the user must toggle
   display back manually if they had it off. Do not treat that as a missing restore bug in the wait loop.
-* **Formatting across a foreign pending insertion** (or across both the user's and the agent's) still
-  lets LibreOffice turn one of them into a Format redline; rejecting then keeps that text.
-* **Closing the document during wait** aborts with ``complete=False`` and ``timed_out=False`` (not a
-  full-timeout spin). A change that never gets an anchor bookmark is **not** registered as a
-  reviewable agent edit.
+* **A linked `image_insert` with review Off and no recording lands at the paragraph end**, while the
+  recorded insert lands at the caret, so Accept of the recorded insert differs from the untracked one.
+  Only `.uno:InsertGraphic` can link a picture; outside recording it anchors to the character at the
+  caret (the user's default anchor; `SwWrtShell::InsertGraphic` forces as-character only while
+  recording, `wrtsh1.cxx`), and the later switch to as-character re-anchors from the layout position
+  (`SwXFrame::setPropertyValue` → `sw_ChkAndSetNewAnchor`, `unoframe.cxx`, `fefly1.cxx`), which
+  `attach()` beforehand does not change. Deferred: keep the character anchor for linked pictures, or
+  insert them embedded at the cursor.
+* **Closing the document during wait** returns ``complete=False``, ``timed_out=False``, every
+  change ``pending`` with ``final_text=""`` (not a full-timeout spin). A change that never gets an
+  anchor is **not** registered as a reviewable agent edit.
+* **Closing during a streamed Edit/Extend selection** drops queued chunks, and ``finish()`` raises
+  ``DocumentDisposedError``.
 * **Toolbar fast-travel** skips changes whose bounds cannot be read (`_change_bounds` fails); the
   pending counter may still include them. Stops with unreadable bounds are omitted from Next/Previous;
   a change with bounds in another text object is visited in redline-table order.
@@ -389,9 +428,8 @@ When the user turns on Track Changes > Record while agent review is Off, operati
 * **`frame_insert target="search"` whole-body match (anchor 0 or 4):** when a recorded match spans
   an entire text (body, cell, or frame), Accept also removes the frame (`undobj.cxx`:
   `IsSelectFrameAnchoredAtPara` / `IsDestroyFrameAnchoredAtChar`).
-* **Undo then Redo of a review-session edit:** Redo brings the redline back untagged, splits an
-  `Unknown Author` Insert piece, and restores the `wa_review_*` anchor bookmark (`RedlineComment`
-  is not an undoable action, while the bookmark lives inside the edit's undo group).
+* **Undo then Redo of a review-session edit:** Redo brings the redline back untagged and splits an
+  `Unknown Author` Insert piece (`RedlineComment` is not an undoable action).
 
 ## Ways to improve
 

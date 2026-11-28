@@ -1469,9 +1469,11 @@ class TableSplitCell(ToolWriterTableBase):
         cursor = table.createCursorByCellName(cell_name)
         # Count is the number of new cells, and Horizontal=True adds horizontal dividing lines
         # (more rows): SwXTextTableCursor::splitRange passes !Horizontal as bVert to SwDoc::SplitTable.
-        # While recording, a split into rows goes through SwTable::NewSplitRow -> InsertSpannedRow ->
-        # InsertRow_ (sw/source/core/table/swnewtable.cxx, doc/tblrwcl.cxx), which records the new rows
-        # and Reject All removes them; SwTable::SplitCol (tblrwcl.cxx) records nothing.
+        # While recording, a split into rows of a new-model table goes through SwTable::NewSplitRow ->
+        # InsertSpannedRow -> InsertRow_ (sw/source/core/table/swnewtable.cxx, doc/tblrwcl.cxx), which
+        # records the new rows and Reject All removes them; SwTable::SplitCol (tblrwcl.cxx) records
+        # nothing. A legacy old-model table splits rows through OldSplitRow (tblrwcl.cxx), which also
+        # records nothing, but UNO does not expose the table model, so such a split is reported tracked.
         split, recorded = record_write(
             ctx.doc, resolve_uno_context(ctx), lambda: cursor.splitRange(parts - 1, direction == "rows")
         )

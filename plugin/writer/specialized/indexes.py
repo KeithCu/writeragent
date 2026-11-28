@@ -39,13 +39,14 @@ from plugin.framework.i18n import _
 from plugin.framework.uno_context import create_property_value, uno_any
 
 from plugin.writer.edit_review import (
+    INSERT_DELETE_REDLINES,
     collapsed_anchor,
     edit_is_recorded,
     flag_tracked,
     flag_tracked_delete,
     flag_untracked,
     next_agent_edit_undo_title,
-    range_has_tracked_insert_or_delete,
+    range_has_redline,
     record_write,
 )
 from plugin.writer.html_import import content_has_markup, replace_preserving_format
@@ -315,7 +316,7 @@ class IndexesUpdateAll(ToolWriterIndexBase):
             entries.append((idx, _index_name(idx, i)))
         dirty = [
             name for idx, name in entries
-            if range_has_tracked_insert_or_delete(doc, idx.getAnchor())
+            if range_has_redline(doc, idx.getAnchor(), kinds=INSERT_DELETE_REDLINES)
         ]
         if dirty:
             return self._tool_error(

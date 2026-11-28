@@ -59,7 +59,7 @@ from plugin.framework.errors import (
     suggest_call,
     uno_read,
 )
-from plugin.doc.text_helpers import KeepViewSelection, TrackedDeletions
+from plugin.doc.text_helpers import KeepViewSelection, TrackedDeletions, iter_elements
 from plugin.framework.uno_context import enum_has_more, supports_service, uno_same
 from plugin.framework.json_utils import parse_html_fragment_list
 from plugin.writer import (
@@ -271,6 +271,28 @@ def _range_contains_table(text_range: Any) -> bool:
         if elem is not None and supports_service(elem, "com.sun.star.text.TextTable"):
             return True
     return False
+
+
+_OBJECT_PORTIONS = {"Footnote": "footnote or endnote", "TextField": "field"}
+
+
+def _range_object_kind(text_range: Any) -> str | None:
+    """Label of the first footnote, endnote or field inside *text_range* (paragraph enumeration is
+    clipped to the range, SwXTextCursor::createEnumeration in unoobj.cxx), else None."""
+    enum = uno_read(lambda: text_range.createEnumeration(), None)
+    if enum is None:
+        return None
+    for elem in iter_elements(enum):
+        if supports_service(elem, "com.sun.star.text.TextTable"):
+            continue
+        p_enum = uno_read(lambda: elem.createEnumeration(), None)
+        if p_enum is None:
+            continue
+        for portion in iter_elements(p_enum):
+            kind = uno_read(lambda: portion.getPropertyValue("TextPortionType"), None)
+            if kind in _OBJECT_PORTIONS:
+                return _OBJECT_PORTIONS[kind]
+    return None
 
 
 def build_search_replace_response(
@@ -881,7 +903,7 @@ class ApplyDocumentContent(ToolBase):
             return self._tool_error("dry_run search failed: %s" % e, code="SEARCH_FAILED")
         labeler = search_mod.LocationLabeler(ctx.doc)
         deletions = TrackedDeletions(ctx.doc)
-        refuse_crossing = params.position == "replace" and not params.regex and not edit_is_recorded(ctx.doc)
+        refuse_crossing = params.position == "replace" and not edit_is_recorded(ctx.doc)
         replaceable: list[dict[str, Any]] = []
 
         def _match_snippet(found: Any) -> tuple[str, str]:
@@ -978,12 +1000,6 @@ class ApplyDocumentContent(ToolBase):
             result["selected_match"] = selected_match
         return result
 
-    def _release_review_session(self, session: Any) -> None:
-        try:
-            _run_on_main_thread(session.cleanup)
-        except Exception:
-            log.exception("apply_content: review session cleanup failed")
-
     def _resolve_heading_links(
         self, doc: Any, params: EditParams
     ) -> tuple[EditParams, list[Diagnostic]]:
@@ -1028,7 +1044,6 @@ class ApplyDocumentContent(ToolBase):
             except ToolExecutionError as e:
                 return self._tool_error(str(e), code=e.code)
         wait_seconds = self._review_wait_seconds()
-        session_box: list[Any] = []
 
         def _do_edit() -> tuple[dict[str, Any], Any, bool]:
             parsed = self._parse_edit_params(ctx, kwargs)
@@ -1036,7 +1051,6 @@ class ApplyDocumentContent(ToolBase):
                 return parsed, None, False
             parsed, diags = self._resolve_heading_links(ctx.doc, parsed)
             session = EditReviewSession(ctx.doc, ctx.ctx, enabled=parsed.track_reviewable)
-            session_box.append(session)
             result = self._dispatch_edit(ctx, session, parsed)
             result = append_warnings(result, diags)
             pending = result.get("status") == "ok" and session.left_tracked_changes()
@@ -1047,10 +1061,7 @@ class ApplyDocumentContent(ToolBase):
             # to a worker thread, or we ARE the main thread (where blocking would freeze the UI
             # and the user could never click accept/reject). Edit once, don't wait -- but UNO is
             # not thread-safe, so when we're on a worker thread (the toggled-off case) the edit
-            # and its cleanup run on the main thread via marshalling rather than here.
-            # The session is appended to session_box in _do_edit before dispatch, so anchor
-            # bookmarks are released in `finally` even if the edit raises mid-way (e.g. the 2nd
-            # of 3 replace-all matches fails after the 1st).
+            # runs on the main thread via marshalling rather than here.
             try:
                 result, _session, pending = _run_on_main_thread(_do_edit)
                 if pending:
@@ -1058,9 +1069,6 @@ class ApplyDocumentContent(ToolBase):
                 return result
             except ToolExecutionError as e:
                 return self._tool_error(str(e), code=e.code)
-            finally:
-                if session_box:
-                    self._release_review_session(session_box[0])
 
         # Review-wait path, on a background (MCP HTTP / chat worker) thread: run the edit
         # on the main thread, then block HERE until the user reviews the tracked changes.
@@ -1069,15 +1077,9 @@ class ApplyDocumentContent(ToolBase):
             # default 30s marshalling timeout would reject large full-document replaces that
             # are fine without review mode.
             result, session, pending = _run_on_main_thread(_do_edit)
-        except Exception as e:
-            if session_box:
-                self._release_review_session(session_box[0])
-            if isinstance(e, ToolExecutionError):
-                return self._tool_error(str(e), code=e.code)
-            raise
+        except ToolExecutionError as e:
+            return self._tool_error(str(e), code=e.code)
         if session is None or not session.changes or result.get("status") != "ok":
-            if session is not None:
-                self._release_review_session(session)
             if pending:
                 flag_tracked(result)
             return result
@@ -1390,6 +1392,18 @@ class ApplyDocumentContent(ToolBase):
         # Anchor BEFORE the edit: the selection insert clears the selection first, so only a
         # collapsed position (not the selection range itself) survives the replace.
         rng, after_object = request_insert_range(ctx)
+        # The selection insert clears a non-collapsed range with setString(""), so unrecorded it
+        # erases a struck span. A caret is exempt: TrackedDeletions.overlaps is half-open, so a
+        # caret strictly inside a struck span counts as overlapping, yet a caret insert erases nothing.
+        if rng is not None and uno_read(lambda: rng.getText().compareRegionStarts(rng.getStart(), rng.getEnd()) != 0, False):
+            refused = search_mod.crossing_match_error(
+                ctx.doc,
+                rng,
+                recorded=params.track_reviewable or is_recording_changes(ctx.doc),
+                selection=True,
+            )
+            if refused is not None:
+                return refused
         anchor = collapsed_anchor(rng) if rng is not None else None
         headings = headings_if_touched(ctx.doc, [rng]) if rng is not None else None
         with (UndoStepOrRollback(ctx.doc, next_agent_edit_undo_title()) if headings is not None else contextlib.nullcontext()), session:
@@ -1593,6 +1607,13 @@ class ApplyDocumentContent(ToolBase):
                 )
             elif (refused := search_mod.crossing_match_error(doc, found, recorded=recorded)) is not None:
                 res = refused
+            elif not recorded and (kind := _range_object_kind(found)) is not None:
+                res = self._tool_error(
+                    f"The range from start_anchor through end_anchor contains a {kind} that reads do not show; "
+                    "with Track Changes off, replacing the range would delete it. "
+                    "Choose anchors that leave it outside the range, or ask the user to turn on Track Changes.",
+                    code="OBJECT_IN_ANCHOR_RANGE",
+                )
             elif (protected := protected_cell_error(doc, found)) is not None:
                 res = protected
             else:
@@ -1608,9 +1629,10 @@ class ApplyDocumentContent(ToolBase):
             params.case_sensitive,
             limit=search_mod.MAX_SEARCH_REPLACEMENTS if many else 1,
         )
-        # Crossing matches are refused only when the edit is not recorded; inserting beside a match
-        # leaves it untouched, and a regex match is raw text as LibreOffice finds it.
-        deletions = TrackedDeletions(doc) if params.position == "replace" and not params.regex and not recorded else None
+        # Crossing matches are refused only when the edit is not recorded, whether found literally or
+        # by regex (a regex runs over raw text, so a pattern such as ``.*`` can take in struck text);
+        # inserting beside a match leaves it untouched.
+        deletions = TrackedDeletions(doc) if params.position == "replace" and not recorded else None
         first = params.occurrence or 0
         picked = ranges if params.all_matches else ranges[first : first + 1]
         editable = [r for r in picked if not deletions or not deletions.overlaps(r)]

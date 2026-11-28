@@ -310,3 +310,62 @@ def test_footnote_list_hides_tracked_deletion_uno(ctx, doc):
     res = FootnotesList().execute(native_writer_tool_context(doc, ctx), note="footnote")
     assert res["status"] == "ok", res
     assert res["notes"][0]["text"] == "note nova"
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_footnote_edit_refuses_unrecorded_rewrite_over_pending_changes_uno(ctx, doc):
+    from plugin.writer import review_authors
+    from plugin.writer.specialized.footnotes import FootnotesList
+
+    doc.getText().setString("Body ")
+    note = _insert_note(doc, "footnote", "Foot keeps FOOTDEL word end.")
+
+    prev_author = review_authors.begin(ctx)
+    review_authors.set_office_author(ctx, "Alice")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        cur = note.createTextCursor()
+        cur.gotoStart(False)
+        cur.goRight(len("Foot keeps "), False)
+        cur.goRight(len("FOOTDEL "), True)
+        cur.setString("")
+
+        ins = note.createTextCursor()
+        ins.gotoEnd(False)
+        note.insertString(ins, " FOOTINS", False)
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        review_authors.end(ctx, prev_author)
+
+    prev_mode = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "off"})
+    try:
+        tctx = native_writer_tool_context(doc, ctx)
+        listed = FootnotesList().execute(tctx, note="footnote")
+        assert listed["status"] == "ok", listed
+
+        before_note = note.getString()
+        refused = FootnotesEdit().execute(
+            tctx, note="footnote", index=0, text=listed["notes"][0]["text"]
+        )
+        assert refused.get("status") == "error", refused
+        assert refused.get("code") == "PENDING_TRACKED_CHANGES", refused
+        assert note.getString() == before_note
+
+        label_ok = FootnotesEdit().execute(tctx, note="footnote", index=0, label="*")
+        assert label_ok.get("status") == "ok", label_ok
+
+        doc.setPropertyValue("RecordChanges", True)
+        try:
+            rec_ok = FootnotesEdit().execute(tctx, note="footnote", index=0, text="New note")
+            assert rec_ok.get("status") == "ok", rec_ok
+            assert rec_ok.get("tracked") is True, rec_ok
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+
+        reject_all_changes(doc, ctx)
+        assert note.getString() == "Foot keeps FOOTDEL word end."
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        save({"doc.agent_edit_review_mode": prev_mode})
