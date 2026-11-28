@@ -95,6 +95,9 @@ class FakeText:
     def insertString(self, _cursor, _s, _absorb):
         pass
 
+    def compareRegionStarts(self, a, b):
+        return 0 if (a.para, a.at_end) == (b.para, b.at_end) else 1
+
 
 def _anchor_at(text, para):
     return FakeCursor(text, para)

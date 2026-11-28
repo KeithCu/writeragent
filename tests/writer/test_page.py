@@ -1257,7 +1257,7 @@ def _cursors_for(text_obj, hay):
 def _replace(doc, **kwargs):
     args = {"style": "Standard", "region": "footer", "old_content": "Annex", "content": "Appendix", "all_matches": False}
     args.update(kwargs)
-    return PageReplaceHeaderFooterText().execute(SimpleNamespace(doc=doc), **args)
+    return PageReplaceHeaderFooterText().execute(SimpleNamespace(doc=doc, ctx=None), **args)
 
 
 def test_replace_header_footer_rejects_bad_args():
