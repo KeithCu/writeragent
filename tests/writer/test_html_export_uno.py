@@ -1190,6 +1190,7 @@ def test_range_and_selection_export_keep_pictures_and_names_uno(ctx: Any, doc: A
     import re
     import tempfile
     from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_CHARACTER, AT_PARAGRAPH
+    from plugin.doc.text_helpers import normalize_linebreaks
     from plugin.framework.uno_context import execute_dispatch
     from plugin.tests.testing_utils import native_writer_tool_context
     from plugin.writer.apply_document_content import ApplyDocumentContent
@@ -1246,7 +1247,7 @@ def test_range_and_selection_export_keep_pictures_and_names_uno(ctx: Any, doc: A
             assert f"PicA_{tag}" in full_ids and f"PicB_{tag}" in full_ids, full_html
 
             # Range read covering the second paragraph.
-            full_str = text.getString()
+            full_str = normalize_linebreaks(text.getString())
             p2_start = full_str.index("one")
             range_html = document_to_content(
                 doc, ctx, scope="range", range_start=p2_start, range_end=len(full_str), include_images=False
@@ -2454,7 +2455,9 @@ def test_outline_picture_link_and_text_outline_link_restore_uno(ctx, doc):
         os.unlink(img_path)
 
 
-@native_test
+# Heavy fixture (560 shared-list items, failed XHTML pass + StarWriter fallback, then range read);
+# takes ~19 s on Linux CI and runs ~2x slower over Windows URP.
+@native_test(timeout=90)
 def test_shared_list_full_read_hides_tracked_deletions_uno(ctx):
     """Shared-list XHTML fallback hides pending deletions and points at scope='range'."""
     import os
