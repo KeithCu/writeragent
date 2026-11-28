@@ -220,6 +220,25 @@ def overlapping_redline_authors(doc: Any, ranges: list[Any], kind: str) -> set[s
     return authors
 
 
+def redline_kinds_overlapping(spans: list[RedlineSpan], text_range: Any) -> set[str]:
+    """``RedlineType`` of every tracked change in *spans* whose bounds intersect *text_range*.
+
+    Cross-text or incomparable spans count as overlapping so callers fail closed.
+    """
+    kinds: set[str] = set()
+    r_start = text_range.getStart()
+    r_end = text_range.getEnd()
+    for kind, (text, start, end) in spans:
+        try:
+            # compareRegionStarts(a, b): 1 when a starts before b.
+            if text.compareRegionStarts(start, r_end) > 0 and text.compareRegionStarts(r_start, end) > 0:
+                kinds.add(kind)
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            kinds.add(kind)
+    return kinds
+
+
 def overlaps_foreign_insertion(doc: Any, ranges: list[Any], author: str) -> bool:
     """True when a tracked insertion by someone other than *author* overlaps one of *ranges*.
 

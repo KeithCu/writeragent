@@ -34,6 +34,7 @@ import os
 import threading
 from typing import Any
 
+from plugin.framework import config
 from plugin.framework.config import atomic_write_text, user_config_dir
 from plugin.framework.i18n import get_lo_locale
 from plugin.writer.record_changes import inside_insertion_by
@@ -90,6 +91,11 @@ def _save_prior(prior: tuple[str, str]) -> None:
         )
     except OSError:
         log.warning("review_authors: could not save prior author to %s", path, exc_info=True)
+
+
+def split_author_colors() -> bool:
+    """True when recorded whole-block edits should author deletions separately from insertions."""
+    return bool(config.get_config("doc.agent_edit_split_author_colors"))
 
 
 def _disarm() -> None:
@@ -169,7 +175,8 @@ def begin(ctx: Any) -> tuple[str, str] | None:
         # so restore_author_after_crash can put it back.
         _commit_author(access, INSERT_AUTHOR, "")
         _state.last = INSERT_AUTHOR
-        _state.ctx = ctx
+        # Gate arming here rather than in callers so every deletion_author() path honours the flag.
+        _state.ctx = ctx if split_author_colors() else None
         return prior
     except Exception:
         log.debug("review_authors.begin failed", exc_info=True)

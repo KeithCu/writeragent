@@ -2283,6 +2283,7 @@ def test_replace_whole_paragraphs_works_without_styles_module(recording):
     rng = MagicMock()
     text_obj = rng.getText.return_value
     cursor = MagicMock()
+    cursor.goLeft.return_value = False
     second = MagicMock()
     second.goRight.return_value = False
     text_obj.createTextCursorByRange.side_effect = lambda r: second if r is rng.getEnd.return_value else cursor
@@ -2293,6 +2294,7 @@ def test_replace_whole_paragraphs_works_without_styles_module(recording):
         patch.dict(sys.modules, {"plugin.writer.styles": None}),
         patch.object(record_changes, "is_recording_changes", return_value=recording),
         patch.object(record_changes, "record_changes", return_value=MagicMock()),
+        patch.object(record_changes, "redline_spans", return_value=[]),
         patch.object(html_import, "_import_and_drop_leftover", return_value=MagicMock()) as imp,
     ):
         html_import._replace_whole_paragraphs(model, MagicMock(), rng, "<p>new</p>", apply_styles=True)

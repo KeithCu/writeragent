@@ -1227,7 +1227,7 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
     Returns False when the formatting of the text around the change is not kept: a recorded
     whole-block replace over several runs gives the new text one run's formatting.
     """
-    split_author = split and bool(config.get_config("doc.agent_edit_split_author_colors"))
+    split_author = split and review_authors.split_author_colors()
 
     def _whole() -> bool:
         original = found.getString()
