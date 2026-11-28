@@ -2124,12 +2124,14 @@ class FakeUnoPortion:
         *,
         redline_type: str | None = None,
         is_start: bool = False,
+        collapsed: bool = False,
         inner: list[Any] | None = None,
     ) -> None:
         self._ptype = ptype
         self._text = text
         self._redline_type = redline_type
         self._is_start = is_start
+        self._collapsed = collapsed
         self._inner = inner
 
     def getPropertyValue(self, name: str) -> Any:
@@ -2138,6 +2140,8 @@ class FakeUnoPortion:
         if name == "IsStart":
             # IsStart is MAYBEVOID in GetTextPortionExtensionPropertyMap (unomap1.cxx); void -> None off Redline portions.
             return self._is_start if self._ptype == "Redline" else None
+        if name == "IsCollapsed" and self._ptype == "Redline":
+            return self._collapsed
         if name == "RedlineType" and self._ptype == "Redline":
             return self._redline_type
         if name == self._ptype and self._inner is not None:
