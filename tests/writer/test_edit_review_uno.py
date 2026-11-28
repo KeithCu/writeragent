@@ -7,7 +7,7 @@
 # disabled; recording + per-change RedlineComment tokens + author attribution + restore
 # semantics; completion keyed to THIS session's tokens (user redlines don't block);
 # per-change outcomes accepted/rejected/modified/pending; timeout; stop_checker;
-# bookmark cleanup; ShowChanges forced on.
+# ShowChanges forced on.
 import unittest
 
 import uno  # noqa: F401
@@ -15,7 +15,7 @@ import uno  # noqa: F401
 from plugin.framework.uno_context import execute_dispatch
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
-from plugin.writer.edit_review import EditReviewSession, _BOOKMARK_PREFIX
+from plugin.writer.edit_review import EditReviewSession
 from tests.writer.doc_builders import accept_all_changes, find_first, list_redlines, reject_all_changes, reset_body
 
 
@@ -47,10 +47,6 @@ def _resolve_at(doc, ctx, needle, accept):
     execute_dispatch(ctx, doc.getCurrentController(), command)
 
 
-def _wa_bookmarks(doc):
-    return [n for n in doc.getBookmarks().getElementNames() if n.startswith(_BOOKMARK_PREFIX)]
-
-
 @native_test
 @with_native_doc("writer")
 def test_disabled_session_is_inert_uno(ctx, doc):
@@ -78,31 +74,28 @@ def test_records_tags_author_and_restores_uno(ctx, doc):
     assert all(r["RedlineComment"] == token for r in rls), "BOTH redlines carry the change token: %r" % rls
     assert all(r["RedlineAuthor"] == "WriterAgent" for r in rls), "agent attribution: %r" % rls
     assert doc.getPropertyValue("RecordChanges") is False, "prior OFF state restored"
-    session.cleanup()
 
 
 @native_test
 @with_native_doc("writer")
 def test_bookkeeping_stays_off_the_undo_stack_uno(ctx, doc):
-    """The user's first Ctrl+Z after an agent edit must undo the VISIBLE change, not toggle our
-    invisible wa_review anchor bookmarks. Recording + cleanup lock the document undo manager
-    around the tag/bookmark bookkeeping, so the user's undo stack only holds the real edit."""
+    """The user's first Ctrl+Z after an agent edit must undo the VISIBLE change, not internal
+    bookkeeping. Recording locks the document undo manager around tag bookkeeping, so the
+    user's undo stack only holds the real edit."""
     reset_body(doc, ctx, "This clause is important.")
     doc.setPropertyValue("RecordChanges", False)
     with EditReviewSession(doc, ctx, enabled=True) as session:
         session.record_mutation(_replace_fn(doc, "This clause is important.", "This clause is essential."))
-    session.cleanup()
-    assert _wa_bookmarks(doc) == [], "cleanup must leave no anchor bookmarks behind"
     um = doc.getUndoManager()
     assert um.isUndoPossible(), "the agent edit must be undoable"
     title = um.getCurrentUndoActionTitle()
-    assert "bookmark" not in title.lower() and _BOOKMARK_PREFIX not in title, \
+    assert "bookmark" not in title.lower(), \
         "internal bookkeeping leaked onto the user's undo stack: top=%r" % title
-    # One undo must revert the edit (drop a redline), not no-op on an invisible bookmark.
+    # One undo must revert the edit (drop a redline), not no-op on bookkeeping.
     before = len(list_redlines(doc))
     execute_dispatch(ctx, doc.getCurrentController(), ".uno:Undo")
     assert len(list_redlines(doc)) < before, \
-        "the first undo must revert the agent edit, not toggle an invisible bookmark (had %d redlines)" % before
+        "the first undo must revert the agent edit (had %d redlines)" % before
 
 
 @native_test
@@ -141,7 +134,6 @@ def test_outcomes_accept_and_reject_per_change_uno(ctx, doc):
     assert outcomes == ["accepted", "rejected"], "per-change outcomes: %r" % result
     assert result["changes"][0]["original_preview"] == "First clause here."
     assert result["changes"][0]["proposed_preview"] == "First clause EDITED."
-    assert _wa_bookmarks(doc) == [], "anchor bookmarks must be cleaned after review"
 
 
 @native_test
@@ -169,7 +161,6 @@ def test_timeout_reports_pending_uno(ctx, doc):
     result = session.wait_for_review(timeout=0.3, poll=0.05)  # nobody reviews
     assert result["complete"] is False and result["timed_out"] is True, result
     assert result["changes"][0]["outcome"] == "pending", result
-    assert _wa_bookmarks(doc) == [], "bookmarks cleaned even on timeout"
     reset_body(doc, ctx, "reset")  # clear the unresolved change
 
 
@@ -206,7 +197,7 @@ def test_wait_for_review_routes_uno_via_runner_uno(ctx, doc):
 
     result = session.wait_for_review(timeout=2, poll=0.05, uno_runner=runner)
     assert result["complete"] is True and result["changes"][0]["outcome"] == "accepted", result
-    assert calls["n"] >= 3, "pending check, payload, and cleanup must go through the runner, got %d" % calls["n"]
+    assert calls["n"] >= 2, "pending check and payload must go through the runner, got %d" % calls["n"]
 
 
 @native_test
@@ -219,7 +210,6 @@ def test_prior_recording_on_is_preserved_uno(ctx, doc):
     assert doc.getPropertyValue("RecordChanges") is True, "user's ON state must be preserved"
     doc.setPropertyValue("RecordChanges", False)
     assert session.changes, "change recorded under user tracking too"
-    session.cleanup()
     reset_body(doc, ctx, "reset")
 
 
@@ -249,21 +239,11 @@ def test_anchor_failure_leaves_unregistered_does_not_hang_uno(ctx, doc):
             c.gotoEndOfParagraph(True)
             c.setString("Edited.")
 
-        class DocWrapper:
-            def __getattr__(self, item):
-                if item == "createInstance":
-                    def createInstance(name):
-                        if name == "com.sun.star.text.Bookmark":
-                            raise RuntimeError("mock anchor fail")
-                        return doc.createInstance(name)
-                    return createInstance
-                return getattr(doc, item)
-
-        session.doc = DocWrapper()
-        try:
+        with unittest.mock.patch(
+            "plugin.writer.edit_review._string_skipping_redline",
+            side_effect=RuntimeError("mock anchor fail"),
+        ):
             session.record_mutation(mutate)
-        finally:
-            session.doc = doc
 
     result = session.wait_for_review(timeout=0.1)
     assert result == {"complete": True, "timed_out": False, "changes": []}, result
@@ -271,17 +251,82 @@ def test_anchor_failure_leaves_unregistered_does_not_hang_uno(ctx, doc):
 
 @native_test
 @with_native_doc("writer")
-def test_bookmark_reverted_with_edit_undo_uno(ctx, doc):
-    """Anchor bookmark is in the same undo context as the edit, so Undo removes both."""
-    reset_body(doc, ctx, "This clause is important.")
+def test_close_during_wait_returns_pending_without_crash_uno(ctx, doc):
+    from plugin.framework.errors import document_is_disposed
+    from plugin.tests.testing_utils import TestingFactory
+
+    closable = TestingFactory.create_native_doc(ctx, doc_type="writer", hidden=True)
+    try:
+        reset_body(closable, ctx, "Alpha two three.")
+        with EditReviewSession(closable, ctx, enabled=True) as session:
+            session.record_mutation(_replace_fn(closable, "two", "2"))
+        closable.close(True)
+        result = session.wait_for_review(timeout=5, poll=0.05)
+        assert result["complete"] is False and result["timed_out"] is False, result
+        assert [c["outcome"] for c in result["changes"]] == ["pending"], result
+        assert result["changes"][0]["final_text"] == "", result
+        assert document_is_disposed(closable) is True
+    finally:
+        if not document_is_disposed(closable):
+            closable.close(True)
+    reset_body(doc, ctx, "Still alive.")
+    assert find_first(doc, "Still alive.") is not None
+
+
+@native_test
+@with_native_doc("writer")
+def test_undo_after_resolve_in_wait_does_not_crash_uno(ctx, doc):
+    for accept, expected_body in ((True, "Alpha 2 three."), (False, "Alpha two three.")):
+        reset_body(doc, ctx, "Alpha two three.")
+        with EditReviewSession(doc, ctx, enabled=True) as session:
+            session.record_mutation(_replace_fn(doc, "two", "2"))
+        (accept_all_changes if accept else reject_all_changes)(doc, ctx)
+        result = session.wait_for_review(timeout=2, poll=0.05)
+        assert result["complete"] is True, result
+        assert doc.getText().getString() == expected_body
+        doc.getUndoManager().undo()
+        assert {r["type"] for r in list_redlines(doc)} == {"Delete", "Insert"}
+        accept_all_changes(doc, ctx)
+        assert doc.getText().getString() == "Alpha 2 three."
+
+
+@native_test
+@with_native_doc("writer")
+def test_stream_chunk_and_finish_after_close_do_not_crash_uno(ctx, doc):
+    from plugin.framework.errors import DocumentDisposedError, document_is_disposed
+    from plugin.tests.testing_utils import TestingFactory
+    from plugin.writer.edit_review import WriterStreamedRewriteSession
+
+    closable = TestingFactory.create_native_doc(ctx, doc_type="writer", hidden=True)
+    try:
+        reset_body(closable, ctx, "Original text.")
+        rng = find_first(closable, "Original text.")
+        session = WriterStreamedRewriteSession(closable, rng, "Original text.", track_reviewable=True)
+        session.append_chunk("2")
+        closable.close(True)
+        session.append_chunk(" more")
+        assert session.last_write_error is None
+        with unittest.TestCase().assertRaises(DocumentDisposedError):
+            session.finish()
+    finally:
+        if not document_is_disposed(closable):
+            closable.close(True)
+    reset_body(doc, ctx, "Still alive.")
+    assert find_first(doc, "Still alive.") is not None
+
+
+@native_test
+@with_native_doc("writer")
+def test_undo_agent_edit_during_review_reports_rejected_uno(ctx, doc):
+    reset_body(doc, ctx, "Alpha two three.")
     with EditReviewSession(doc, ctx, enabled=True) as session:
-        session.record_mutation(_replace_fn(doc, "This clause is important.", "This clause is essential."))
-    assert len(_wa_bookmarks(doc)) == 1, "anchor bookmark should exist before review"
-    um = doc.getUndoManager()
-    assert um.isUndoPossible()
-    um.undo()
-    assert _wa_bookmarks(doc) == [], "undo must revert the anchor bookmark along with the edit"
-    assert len(list_redlines(doc)) == 0, "undo must revert the redline"
+        session.record_mutation(_replace_fn(doc, "two", "2"))
+    doc.getUndoManager().undo()
+    result = session.wait_for_review(timeout=2, poll=0.05)
+    assert doc.getText().getString() == "Alpha two three."
+    assert result["complete"] is True, result
+    assert result["changes"][0]["outcome"] == "rejected", result
+    assert result["changes"][0]["final_text"] == "two", result
 
 
 @native_test

@@ -157,7 +157,6 @@ class _FakeRedlines:
 def _redlines_doc(items, count=None, raise_enum=False, raise_count=False, raise_hasmore=False):
     doc = MagicMock()
     doc.getRedlines.return_value = _FakeRedlines(items, count, raise_enum, raise_count, raise_hasmore)
-    doc.getBookmarks.return_value.hasByName.return_value = False
     return doc
 
 
@@ -267,7 +266,7 @@ def test_tag_new_redlines_single_redline_orphan_is_failure_not_success():
     assert rl.comment == "TOKEN"                             # the orphan tag remains
 
 
-def _anchor_pair(insert_error=None):
+def _anchor_pair(span_error=None):
     start = MagicMock()
     end = MagicMock()
     text = MagicMock()
@@ -276,8 +275,8 @@ def _anchor_pair(insert_error=None):
     end.getText.return_value = text
     text.createTextCursorByRange.return_value = cursor
     cursor.getText.return_value = text
-    if insert_error is not None:
-        text.insertTextContent.side_effect = insert_error
+    if span_error is not None:
+        cursor.gotoRange.side_effect = span_error
     return start, end
 
 
@@ -486,10 +485,8 @@ def test_wait_for_review_not_complete_on_unreliable_pending():
 
     session = EditReviewSession(MagicMock(), MagicMock(), enabled=True)
     session._active = True
-    session.changes = [ChangeRecord("t", "", "", "", "", "")]
-    session.doc.getBookmarks.return_value.hasByName.return_value = False
-    with _patch.object(session, "_pending_tokens", return_value=(set(), False)), \
-         _patch.object(session, "cleanup"):
+    session.changes = [ChangeRecord("t", None, "", "", "", "")]
+    with _patch.object(session, "_pending_tokens", return_value=(set(), False)):
         result = session.wait_for_review(timeout=0.0, poll=0.01)
     assert result["complete"] is False and result["timed_out"] is True
 
@@ -501,17 +498,15 @@ def test_wait_for_review_completes_on_reliable_empty():
 
     session = EditReviewSession(MagicMock(), MagicMock(), enabled=True)
     session._active = True
-    session.changes = [ChangeRecord("t", "", "", "", "", "")]
-    session.doc.getBookmarks.return_value.hasByName.return_value = False
-    with _patch.object(session, "_pending_tokens", return_value=(set(), True)), \
-         _patch.object(session, "cleanup"):
+    session.changes = [ChangeRecord("t", None, "", "", "", "")]
+    with _patch.object(session, "_pending_tokens", return_value=(set(), True)):
         result = session.wait_for_review(timeout=1.0, poll=0.01)
     assert result["complete"] is True and result["timed_out"] is False
 
 
 def test_wait_for_review_orphan_token_does_not_block_after_registered_change_resolves():
     # The registered change's token is gone. An unregistered wa-review tag from a failed
-    # tag or a failed missing-bookmark clear is still on a redline. wait_for_review must
+    # tag or a failed missing-anchor clear is still on a redline. wait_for_review must
     # not loop on that orphan; the user has no review row for it.
     from plugin.writer.edit_review import ChangeRecord, EditReviewSession
 
@@ -519,7 +514,7 @@ def test_wait_for_review_orphan_token_does_not_block_after_registered_change_res
     session._active = True
     registered = make_agent_token(session.session_id, 0)
     orphan = make_agent_token(session.session_id, 1)
-    session.changes = [ChangeRecord(registered, "", "NEW", "OLD", "", "")]
+    session.changes = [ChangeRecord(registered, None, "NEW", "OLD", "", "")]
     session.doc = _redlines_doc([
         _FakeRl("orphan", comment=orphan),
         _FakeRl("user", comment="a user redline"),
@@ -537,7 +532,7 @@ def test_wait_for_review_still_waits_on_open_registered_change_beside_orphan():
     session._active = True
     registered = make_agent_token(session.session_id, 0)
     orphan = make_agent_token(session.session_id, 1)
-    session.changes = [ChangeRecord(registered, "", "NEW", "OLD", "", "")]
+    session.changes = [ChangeRecord(registered, None, "NEW", "OLD", "", "")]
     session.doc = _redlines_doc([
         _FakeRl("open", comment=registered),
         _FakeRl("orphan", comment=orphan),
@@ -556,25 +551,16 @@ def test_wait_for_review_aborts_on_cancelled_scope():
     session._active = True
     registered = make_agent_token(session.session_id, 0)
     orphan = make_agent_token(session.session_id, 1)
-    session.changes = [ChangeRecord(registered, "", "NEW", "OLD", "", "")]
+    session.changes = [ChangeRecord(registered, None, "NEW", "OLD", "", "")]
     session.doc = _redlines_doc([
         _FakeRl("open", comment=registered),
         _FakeRl("orphan", comment=orphan),
     ])
     scope = SendCancellation()
     scope.cancel()
-    cleanup_ran = {"n": 0}
-    orig_cleanup = session.cleanup
-
-    def _cleanup():
-        cleanup_ran["n"] += 1
-        orig_cleanup()
-
-    session.cleanup = _cleanup
     result = session.wait_for_review(timeout=0.2, poll=0.01, cancel=scope)
     assert result["complete"] is False
     assert result["timed_out"] is False
-    assert cleanup_ran["n"] == 1
 
 
 def test_wait_for_review_aborts_when_still_reviewing_false():
@@ -656,7 +642,7 @@ def test_record_mutation_does_not_tag_when_before_snapshot_unreliable():
     assert session.changes == []   # but nothing was registered/tagged
 
 
-def test_record_mutation_does_not_register_when_anchor_insert_fails():
+def test_record_mutation_does_not_register_when_anchor_span_fails():
     from unittest.mock import patch as _patch
 
     from plugin.writer.edit_review import EditReviewSession
@@ -669,7 +655,7 @@ def test_record_mutation_does_not_register_when_anchor_insert_fails():
         applied["n"] += 1
         return "r"
 
-    start, end = _anchor_pair(insert_error=RuntimeError("bookmark insert failed"))
+    start, end = _anchor_pair(span_error=RuntimeError("anchor span failed"))
     rl = _FakeRl("a", start=start, end=end)
 
     with (
@@ -684,16 +670,16 @@ def test_record_mutation_does_not_register_when_anchor_insert_fails():
     assert session.changes == []
 
 
-def test_record_mutation_missing_bookmark_still_untags_and_does_not_register_orphan():
+def test_record_mutation_missing_anchor_still_untags_and_does_not_register_orphan():
     # The clear is still attempted. orphans>0 (token left on the redline) does not become
-    # a ChangeRecord, and _outcome is not given an empty-bookmark special case.
+    # a ChangeRecord, and _outcome is not given a missing-anchor special case.
     from unittest.mock import patch as _patch
 
     from plugin.writer.edit_review import EditReviewSession
 
     session = EditReviewSession(MagicMock(), MagicMock(), enabled=True)
     session._active = True
-    start, end = _anchor_pair(insert_error=RuntimeError("bookmark insert failed"))
+    start, end = _anchor_pair(span_error=RuntimeError("anchor span failed"))
     rl = _FakeRl("a", start=start, end=end)
     calls: list[str] = []
 
@@ -719,7 +705,7 @@ def test_record_mutation_missing_bookmark_still_untags_and_does_not_register_orp
     assert rl.comment == make_agent_token(session.session_id, 0)
 
 
-@pytest.mark.parametrize("failure_mode", ["mutate_then_throw", "missing_bookmark"])
+@pytest.mark.parametrize("failure_mode", ["mutate_then_throw", "missing_anchor"])
 def test_next_registered_change_does_not_reuse_orphan_tag_index(failure_mode):
     from plugin.writer.edit_review import EditReviewSession
 
@@ -744,7 +730,7 @@ def test_next_registered_change_does_not_reuse_orphan_tag_index(failure_mode):
                 item.comment = token
             return True, 0
 
-        start1, end1 = _anchor_pair(insert_error=RuntimeError("bookmark insert failed"))
+        start1, end1 = _anchor_pair(span_error=RuntimeError("anchor span failed"))
         rl1 = _FakeRl("a", start=start1, end=end1)
         with (
             patch.object(session, "_redline_idents", return_value=(set(), True)),
@@ -778,7 +764,7 @@ def test_next_registered_change_does_not_reuse_orphan_tag_index(failure_mode):
     assert result2 == "r2"
     assert len(session.changes) == 1
     assert session.changes[0].token == make_agent_token(session.session_id, 1)
-    assert session.changes[0].bookmark == "wa_review_%s_1" % session.session_id
+    assert session.changes[0].anchor is start2.getText().createTextCursorByRange.return_value
     assert rl1.comment == make_agent_token(session.session_id, 0)
 
     session.doc = _redlines_doc([_FakeRl("orphan", comment=rl1.comment)])
@@ -790,110 +776,65 @@ def test_next_registered_change_does_not_reuse_orphan_tag_index(failure_mode):
 
 
 def test_wait_for_review_aborts_immediately_when_document_disposed():
-    import time as time_mod
     from unittest.mock import patch as _patch
 
     from plugin.writer.edit_review import ChangeRecord, EditReviewSession
 
     session = EditReviewSession(MagicMock(), MagicMock(), enabled=True)
     session._active = True
-    session.changes = [ChangeRecord("t", "bm", "", "", "", "")]
-    t0 = time_mod.monotonic()
-    captured: dict = {}
-
-    def fake_payload(*, complete, timed_out):
-        captured["complete"] = complete
-        captured["timed_out"] = timed_out
-        return {"complete": complete, "timed_out": timed_out, "changes": []}
+    session.changes = [ChangeRecord("t", MagicMock(), "NEW", "OLD", "OLD", "NEW")]
 
     with (
-        _patch.object(session, "_pending_tokens", return_value=(set(), False)),
         _patch("plugin.writer.edit_review.document_is_disposed", return_value=True),
-        _patch.object(session, "_review_payload", side_effect=lambda complete, timed_out: fake_payload(complete=complete, timed_out=timed_out)),
-        _patch.object(session, "cleanup") as cleanup,
+        _patch("plugin.writer.edit_review.time.sleep") as sleep_mock,
     ):
         result = session.wait_for_review(timeout=2.0, poll=0.01)
-    assert time_mod.monotonic() - t0 < 0.5
-    assert result["complete"] is False
-    assert result["timed_out"] is False
-    assert captured == {"complete": False, "timed_out": False}
-    cleanup.assert_called()
+    sleep_mock.assert_not_called()
+    session.doc.getRedlines.assert_not_called()
+    assert result == {
+        "complete": False,
+        "timed_out": False,
+        "changes": [
+            {
+                "id": "t",
+                "outcome": "pending",
+                "original_preview": "OLD",
+                "proposed_preview": "NEW",
+                "final_text": "",
+            }
+        ],
+    }
 
 
 # ----------------------------------------------- discard_changes_since (partial-batch rollback)
 
-def _bookmarks(names, removed):
-    """A fake getBookmarks() collection recording every removeTextContent into *removed*."""
-    class FakeBookmark:
-        def __init__(self, name):
-            self.name = name
-
-        def getAnchor(self):
-            text = MagicMock()
-            text.removeTextContent.side_effect = lambda bm: removed.append(self.name)
-            anchor = MagicMock()
-            anchor.getText.return_value = text
-            return anchor
-
-    class FakeBookmarks:
-        def __init__(self):
-            self._by = {n: FakeBookmark(n) for n in names}
-
-        def hasByName(self, n):
-            return n in self._by
-
-        def getByName(self, n):
-            return self._by[n]
-
-    return FakeBookmarks()
-
-
-def _session_with_changes(doc, tokens_bookmarks):
+def _session_with_changes(doc, tokens):
     from plugin.writer.edit_review import ChangeRecord, EditReviewSession
 
     session = EditReviewSession(doc, MagicMock(), enabled=True)
     session._active = True
-    session.changes = [ChangeRecord(t, b, "", "", "", "") for t, b in tokens_bookmarks]
+    session.changes = [ChangeRecord(t, MagicMock(), "", "", "", "") for t in tokens]
     return session
 
 
-def test_discard_changes_since_drops_records_and_removes_bookmarks():
-    # A failed surgical batch: trim every change recorded since the pre-batch count, and remove the
-    # now-orphaned anchor bookmarks so the document keeps no bookkeeping for edits that were undone.
-    removed = []
+def test_discard_changes_since_drops_records():
     doc = MagicMock()
-    doc.getBookmarks.return_value = _bookmarks(["bm0", "bm1", "bm2"], removed)
-    session = _session_with_changes(doc, [("t0", "bm0"), ("t1", "bm1"), ("t2", "bm2")])
+    session = _session_with_changes(doc, ["t0", "t1", "t2"])
 
     session.discard_changes_since(1)
 
-    assert [c.token for c in session.changes] == ["t0"]  # records after index 1 dropped
-    assert removed == ["bm1", "bm2"]                      # their bookmarks removed, t0's kept
+    assert [c.token for c in session.changes] == ["t0"]
 
 
 def test_discard_changes_since_noop_when_count_at_or_beyond_length():
     doc = MagicMock()
-    session = _session_with_changes(doc, [("t0", "bm0")])
+    session = _session_with_changes(doc, ["t0"])
 
     session.discard_changes_since(1)   # nothing recorded after index 1
     session.discard_changes_since(9)   # out of range
     session.discard_changes_since(-1)  # guarded against negative slice
 
     assert [c.token for c in session.changes] == ["t0"]
-    doc.getBookmarks.assert_not_called()  # never touched the document for a no-op
-
-
-def test_discard_changes_since_inactive_session_only_trims_list():
-    # If recording degraded (never went active), there are no bookmarks in the doc to remove; still
-    # trim the in-memory list and do NOT touch the document.
-    doc = MagicMock()
-    session = _session_with_changes(doc, [("t0", "bm0"), ("t1", "bm1")])
-    session._active = False
-
-    session.discard_changes_since(0)
-
-    assert session.changes == []
-    doc.getBookmarks.assert_not_called()
 
 
 def test_portion_type_does_not_fall_back_to_attribute():
@@ -1264,8 +1205,7 @@ def test_record_mutation_multi_text_anchors_in_changing_cell():
     assert len(session.changes) == 1
     assert session.changes[0].accepted_text == ""
     assert session.changes[0].rejected_text == "old"
-    text_changed.insertTextContent.assert_called_once()
-    text_unchanged.insertTextContent.assert_not_called()
+    assert session.changes[0].anchor is cur_changed
 
 
 def test_record_html_atomically_clear_first_runs_in_undo_group_and_rolls_back():

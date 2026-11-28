@@ -710,7 +710,6 @@ def test_insert_content_at_position_recorded_by_session_uno(ctx, doc):
     _reset(doc, ctx, "Existing body.")
     with EditReviewSession(doc, ctx, enabled=True) as session:
         session.record_mutation(lambda: fmt.insert_content_at_position(doc, ctx, "<p>Inserted result.</p>", "end"))
-    session.cleanup()
     rls = list_redlines(doc)
     assert any(r["type"] == "Insert" for r in rls), "insert must create an Insert redline, got %r" % rls
     assert all(r["RedlineComment"].startswith("wa-review:") for r in rls), "tagged: %r" % rls
@@ -764,9 +763,6 @@ def test_domain_result_inserts_recorded_in_review_mode_uno(ctx, doc):
                 assert any(r["type"] == "Insert" for r in rls), (mode, name, rls)
                 assert all(r["RedlineComment"].startswith("wa-review:") for r in rls), (mode, name, rls)
                 assert doc.getPropertyValue("RecordChanges") is False, (mode, name)
-                assert not any(
-                    b.startswith("wa_review_") for b in doc.getBookmarks().getElementNames()
-                ), (mode, name)
                 if check_kind == "text":
                     assert expected_substr in text.getString(), (mode, name)
                 else:
@@ -897,42 +893,6 @@ def test_is_async_true_on_background_thread_when_review_toggled_off_uno(ctx, doc
         assert seen.get("v") is True, "on a worker thread is_async must stay True so execute_safe won't reject"
     finally:
         save({_FLAG: prev})
-
-
-@native_test
-@with_native_doc("writer")
-def test_bookmarks_cleaned_when_edit_raises_midway_uno(ctx, doc):
-    """#4: if the edit path raises AFTER a change was anchored (e.g. end insert recorded),
-    execute() must still release the session's wa_review_* anchor bookmarks -- none may leak."""
-
-    _reset(doc, ctx, "Anchor target paragraph.")
-    prev = get_config(_FLAG)
-    save({_FLAG: "record"})
-
-    class _BoomTool(ApplyDocumentContent):
-        def _edit_insert_at(self, tctx, session, params):
-            from plugin.writer import html_import as fmt
-
-            with session:
-                session.record_mutation(
-                    lambda: fmt.insert_content_at_position(
-                        tctx.doc, tctx.ctx, "<p>Inserted.</p>", params.target),
-                    proposed_preview=params.plain)
-            raise RuntimeError("boom after anchoring the first change")
-
-    try:
-        raised = False
-        try:
-            _BoomTool().execute(native_writer_tool_context(doc, ctx), target="end", content="<p>Inserted.</p>")
-        except RuntimeError:
-            raised = True
-        assert raised, "the mid-edit failure must propagate to the caller"
-        leaked = [n for n in doc.getBookmarks().getElementNames() if n.startswith("wa_review_")]
-        assert leaked == [], "anchor bookmarks must be cleaned up on a mid-edit failure, leaked: %r" % leaked
-    finally:
-        save({_FLAG: prev})
-        if len(doc.getRedlines()):
-            reject_all_changes(doc, ctx)
 
 
 @native_test
