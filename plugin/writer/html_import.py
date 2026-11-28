@@ -1437,9 +1437,16 @@ def _replace_whole_paragraphs(
             with record_changes.record_changes(model, False):
                 if not keep_layout:
                     _drop_absorb_paragraph_props(cursor)
+                    # ResetAttrs skips 0-length autofmt hints on an empty node (docfmt.cxx:315-319);
+                    # reset across a temporary character so heading font/size do not leak into import.
+                    text_obj.insertString(cursor, " ", False)
+                    span = text_obj.createTextCursorByRange(cursor.getStart())
+                    span.goLeft(1, True)
+                    reset_direct_char_formatting(span, kept_char)
+                    span.setString("")
                 else:
                     _restore_numbering(cursor, fmt)
-                reset_direct_char_formatting(cursor, kept_char)
+                    reset_direct_char_formatting(cursor, kept_char)
         else:
             text_obj.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
             cursor.goLeft(1, False)
