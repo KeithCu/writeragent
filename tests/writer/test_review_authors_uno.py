@@ -161,3 +161,37 @@ def test_replace_last_word_of_own_pending_insertion_stays_rejectable_uno(ctx: An
     assert TrackedDeletions(doc).visible_text(doc.getText()) == "Beta two inserted agent words."
     reject_all_changes(doc, ctx)
     assert body_texts(doc.getText()) == ["Beta two."]
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_markup_replace_of_first_word_in_own_pending_paragraph_strikes_it_uno(ctx: Any, doc: Any) -> None:
+    """Pins the documented limitation: HTML content over the first word of the agent's pending
+    inserted paragraph lands on the insertion's start edge and stays a separate Insert, so the old
+    word is struck. Rejecting the new change alone brings the word back; Reject All straight away
+    leaves the heading after it in the inserted paragraph's style (sw_GetJoinFlags joins backwards
+    only from offset 0). When that changes, update the Limitations entry in reviewable-agent-edits.md."""
+    tctx = native_writer_tool_context(doc, ctx)
+
+    def edit_first_word() -> str:
+        reset_body(doc, ctx, "Intro.", "Heading Title", "Body text.")
+        find_first(doc, "Heading Title").setPropertyValue("ParaStyleName", "Heading 1")
+        with review_mode("record"):
+            first = ApplyDocumentContent().execute(
+                tctx, target="search", old_content="Heading Title", content="<p>Inserted clause text.</p>", position="before"
+            )
+            assert first.get("status") == "ok", first
+            tokens = {r["RedlineComment"] for r in list_redlines(doc)}
+            second = ApplyDocumentContent().execute(tctx, target="search", old_content="Inserted", content="<b>Opening</b>")
+            assert second.get("status") == "ok", second
+        assert review_authors.DELETE_AUTHOR in {r["RedlineAuthor"] for r in list_redlines(doc)}
+        (new_token,) = {r["RedlineComment"] for r in list_redlines(doc)} - tokens
+        return new_token
+
+    rejected, _after = resolve_agent_change(doc, ctx, edit_first_word(), accept=False)
+    assert rejected.status is ResolveStatus.RESOLVED, rejected
+    assert TrackedDeletions(doc).visible_text(doc.getText()).split("\n")[1] == "Inserted clause text."
+
+    edit_first_word()
+    reject_all_changes(doc, ctx)
+    assert _styles(doc) == [("Standard", "Intro."), ("Text body", "Heading Title"), ("Standard", "Body text.")], _styles(doc)

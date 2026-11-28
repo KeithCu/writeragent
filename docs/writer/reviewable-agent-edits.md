@@ -423,9 +423,12 @@ When the user turns on Track Changes > Record while agent review is Off, operati
   the insertion's start edge and stays a separate Insert. The rest of the earlier insertion then
   starts mid-paragraph and ends with the paragraph break, and Reject All leaves the next original
   paragraph in the inserted paragraph's style (`sw_GetJoinFlags`, `sw/source/core/doc/docedt.cxx`,
-  joins backwards only from offset 0). Removing the old words outright instead gives the same
-  Reject All result and also loses them when only the new change is rejected, so they are struck.
-  A plain-text replace of the same words joins the insertion and is not affected.
+  joins backwards only from offset 0). Rejecting the new change first brings the old words back
+  and leaves one insertion, after which Reject All is right. Removing the old words outright
+  instead gives the same Reject All result and also loses them when only the new change is
+  rejected, so they are struck. A plain-text replace of the same words joins the insertion and is
+  not affected (`test_markup_replace_of_first_word_in_own_pending_paragraph_strikes_it_uno` pins
+  this entry).
 * **Undo then Redo of rejecting a stacked Delete:** rejecting a Delete that sits on an Insert
   (for example the user's deletion inside the agent's pending insertion), then Undo and Redo,
   drops the Insert redline as well. The text becomes ordinary text and survives Reject All. This is
