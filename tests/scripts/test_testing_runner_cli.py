@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+import threading
 import types
 from pathlib import Path
 
@@ -565,35 +566,36 @@ def test_user_profile_soffice_argv_skips_nodefault_and_restore() -> None:
 
 
 def test_run_module_suite_arms_timeout_watchdog_for_every_test(monkeypatch) -> None:
-    """Every native test arms a silent 30s faulthandler abort; disarm on TEST end."""
-    events: list[object] = []
-    monkeypatch.setattr(
-        tr, "_arm_native_test_watchdog", lambda *_args: events.append("arm")
-    )
-    monkeypatch.setattr(
-        tr,
-        "_disarm_native_test_watchdog",
-        lambda: events.append("disarm"),
-    )
+    """Every native test arms a watchdog and disarms it before the next test arms."""
+    disarmed: list[bool] = []
+    bodies: list[str] = []
+
+    class _FakeWatchdog:
+        seconds = 30
+
+        def __init__(self) -> None:
+            assert all(disarmed), "previous watchdog was not disarmed before arming next"
+            self._idx = len(disarmed)
+            disarmed.append(False)
+
+        def disarm(self) -> bool:
+            disarmed[self._idx] = True
+            return False
+
+    monkeypatch.setattr(tr, "_arm_native_test_watchdog", lambda *_args: _FakeWatchdog())
 
     def test_insert_cell_html(ctx=None):
-        events.append("body")
+        bodies.append("body")
 
     def test_other(ctx=None):
-        events.append("other")
+        bodies.append("other")
 
     module = _make_module(test_insert_cell_html=test_insert_cell_html, test_other=test_other)
     passed, failed, _suite_log = tr.run_module_suite(object(), module, "fake.html")
     assert passed == 2
     assert failed == 0
-    assert events == [
-        "arm",
-        "body",
-        "disarm",
-        "arm",
-        "other",
-        "disarm",
-    ]
+    assert bodies == ["body", "other"]
+    assert disarmed == [True, True]
 
 
 def test_native_test_timeout_sec_reads_env(monkeypatch) -> None:
@@ -606,11 +608,20 @@ def test_native_test_timeout_sec_reads_env(monkeypatch) -> None:
 
 
 def test_run_module_suite_disarms_hang_dump_on_fail(monkeypatch) -> None:
-    events: list[str] = []
-    monkeypatch.setattr(tr, "_arm_native_test_watchdog", lambda *_args: events.append("arm"))
-    monkeypatch.setattr(
-        tr, "_disarm_native_test_watchdog", lambda: events.append("disarm")
-    )
+    watchdogs: list[_FakeWatchdog] = []
+
+    class _FakeWatchdog:
+        seconds = 30
+
+        def __init__(self) -> None:
+            self.disarmed = False
+            watchdogs.append(self)
+
+        def disarm(self) -> bool:
+            self.disarmed = True
+            return False
+
+    monkeypatch.setattr(tr, "_arm_native_test_watchdog", lambda *_args: _FakeWatchdog())
 
     def test_insert_cell_html(ctx=None):
         raise AssertionError("boom")
@@ -619,7 +630,100 @@ def test_run_module_suite_disarms_hang_dump_on_fail(monkeypatch) -> None:
     passed, failed, _suite_log = tr.run_module_suite(object(), module, "fake.html")
     assert passed == 0
     assert failed == 1
-    assert events == ["arm", "disarm"]
+    assert len(watchdogs) == 1
+    assert watchdogs[0].disarmed is True
+
+
+def test_run_module_suite_timeout_recycles_office_and_skips_rest_of_suite(monkeypatch) -> None:
+    killed = threading.Event()
+    second_ran = False
+    office = tr.current_office()
+    monkeypatch.setattr(tr, "_native_test_timeout_sec", lambda *_args: 0.2)
+    monkeypatch.setattr(tr, "_NATIVE_TEST_KILL_GRACE_SEC", 5)
+    monkeypatch.setattr(tr, "kill_process_tree", lambda _proc: killed.set())
+    monkeypatch.setattr(office, "soffice_proc", types.SimpleNamespace(poll=lambda: None))
+    monkeypatch.setattr(office, "urp_bridge_dead", False)
+    office.consume_recycle_request()
+
+    def test_hangs(ctx=None):
+        assert killed.wait(timeout=3.0)
+        raise RuntimeError("Binary URP bridge disposed during call")
+
+    def test_after(ctx=None):
+        nonlocal second_ran
+        second_ran = True
+
+    module = _make_module(test_hangs=test_hangs, test_after=test_after)
+    passed, failed, suite_log = tr.run_module_suite(object(), module, "fake.hang")
+    assert passed == 0
+    assert failed == 1
+    assert second_ran is False
+    assert office.urp_bridge_dead is False
+    assert office.consume_recycle_request() is True
+    assert any("Timeout" in line for line in suite_log)
+    assert any("NOT RUN after timeout: test_after" in line for line in suite_log)
+
+
+def test_native_test_watchdog_disarmed_in_time_never_stops_office(monkeypatch) -> None:
+    kills: list[object] = []
+    monkeypatch.setattr(tr, "kill_process_tree", lambda proc: kills.append(proc))
+    monkeypatch.setattr(tr.current_office(), "soffice_proc", object())
+    watchdog = tr._NativeTestWatchdog("fake.fast", 5)
+    assert watchdog.disarm() is False
+    assert kills == []
+
+
+def test_run_module_suite_post_return_probe_timeout_recycles_office(monkeypatch) -> None:
+    killed = threading.Event()
+    office = tr.current_office()
+    monkeypatch.setattr(tr, "_native_test_timeout_sec", lambda *_args: 0.2)
+    monkeypatch.setattr(tr, "_NATIVE_TEST_KILL_GRACE_SEC", 5)
+    monkeypatch.setattr(tr, "kill_process_tree", lambda _proc: killed.set())
+    monkeypatch.setattr(office, "soffice_proc", types.SimpleNamespace(poll=lambda: None))
+    monkeypatch.setattr(office, "urp_bridge_dead", False)
+    office.consume_recycle_request()
+
+    probe_calls = 0
+
+    def fake_collect_post_test_death(_ctx):
+        nonlocal probe_calls
+        probe_calls += 1
+        if probe_calls == 1:
+            return None
+        assert killed.wait(timeout=3.0)
+        raise RuntimeError("Binary URP bridge disposed during call")
+
+    monkeypatch.setattr(tr, "collect_post_test_death", fake_collect_post_test_death)
+
+    def test_fast_body(ctx=None):
+        pass
+
+    module = _make_module(test_fast_body=test_fast_body)
+    passed, failed, suite_log = tr.run_module_suite(object(), module, "fake.post")
+    assert passed == 0
+    assert failed == 1
+    assert office.urp_bridge_dead is False
+    assert office.consume_recycle_request() is True
+    assert any("Timeout" in line and "soffice stopped; office recycled" in line for line in suite_log)
+
+
+def test_run_module_suite_timeout_without_managed_soffice_skips_recycle(monkeypatch) -> None:
+    office = tr.current_office()
+    monkeypatch.setattr(tr, "_native_test_timeout_sec", lambda *_args: 0.1)
+    monkeypatch.setattr(tr, "_NATIVE_TEST_KILL_GRACE_SEC", 5)
+    monkeypatch.setattr(office, "soffice_proc", None)
+    monkeypatch.setattr(office, "urp_bridge_dead", False)
+    office.consume_recycle_request()
+
+    def test_slow_inproc(ctx=None):
+        threading.Event().wait(0.25)
+
+    module = _make_module(test_slow_inproc=test_slow_inproc)
+    passed, failed, suite_log = tr.run_module_suite(object(), module, "fake.inproc")
+    assert passed == 0
+    assert failed == 1
+    assert office.consume_recycle_request() is False
+    assert any("soffice not managed by this runner; no kill" in line for line in suite_log)
 
 
 def test_run_module_suite_records_fail_reason() -> None:

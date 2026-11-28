@@ -733,11 +733,24 @@ def _clear_writeragent_udprops(doc, ctx=None) -> None:
         pass
 
 
+def _remove_all_calc_pivots(doc) -> None:
+    # A pivot left on Sheet1 is written out again over later tests' cells when the doc is
+    # reloaded, and LibreOffice 26.8 shows #SPILL! there (ScDPObject::Output).
+    sheets = doc.getSheets()
+    for i in range(sheets.getCount()):
+        pivots = sheets.getByIndex(i).getDataPilotTables()
+        for name in list(pivots.getElementNames()):
+            pivots.removeByName(name)
+
+
 def _reset_calc_doc(doc, ctx) -> None:  # ctx unused; same signature as writer reset
     _native_teardown_progress("native_doc: _reset_calc_doc start")
     _native_teardown_progress("native_doc: _reset_calc_doc remove_charts start")
     _remove_all_calc_charts(doc)
     _native_teardown_progress("native_doc: _reset_calc_doc remove_charts done")
+    _native_teardown_progress("native_doc: _reset_calc_doc remove_pivots start")
+    _remove_all_calc_pivots(doc)
+    _native_teardown_progress("native_doc: _reset_calc_doc remove_pivots done")
     sheets = doc.getSheets()
     while sheets.getCount() > 1:
         name = sheets.getByIndex(sheets.getCount() - 1).Name
