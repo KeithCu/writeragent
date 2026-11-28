@@ -5,7 +5,9 @@ import pytest
 
 from plugin.doc.udprops import get_document_property, set_document_property
 from plugin.writer.edit_review import (
+    TABLE_SELECTION_MESSAGE,
     TRACKED_SELECTION_MESSAGE,
+    TableInSelection,
     TrackedChangesInSelection,
     WriterStreamedAppendSession,
     WriterStreamedRewriteSession,
@@ -14,22 +16,83 @@ from plugin.writer.edit_review import (
 from plugin.tests.testing_utils import FakeUnoEnum
 
 
-class _MutableTextRange:
-    def __init__(self):
-        self.text = "initial"
-        self.fail_once_on_generated = False
+class _Buffer:
+    def __init__(self, doc=None, text="initial"):
+        self.doc = doc
+        self.text = text
+        self.spans = []
+        self.writes = []
+        self.fail_once_on = None
+        self.fail_always_on = None
 
-    def setString(self, value):
-        if self.fail_once_on_generated and value == "Generated":
-            self.fail_once_on_generated = False
+    def span(self, start=0, end=None):
+        if end is None:
+            end = len(self.text)
+        s = _Span(self, start, end)
+        self.spans.append(s)
+        return s
+
+    def createTextCursorByRange(self, rng):
+        return self.span(rng.start, rng.end)
+
+    def _replace(self, span, value):
+        if self.fail_always_on is not None and value == self.fail_always_on:
+            raise RuntimeError("setString failed")
+        if self.fail_once_on is not None and value == self.fail_once_on:
+            self.fail_once_on = None
             raise RuntimeError("tracked write failed")
-        self.text = value
+        recording = self.doc.getPropertyValue("RecordChanges") if self.doc is not None else False
+        self.writes.append((recording, value))
+        start, end = span.start, span.end
+        old_len = end - start
+        new_len = len(value)
+        self.text = self.text[:start] + value + self.text[end:]
+        for other in self.spans:
+            if other is span:
+                continue
+            def _adj(pos):
+                if pos > end:
+                    pos -= old_len
+                elif pos > start:
+                    pos = start
+                if pos >= start:
+                    pos += new_len
+                return pos
+            other.start = _adj(other.start)
+            other.end = _adj(other.end)
+        span.start = start
+        span.end = start + new_len
 
-    def getString(self):
-        return self.text
+
+class _Span:
+    def __init__(self, buf, start, end):
+        self._buf = buf
+        self.start = start
+        self.end = end
+        self.set_calls = []
 
     def getText(self):
-        return self
+        return self._buf
+
+    def getStart(self):
+        return self._buf.span(self.start, self.start)
+
+    def getEnd(self):
+        return self._buf.span(self.end, self.end)
+
+    def getString(self):
+        return self._buf.text[self.start:self.end]
+
+    def setString(self, value):
+        self.set_calls.append(value)
+        self._buf._replace(self, value)
+
+
+class _MutableTextRange(_Span):
+    def __init__(self, doc=None, text="initial"):
+        buf = _Buffer(doc, text)
+        super().__init__(buf, 0, len(text))
+        buf.spans.append(self)
 
 
 class _MockUndoManager:
@@ -37,6 +100,7 @@ class _MockUndoManager:
         self.entered = False
         self.left = False
         self.undone = False
+        self.redo_cleared = False
         self.titles = []
         self.discard_empty_context = False
 
@@ -62,6 +126,9 @@ class _MockUndoManager:
         self.undone = True
         if self.titles:
             self.titles.pop(0)
+
+    def clearRedo(self) -> None:
+        self.redo_cleared = True
 
 
 class _MockDoc:
@@ -156,47 +223,27 @@ def test_build_writer_rewrite_prompt_interpolates_args():
     assert prompt.index("INSTR") < prompt.index("ORIG")
 
 
-def test_writer_streamed_rewrite_session_finishes_as_single_tracked_change():
-    doc = _MockDoc(recording=True)
-    text_range = _MutableTextRange()
-    session = WriterStreamedRewriteSession(doc, text_range, "Original")
-
-    assert doc.undo.entered is True
-    assert doc.undo.left is False
-    assert doc.getPropertyValue("RecordChanges") is False
-    assert text_range.getString() == ""
-
-    session.append_chunk("Generated")
-    warning = session.finish()
-
-    assert warning is None
-    assert text_range.getString() == "Generated"
-    assert doc.getPropertyValue("RecordChanges") is True
-    assert doc.undo.left is True
-
-
 @pytest.mark.skipif(
     sys.platform == "win32",
     reason="Windows xdist worker crashitem after ~300s hang; mock-only (CI 41744668351)",
 )
 def test_writer_streamed_rewrite_session_abort_restores_original_text():
-    doc = _MockDoc(recording=True)
-    text_range = _MutableTextRange()
+    doc = _MockDoc(recording=False)
+    text_range = _MutableTextRange(doc, "Original")
     session = WriterStreamedRewriteSession(doc, text_range, "Original")
 
     session.append_chunk("Partial")
     session.abort_and_restore()
 
-    # The actual text restoration is now handled by doc.getUndoManager().undo() which is mocked.
-    # We check that undo was called.
     assert doc.undo.undone is True
-    assert doc.getPropertyValue("RecordChanges") is True
+    assert doc.undo.redo_cleared is True
+    assert doc.getPropertyValue("RecordChanges") is False
     assert doc.undo.left is True
 
 
 def test_writer_streamed_rewrite_session_abort_empty_does_not_undo_previous_edit():
-    doc = _MockDoc(recording=True)
-    text_range = _MutableTextRange()
+    doc = _MockDoc(recording=False)
+    text_range = _MutableTextRange(doc, "Original")
     session = WriterStreamedRewriteSession(doc, text_range, "Original")
 
     # If the context was empty and discarded by LibreOffice leaveUndoContext,
@@ -208,14 +255,14 @@ def test_writer_streamed_rewrite_session_abort_empty_does_not_undo_previous_edit
 
     assert doc.undo.undone is False
     assert doc.undo.titles == ["Typing: hello"]
-    assert text_range.getString() == "Original"
-    assert doc.getPropertyValue("RecordChanges") is True
+    assert text_range._buf.text == "Original"
+    assert doc.getPropertyValue("RecordChanges") is False
 
 
 def test_writer_streamed_rewrite_session_abort_does_not_undo_prior_same_title_on_stack():
     """Top title matching our session title is not enough; the stack must have changed."""
-    doc = _MockDoc(recording=True)
-    text_range = _MutableTextRange()
+    doc = _MockDoc(recording=False)
+    text_range = _MutableTextRange(doc, "Original")
     doc.undo.discard_empty_context = True
     doc.undo.titles = ["WriterAgent: Edit selection"]
 
@@ -225,28 +272,28 @@ def test_writer_streamed_rewrite_session_abort_does_not_undo_prior_same_title_on
 
     assert doc.undo.undone is False
     assert doc.undo.titles == ["WriterAgent: Edit selection"]
-    assert text_range.getString() == "Original"
+    assert text_range._buf.text == "Original"
 
 
 def test_writer_streamed_rewrite_session_fallback_keeps_generated_text():
-    doc = _MockDoc(recording=True)
-    text_range = _MutableTextRange()
+    doc = _MockDoc(recording=False)
+    text_range = _MutableTextRange(doc, "Original")
     session = WriterStreamedRewriteSession(doc, text_range, "Original")
 
     session.append_chunk("Generated")
-    text_range.fail_once_on_generated = True
+    text_range._buf.fail_once_on = "Generated"
     warning = session.finish()
 
     assert warning is not None
     assert "generated text was kept" in warning
-    assert text_range.getString() == "Generated"
-    assert doc.getPropertyValue("RecordChanges") is True
+    assert text_range._buf.text == "Generated"
+    assert doc.getPropertyValue("RecordChanges") is False
     assert doc.undo.left is True
 
 
 def test_writer_streamed_rewrite_session_finish_without_tracking_leaves_undo_context():
     doc = _MockDoc(recording=False)
-    text_range = _MutableTextRange()
+    text_range = _MutableTextRange(doc, "Original")
     session = WriterStreamedRewriteSession(doc, text_range, "Original")
 
     assert doc.undo.entered is True
@@ -259,15 +306,13 @@ def test_writer_streamed_rewrite_session_empty_finish_restores_original():
     """No model text must not erase the selection or record a deletion of it."""
     for recording in (False, True):
         doc = _MockDoc(recording=recording)
-        text_range = _MutableTextRange()
+        text_range = _MutableTextRange(doc, "Original")
         session = WriterStreamedRewriteSession(doc, text_range, "Original")
 
-        assert text_range.getString() == ""
+        assert text_range._buf.text == ""
         assert session.finish() is None
-        # Closing and undoing compound undo restores text and formatting without flattening
         assert doc.undo.undone is True
-        # Recording ends as the document started it. A tracked deletion would
-        # have left the range "" after turning RecordChanges back on.
+        assert doc.undo.redo_cleared is True
         assert doc.getPropertyValue("RecordChanges") is recording
         assert doc.undo.left is True
 
@@ -277,94 +322,74 @@ def test_writer_streamed_rewrite_session_abort_fallback_when_compound_undo_never
         def getUndoManager(self):
             return None
 
-    doc = NoUndoDoc(recording=True)
-    text_range = _MutableTextRange()
+    doc = NoUndoDoc(recording=False)
+    text_range = _MutableTextRange(doc, "Original")
     session = WriterStreamedRewriteSession(doc, text_range, "Original")
-    assert text_range.getString() == ""
+    assert text_range._buf.text == ""
 
     session.abort_and_restore()
-    assert text_range.getString() == "Original"
-    assert doc.getPropertyValue("RecordChanges") is True
+    assert text_range._buf.text == "Original"
+    assert doc.getPropertyValue("RecordChanges") is False
 
 
 def test_writer_streamed_rewrite_session_abort_fallback_when_undo_raises():
-    doc = _MockDoc(recording=True)
-    text_range = _MutableTextRange()
+    doc = _MockDoc(recording=False)
+    text_range = _MutableTextRange(doc, "Original")
     session = WriterStreamedRewriteSession(doc, text_range, "Original")
-    assert text_range.getString() == ""
+    assert text_range._buf.text == ""
 
     def failing_undo():
         raise RuntimeError("undo failed")
 
     doc.undo.undo = failing_undo
     session.abort_and_restore()
-    assert text_range.getString() == "Original"
-    assert doc.getPropertyValue("RecordChanges") is True
+    assert text_range._buf.text == "Original"
+    assert doc.getPropertyValue("RecordChanges") is False
 
 
 def test_writer_streamed_rewrite_session_empty_finish_fallback_when_undo_fails():
-    doc = _MockDoc(recording=True)
-    text_range = _MutableTextRange()
+    doc = _MockDoc(recording=False)
+    text_range = _MutableTextRange(doc, "Original")
     session = WriterStreamedRewriteSession(doc, text_range, "Original")
-    assert text_range.getString() == ""
+    assert text_range._buf.text == ""
 
     def failing_undo():
         raise RuntimeError("undo failed")
 
     doc.undo.undo = failing_undo
     assert session.finish() is None
-    assert text_range.getString() == "Original"
-    assert doc.getPropertyValue("RecordChanges") is True
+    assert text_range._buf.text == "Original"
+    assert doc.getPropertyValue("RecordChanges") is False
 
 
 def test_writer_streamed_append_session_abort_collapses_when_recording():
-    from types import SimpleNamespace
-
     doc = _MockDoc(recording=True)
-    inserts = []
-
-    class _AppendRange(_MutableTextRange):
-        def getEnd(self):
-            return "END"
-
-        def getText(self):
-            def _insert_string(cursor, value, absorb):
-                assert cursor == "END" and absorb is False
-                inserts.append((doc.getPropertyValue("RecordChanges"), value))
-                self.text += value
-
-            return SimpleNamespace(
-                createTextCursorByRange=lambda r: r,
-                insertString=_insert_string,
-            )
-
-    text_range = _AppendRange()
-    text_range.text = "Orig."
+    text_range = _MutableTextRange(doc, "Orig.")
     session = WriterStreamedAppendSession(doc, text_range, "Orig.")
     session.append_chunk(" More")
     session.abort_and_restore()
 
-    assert text_range.getString() == "Orig. More"
-    assert inserts == [(True, " More")]
+    assert text_range._buf.text == "Orig. More"
+    assert text_range._buf.writes[-1] == (True, " More")
     assert doc.getPropertyValue("RecordChanges") is True
     assert doc.undo.left is True
 
 
 def test_writer_streamed_rewrite_session_whitespace_chunk_is_kept():
     """Whitespace the model sent is a real rewrite, not an empty result."""
-    doc = _MockDoc(recording=True)
-    text_range = _MutableTextRange()
+    doc = _MockDoc(recording=False)
+    text_range = _MutableTextRange(doc, "Original")
     session = WriterStreamedRewriteSession(doc, text_range, "Original")
 
     session.append_chunk(" ")
     assert session.finish() is None
-    assert text_range.getString() == " "
-    assert doc.getPropertyValue("RecordChanges") is True
+    assert text_range._buf.text == " "
+    assert doc.getPropertyValue("RecordChanges") is False
 
 
 def test_writer_streamed_append_session_empty_finish_closes_undo_context():
     doc = _MockDoc(recording=True)
-    text_range = _MutableTextRange()
+    text_range = _MutableTextRange(doc, "Original")
     session = WriterStreamedAppendSession(doc, text_range, "Original")
     assert doc.undo.entered is True
     assert session.finish() is None
@@ -803,26 +828,36 @@ def test_streamed_session_refuses_when_portion_walk_fails():
     assert doc.undo.entered is False
 
 
-def test_streamed_rewrite_allows_format_redline():
+@pytest.mark.parametrize("session_cls", [WriterStreamedRewriteSession, WriterStreamedAppendSession])
+def test_streamed_session_refuses_format_redline(session_cls):
     doc = _MockDoc(recording=True)
     text_range = _RedlineCursor([
         _Paragraph([_Portion("Text", text="Hello"), _Portion("Redline", "Format")])
     ])
-    session = WriterStreamedRewriteSession(doc, text_range, "Hello")
-    assert text_range.set_calls == [""]
-    assert doc.props["RecordChanges"] is False
-    assert session.finish() is None
+    with pytest.raises(TrackedChangesInSelection):
+        session_cls(doc, text_range, "Hello")
+    assert text_range.set_calls == []
+    assert doc.writes == []
+    assert doc.undo.entered is False
 
 
-def test_streamed_append_allows_format_redline_and_still_appends():
+@pytest.mark.parametrize("session_cls", [WriterStreamedRewriteSession, WriterStreamedAppendSession])
+def test_streamed_session_refuses_table_in_selection(session_cls):
+    class _TableNode:
+        def supportsService(self, name):
+            return name == "com.sun.star.text.TextTable"
+
+        def getPropertyValue(self, name):
+            raise RuntimeError("no %s" % name)
+
     doc = _MockDoc(recording=True)
-    text_range = _RedlineCursor([
-        _Paragraph([_Portion("Redline", "Format"), _Portion("Text", text="Hi")])
-    ])
-    session = WriterStreamedAppendSession(doc, text_range, "Hi")
-    assert doc.props["RecordChanges"] is False
-    session.append_chunk("!")
-    assert text_range.set_calls == ["Hi!"]
+    text_range = _RedlineCursor([_TableNode()])
+    with pytest.raises(TableInSelection) as raised:
+        session_cls(doc, text_range, "Hello")
+    assert str(raised.value) == TABLE_SELECTION_MESSAGE
+    assert text_range.set_calls == []
+    assert doc.writes == []
+    assert doc.undo.entered is False
 
 
 def test_do_extend_selection_refuses_deletion_only_without_writing(monkeypatch):
@@ -877,12 +912,45 @@ def test_do_edit_selection_refuses_tracked_insert_before_prompt(monkeypatch):
     assert doc.writes == []
 
 
+def test_do_edit_selection_shows_table_message(monkeypatch):
+    from plugin.writer import editselection
+
+    class _TableNode:
+        def supportsService(self, name):
+            return name == "com.sun.star.text.TextTable"
+
+        def getPropertyValue(self, name):
+            raise RuntimeError("no %s" % name)
+
+    text_range = _RedlineCursor([_TableNode()])
+    doc = _MenuDoc(text_range, recording=True)
+    messages = []
+    prompts = []
+    streams = []
+    monkeypatch.setattr(editselection, "msgbox", lambda *args, **kwargs: messages.append(args))
+    monkeypatch.setattr(
+        editselection,
+        "prompt_for_edit_instructions",
+        lambda *args, **kwargs: prompts.append(args) or ("x", ""),
+    )
+    monkeypatch.setattr(editselection, "stream_completion", lambda *args, **kwargs: streams.append(args))
+
+    editselection.do_edit_selection(object(), doc)
+
+    assert prompts == []
+    assert streams == []
+    assert len(messages) == 1
+    assert messages[0][2] == TABLE_SELECTION_MESSAGE
+    assert text_range.set_calls == []
+    assert doc.writes == []
+
+
 def test_do_extend_selection_clean_range_still_streams(monkeypatch):
     from plugin.writer import editselection
 
-    text_range = _MutableTextRange()
-    text_range.text = "Hello"
+    text_range = _MutableTextRange(None, "Hello")
     doc = _MenuDoc(text_range, recording=False)
+    text_range._buf.doc = doc
     messages = []
     streams = []
     monkeypatch.setattr(editselection, "msgbox", lambda *args, **kwargs: messages.append(args))
@@ -899,16 +967,16 @@ def test_do_extend_selection_clean_range_still_streams(monkeypatch):
 
     assert messages == []
     assert len(streams) == 1
-    assert text_range.getString() == "Hello"
+    assert text_range._buf.text == "Hello"
     assert doc.props["RecordChanges"] is False
 
 
 def test_do_edit_selection_clean_range_still_clears_and_streams(monkeypatch):
     from plugin.writer import editselection
 
-    text_range = _MutableTextRange()
-    text_range.text = "Hello"
+    text_range = _MutableTextRange(None, "Hello")
     doc = _MenuDoc(text_range, recording=False)
+    text_range._buf.doc = doc
     messages = []
     streams = []
     monkeypatch.setattr(editselection, "msgbox", lambda *args, **kwargs: messages.append(args))
@@ -922,7 +990,7 @@ def test_do_edit_selection_clean_range_still_clears_and_streams(monkeypatch):
 
     assert messages == []
     assert len(streams) == 1
-    assert text_range.getString() == ""
+    assert text_range._buf.text == ""
 
 
 
@@ -937,9 +1005,9 @@ from plugin.writer import editselection
     ],
 )
 def test_selection_edit_entry_observes_stop_checker(monkeypatch, entry_fn, expected_text):
-    text_range = _MutableTextRange()
-    text_range.text = "Hello"
+    text_range = _MutableTextRange(None, "Hello")
     doc = _MenuDoc(text_range, recording=False)
+    text_range._buf.doc = doc
     messages = []
     streams = []
     monkeypatch.setattr(editselection, "msgbox", lambda *args, **kwargs: messages.append(args))
@@ -967,15 +1035,15 @@ def test_selection_edit_entry_observes_stop_checker(monkeypatch, entry_fn, expec
     entry_fn(_Ctx(), doc)
 
     assert len(streams) == 1
-    assert text_range.getString() == expected_text
+    assert text_range._buf.text == expected_text
 
 
 def test_do_extend_selection_failure_visible(monkeypatch):
     from plugin.writer import editselection
 
-    text_range = _MutableTextRange()
-    text_range.text = "Hello"
+    text_range = _MutableTextRange(None, "Hello")
     doc = _MenuDoc(text_range, recording=False)
+    text_range._buf.doc = doc
     messages = []
 
     monkeypatch.setattr(editselection, "msgbox", lambda *args, **kwargs: messages.append(args))
@@ -1080,14 +1148,11 @@ def test_append_finish_fallback_names_a_failed_setstring(monkeypatch):
         lambda _ctx, _prior: None,
     )
     doc = _MockDoc(recording=False)
-    text_range = _MutableTextRange()
+    text_range = _MutableTextRange(doc, "Original")
     session = WriterStreamedAppendSession(doc, text_range, "Original", track_reviewable=True)
     session.append_chunk(" more")
 
-    def boom_set_string(_value):
-        raise RuntimeError("setString failed")
-
-    text_range.setString = boom_set_string
+    text_range._buf.fail_always_on = " more"
     warning = session.finish()
     assert warning is not None
     assert "setString failed" in warning
