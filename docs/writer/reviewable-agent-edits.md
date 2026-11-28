@@ -95,6 +95,11 @@ no undo action, so Reject All would bring back only the text. `tracking_manage a
 refuses one cell of a tracked row insertion or deletion whose other cells hold their own redlines:
 resolving one cell resets the row's `HasTextChangesOnly` and leaves the rest of the row as plain text
 changes; the user resolves the row in Manage.
+A tracked row insertion also leaves the anchor in the new row's first cell, and it stays after
+Accept. `table_get_cells` (and `table_set_cell`'s `old_text`) read a cell that holds only the
+anchor as empty; `get_content` still exports it as the cell's text. So `table_set_cell` with
+empty text on such a cell returns `ok` and changes nothing, in every mode: the anchor is what
+LibreOffice tracks the row by, and removing it would drop the row's redline.
 `apply_content` uses that same delete (including the `CELLS_PROTECTED` check) when an empty replacement is the last text left in the table,
 inside the edit's existing review session. Clearing one cell while another cell still has text stays
 a text edit.

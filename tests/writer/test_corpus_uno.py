@@ -39,8 +39,8 @@ _TEXT_DOCUMENT = "com.sun.star.text.TextDocument"
 _SAVE_FILTER = {".docx": "MS Word 2007 XML", ".fodt": "OpenDocument Text Flat XML"}
 # Tiers that are not document reads: agent sessions, host-only helpers and peer messaging.
 _OTHER_TIERS = frozenset({"specialized_control", "unlisted", "chat"})
-# Reads that move the user's view, or read the folder instead of the document.
-_NOT_DOCUMENT_READS = {"set_selection", "nav_goto_page", "image_list_nearby_files"}
+# Reads that move the user's view, or read the folder or the network instead of the document.
+_NOT_DOCUMENT_READS = {"set_selection", "nav_goto_page", "image_list_nearby_files", "image_download"}
 
 
 @contextmanager

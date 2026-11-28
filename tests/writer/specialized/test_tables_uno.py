@@ -31,6 +31,38 @@ from tests.writer.doc_builders import (
 
 @native_test
 @with_native_doc("writer")
+def test_table_get_cells_reads_tracked_row_anchor_as_empty_uno(ctx, doc):
+    """A row inserted while recording holds U+200D in its first cell, which reads as "".
+
+    Clearing that cell is a no-op that keeps the anchor LibreOffice tracks the row by, and
+    the anchor stays after the row's insertion is accepted.
+    """
+    doc.getText().setString("")
+    tbl = insert_named_table(doc, "AnchorRow", 2, 2, {"A1": "a1", "B1": "b1", "A2": "a2", "B2": "b2"})
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = ManageTableStructure().execute(tool_ctx, action="insert", axis="row", name="AnchorRow", index=1)
+        assert res["status"] == "ok", res
+        assert tbl.getCellByName("A2").getString() == "\u200d"
+        cells = TableGetCells().execute(tool_ctx, name="AnchorRow")["cells"]
+        assert (cells["A2"], cells["B2"], cells["A3"]) == ("", "", "a2"), cells
+
+        redlines = doc.getRedlines().getCount()
+        cleared = TableSetCell().execute(tool_ctx, name="AnchorRow", cell="A2", text="")
+        assert (cleared["status"], cleared["old_text"]) == ("ok", ""), cleared
+        assert tbl.getCellByName("A2").getString() == "\u200d"
+        assert doc.getRedlines().getCount() == redlines
+
+        accept_all_changes(doc, ctx)
+        assert tbl.getCellByName("A2").getString() == "\u200d"
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        reject_all_changes(doc, ctx)
+
+
+@native_test
+@with_native_doc("writer")
 def test_table_get_cells_reports_nested_parent_relation_uno(ctx, doc):
     """A nested table reports its direct parent table/cell; a top-level table does not."""
     outer = insert_named_table(doc, "FixtureOuter", 2, 2, {"A1": "OUTER_ALPHA"})
