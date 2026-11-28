@@ -1665,6 +1665,8 @@ def test_selection_format_refuses_recorded_format_over_deletion_uno(ctx, doc):
         save({"doc.agent_edit_review_mode": prev_mode})
 
 
+@native_test
+@with_native_doc("writer", reuse=False)
 def test_style_format_text_warns_that_list_level_cannot_be_undone_uno(ctx, doc):
     """Undo does not restore NumberingLevel, so the result warns in every review mode; other properties do not warn."""
     from plugin.framework.config import get_config, save

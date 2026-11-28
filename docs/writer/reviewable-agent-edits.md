@@ -405,7 +405,7 @@ When the user turns on Track Changes > Record while agent review is Off, operati
   recording, a `full_document` replace whose text equals the old text leaves a zero-length Insert
   redline that one Undo does not remove. `SwRedlineTable::Insert` runs move detection on every new
   redline while undo is on, and `SwRedlineTable::isMovedImpl` (`docredln.cxx`) pairs a same-author
-  Insert and Delete with the same trimmed text as a tracked move. A probe shows the imported Insert
+  Insert and Delete with the same trimmed text as a tracked move. A throwaway probe (not kept in the repo) shows the imported Insert
   and the struck Delete both reporting `RedlineMovedID` 2, while the empty paragraph opened for the
   import keeps its own zero-length Insert with `RedlineMovedID` 0; after one Undo the text is back
   and only that zero-length Insert remains. Record mode is not affected, because the deletion has
