@@ -350,10 +350,22 @@ def test_offset_window_slices_by_running_offset():
 
     past_end, window = _offset_window(2, 8)
     e1, e2, e3 = MagicMock(), MagicMock(), MagicMock()
-    assert window(e1, "Hello", [], False) == ([], (2, 5))
-    assert window(e2, "World", [], False) == ([], (0, 2))
-    assert window(e3, "Next", [], False) == ([], None)
     assert past_end(e1) is False
+    assert window(e1, "Hello", [], False) == ([], (2, 5))
+    assert past_end(e2) is False
+    assert window(e2, "World", [], False) == ([], (0, 2))
+    assert past_end(e3) is True
+    assert window(e3, "Next", [], False) == ([], None)
+
+
+def test_offset_window_past_end_exactly_at_end():
+    from plugin.writer.html_export import _offset_window
+
+    past_end, window = _offset_window(0, 5)
+    e1, e2 = MagicMock(), MagicMock()
+    assert window(e1, "Hello", [], False) == ([], (0, 5))
+    assert past_end(e2) is True
+    assert window(e2, "", [], False) == ([], None)
 
 
 def test_offset_window_leading_and_adjacent_tables():

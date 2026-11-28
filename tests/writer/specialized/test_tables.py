@@ -21,6 +21,7 @@ from plugin.writer.specialized.tables import (
     TableMergeCells,
     TableSetCell,
     TableSplitCell,
+    _cell_content,
     _hosted_in_band,
     _unknown_cell_message,
     _writer_named_cells,
@@ -1886,3 +1887,17 @@ def test_record_table_deletions_refuses_protected_cell():
         record_table_deletions(session, doc, None, [(table, "Fee")])
     assert exc_info.value.code == "CELLS_PROTECTED"
     assert body.removed == []
+
+
+def test_cell_content_crlf_empty_paragraphs_is_empty():
+    empty_cell = SimpleNamespace(
+        getString=lambda: "\r\n",
+        createEnumeration=lambda: FakeUnoEnum([FakeParagraph(), FakeParagraph()]),
+    )
+    assert _cell_content(empty_cell) is None
+
+    non_empty_cell = SimpleNamespace(
+        getString=lambda: "\r\nx",
+        createEnumeration=lambda: FakeUnoEnum([FakeParagraph(), FakeParagraph("x")]),
+    )
+    assert _cell_content(non_empty_cell) is not None

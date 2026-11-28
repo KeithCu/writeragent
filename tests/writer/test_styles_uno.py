@@ -1065,9 +1065,9 @@ def test_style_format_text_para_back_color_reaches_tables_persists_and_resets_un
     for p in _all_paras(doc):
         assert int(p.getPropertyValue("ParaBackColor")) == 0xFFE4C4
 
-    reloaded = None
-    try:
-        with tempfile.TemporaryDirectory() as tmpdir:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        reloaded = None
+        try:
             path = os.path.join(tmpdir, "bg_test.odt")
             url = uno.systemPathToFileUrl(path)
             doc.storeToURL(url, ())
@@ -1077,9 +1077,9 @@ def test_style_format_text_para_back_color_reaches_tables_persists_and_resets_un
             )
             for p in _all_paras(reloaded):
                 assert int(p.getPropertyValue("ParaBackColor")) == 0xFFE4C4
-    finally:
-        if reloaded is not None:
-            reloaded.close(True)
+        finally:
+            if reloaded is not None:
+                reloaded.close(True)
 
     res_reset = StyleFormatText().execute(
         tool_ctx, reset=["ParaBackColor"], target="full_document",

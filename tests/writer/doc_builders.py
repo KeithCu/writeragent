@@ -16,7 +16,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from plugin.doc.document_helpers import DocumentService
-from plugin.doc.text_helpers import iter_elements
+from plugin.doc.text_helpers import iter_elements, normalize_linebreaks
 from plugin.framework.uno_context import execute_dispatch
 from plugin.writer.specialized.bookmarks import BookmarkService
 
@@ -190,12 +190,15 @@ def list_redline_types(doc: Any) -> list[str]:
 def strike_substring(
     doc: Any, xtext: Any, needle: str, *, ctx: Any = None, author: str | None = None
 ) -> None:
-    """Strike the first occurrence of *needle* in *xtext* as a tracked deletion."""
+    """Strike the first occurrence of *needle* in *xtext* as a tracked deletion.
+
+    Normalizes linebreaks so the offset counts one per paragraph break, as ``goRight`` does.
+    """
     from plugin.writer import review_authors
 
     cur = xtext.createTextCursor()
     cur.gotoStart(False)
-    idx = xtext.getString().index(needle)
+    idx = normalize_linebreaks(xtext.getString()).index(needle)
     cur.goRight(idx, False)
     cur.goRight(len(needle), True)
     prior = None

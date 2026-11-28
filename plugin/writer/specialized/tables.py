@@ -526,7 +526,10 @@ def _cell_content(cell: Any) -> str | None:
     content enumeration lists them (``SwXParagraph::createContentEnumeration``,
     sw/source/core/unocore/unoparagraph.cxx). Nested tables are the caller's earlier check.
     """
-    if cell.getString().strip("\n"):
+    # getString() joins paragraphs with CRLF on Windows (SwUnoCursorHelper::GetTextFromPam,
+    # unoobj.cxx, uses GetSystemLineEnd()), so a cell of only empty paragraphs must strip both
+    # characters to read as empty.
+    if cell.getString().strip("\r\n"):
         return _TEXT_CONTENT
     for para in iter_elements(cell.createEnumeration()):
         kind = non_text_portion_type(para, ignore_markers=True)

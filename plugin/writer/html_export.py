@@ -518,6 +518,9 @@ def _offset_window(start: int, end: int) -> tuple[Callable[[Any], bool], _Window
 
     Counts as ``text_helpers._body_blocks`` does: each element is its visible
     text plus one break. Tables are read whole when the range touches them.
+    The walk stops once the running offset reaches ``end``, because every later
+    element starts at or after ``pos``, so ``window`` could not include it.
+    Element and table offsets only grow.
     """
     pos = 0
 
@@ -538,7 +541,7 @@ def _offset_window(start: int, end: int) -> tuple[Callable[[Any], bool], _Window
             return inside, None
         return inside, (max(0, start - para_start), len(para_text) - max(0, para_end - end))
 
-    return (lambda _el: False), window
+    return (lambda _el: pos >= end), window
 
 
 def _copy_formula_runs(

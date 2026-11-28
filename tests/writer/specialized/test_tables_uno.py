@@ -5,6 +5,7 @@
 """Native UNO coverage for nested Writer text-table relationships."""
 import uno  # noqa: F401
 
+from plugin.doc.text_helpers import normalize_linebreaks
 from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import pinned_writer_tool_context, TestingFactory, with_native_doc
@@ -426,7 +427,7 @@ def test_manage_table_structure_delete_tracked_variants_uno(ctx, doc):
         assert res_cs["code"] == "COLUMN_HAS_SPANNING_CELL", res_cs
         assert colspan_tbl.getColumns().getCount() == 2
         assert len(colspan_tbl.getCellNames()) == 5
-        assert colspan_tbl.getCellByName("A1").getString() == "A1\nB1"
+        assert normalize_linebreaks(colspan_tbl.getCellByName("A1").getString()) == "A1\nB1"
     finally:
         doc.setPropertyValue("RecordChanges", False)
 
@@ -688,12 +689,12 @@ def test_column_band_cells_matches_libreoffice_delete_uno(ctx, doc):
     t_name = TableInsert().execute(tool_ctx, rows=2, columns=3, data=[["a1", "b1", "c1"], ["a2", "b2", "c2"]])["table_name"]
     TableMergeCells().execute_safe(tool_ctx, name=t_name, cell_range="A1:B1")
     table = doc.getTextTables().getByName(t_name)
-    predicted_texts = {table.getCellByName(n).getString() for n in _column_band_cells(table, 0)}
+    predicted_texts = {normalize_linebreaks(table.getCellByName(n).getString()) for n in _column_band_cells(table, 0)}
     assert predicted_texts == {"a1\nb1", "a2", "b2"}
 
-    before_texts = {table.getCellByName(n).getString() for n in table.getCellNames()}
+    before_texts = {normalize_linebreaks(table.getCellByName(n).getString()) for n in table.getCellNames()}
     table.getColumns().removeByIndex(0, 1)
-    after_texts = {table.getCellByName(n).getString() for n in table.getCellNames()}
+    after_texts = {normalize_linebreaks(table.getCellByName(n).getString()) for n in table.getCellNames()}
     assert before_texts - after_texts == predicted_texts
 
 
@@ -799,12 +800,12 @@ def test_tall_cell_row_delete_untracked_and_middle_tracked_and_after_split_uno(c
     assert refused_untracked["status"] == "error"
     assert refused_untracked["code"] == "ROW_HAS_SPANNING_CELL"
     assert tbl1.getRows().getCount() == 3
-    assert tbl1.getCellByName("A1").getString() == "a1\na2"
+    assert normalize_linebreaks(tbl1.getCellByName("A1").getString()) == "a1\na2"
 
     # Deleting covered row 1 keeps A1's merged content.
     ok_cov = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="row", name=t1, index=1)
     assert ok_cov["status"] == "ok"
-    assert tbl1.getCellByName("A1").getString() == "a1\na2"
+    assert normalize_linebreaks(tbl1.getCellByName("A1").getString()) == "a1\na2"
 
     # Middle tall cell (B1:B2) while recording is also refused; after split, row 0 deletes cleanly.
     t2 = TableInsert().execute(
@@ -1226,7 +1227,7 @@ def test_column_refusal_unequal_widths_says_do_not_split_uno(ctx, doc):
         r_names = list(reloaded.getTextTables().getElementNames())
         assert len(r_names) == 1, r_names
         r_name = r_names[0]
-        assert reloaded.getTextTables().getByName(r_name).getCellByName("A1").getString() == "h1\nh2\nh3\nh4"
+        assert normalize_linebreaks(reloaded.getTextTables().getByName(r_name).getCellByName("A1").getString()) == "h1\nh2\nh3\nh4"
         r_ref = ManageTableStructure().execute_safe(r_ctx, action="delete", axis="column", name=r_name, index=0)
         assert r_ref["status"] == "error" and r_ref["code"] == "COLUMN_HAS_SPANNING_CELL", r_ref
         assert "parts=" not in r_ref["message"], r_ref["message"]
