@@ -3,6 +3,7 @@
 import json
 import ntpath
 from contextlib import contextmanager
+from pathlib import Path
 from urllib.parse import urlsplit
 from unittest.mock import MagicMock, patch
 
@@ -80,6 +81,13 @@ def _port_from_popen_args(args: list[str]) -> int:
     raise AssertionError(f"missing --remote-debugging-port in {args}")
 
 
+def _user_data_dir_from_popen_args(args: list[str]) -> Path:
+    for arg in args:
+        if arg.startswith("--user-data-dir="):
+            return Path(arg.split("=", 1)[1])
+    raise AssertionError(f"missing --user-data-dir in {args}")
+
+
 def _isolate_home(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
@@ -101,7 +109,7 @@ def test_browser_process_spawning(browser_type, tmp_path, monkeypatch):
         assert "--no-first-run" in args
         assert "--no-default-browser-check" in args
         expected_profile = tmp_path / ".config" / "writeragent" / f"{browser_type}_profile"
-        assert f"--user-data-dir={expected_profile}" in args
+        assert _user_data_dir_from_popen_args(args) == expected_profile
 
         cleanup_local_browser()
         mock_proc.kill.assert_called_once()
@@ -124,7 +132,7 @@ def test_brave_linux_binary_lookup_and_profile_dir(binary_name, tmp_path, monkey
         assert ws_url == f"ws://127.0.0.1:{port}/devtools/browser/test-id"
         assert args[0] == f"/usr/bin/{binary_name}"
         expected_profile = tmp_path / ".config" / "writeragent" / "brave_profile"
-        assert f"--user-data-dir={expected_profile}" in args
+        assert _user_data_dir_from_popen_args(args) == expected_profile
 
 
 @pytest.mark.parametrize(
@@ -157,7 +165,7 @@ def test_windows_binary_lookup(browser_type, env_var, env_val, expected_exe, tmp
         assert ws_url == f"ws://127.0.0.1:{port}/devtools/browser/test-id"
         assert args[0] == expected_exe
         expected_profile = tmp_path / ".config" / "writeragent" / f"{browser_type}_profile"
-        assert f"--user-data-dir={expected_profile}" in args
+        assert _user_data_dir_from_popen_args(args) == expected_profile
 
 
 def test_cdp_browser_registered_and_shutdown_all_kills(tmp_path, monkeypatch):

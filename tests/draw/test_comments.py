@@ -82,6 +82,9 @@ class _MockUndoManager:
         if self.titles:
             self.titles.pop(0)
 
+    def clearRedo(self) -> None:
+        return None
+
 
 class _NoAnnotationPage:
     """Page object with neither the service nor XAnnotationAccess methods."""
