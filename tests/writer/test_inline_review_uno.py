@@ -707,6 +707,16 @@ def test_resolve_puts_the_users_caret_back_uno(ctx, doc):
     assert ok, msg
     assert view_cursor.isCollapsed(), repr(view_cursor.getString())
 
+    # The caret sits inside the insertion that Reject removes: it stays a caret where the text was.
+    reset_body(doc, ctx, "The quick brown fox.", "Second para.")
+    _agent_edit(doc, ctx, ("quick", "fast"))
+    view_cursor.gotoRange(find_first(doc, "fast").getStart(), False)
+    view_cursor.goRight(1, False)
+    ok, msg = resolve_change_at_cursor(doc, ctx, False)
+    assert ok, msg
+    assert _para_with(doc, "brown") == "The quick brown fox."
+    assert view_cursor.isCollapsed(), repr(view_cursor.getString())
+
     reset_body(doc, ctx, "The quick brown fox.", "Second para.")
     _tracked_replace(doc, "Second", "2nd")
     _agent_edit(doc, ctx, ("quick", "fast"))

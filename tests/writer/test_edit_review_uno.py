@@ -495,6 +495,41 @@ def test_untagged_pending_change_is_not_reported_resolved_uno(ctx, doc):
         assert result["complete"] is True, (user_action.__name__, result)
         assert result["changes"][0]["outcome"] != "pending", (user_action.__name__, result)
 
+    # A style tool's untagged WriterAgent format redline right after the change is not the change
+    # come back: once the user accepts the change, the wait completes.
+    from com.sun.star.awt.FontWeight import BOLD  # type: ignore
+    from plugin.writer import review_authors
+
+    reset_body(doc, ctx, "Alpha two three.")
+    with EditReviewSession(doc, ctx, enabled=True) as session:
+        session.record_mutation(_replace_fn(doc, "two", "NEWWORD"))
+    prior = review_authors.begin(ctx)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        find_first(doc, " three.").setPropertyValue("CharWeight", BOLD)
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        review_authors.end(ctx, prior)
+    controller = doc.getCurrentController()
+    controller.select(find_first(doc, "NEWWORDtwo"))
+    execute_dispatch(ctx, controller, ".uno:AcceptTrackedChange")
+    assert [(r["type"], r["RedlineAuthor"]) for r in list_redlines(doc)] == [("Format", "WriterAgent")]
+    result = session.wait_for_review(timeout=2, poll=0.05)
+    assert result["complete"] is True, result
+    assert result["changes"][0]["outcome"] == "accepted", result
+    doc.setPropertyValue("RecordChanges", False)
+    reject_all_changes(doc, ctx)
+
+    # Undo of a pure deletion puts the text back: rejected, and the wait completes.
+    reset_body(doc, ctx, "Alpha two three.")
+    with EditReviewSession(doc, ctx, enabled=True) as session:
+        session.record_mutation(_replace_fn(doc, "two ", ""))
+    doc.getUndoManager().undo()
+    result = session.wait_for_review(timeout=2, poll=0.05)
+    assert doc.getText().getString() == "Alpha two three."
+    assert result["complete"] is True, result
+    assert result["changes"][0]["outcome"] == "rejected", result
+
 
 def _shape(doc):
     """Snapshot paragraph styles, adjustments, bold runs, and embedded object counts."""

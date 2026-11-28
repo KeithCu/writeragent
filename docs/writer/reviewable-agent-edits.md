@@ -209,7 +209,7 @@ After review (or timeout) each change reports one of:
 | `accepted` | The anchored text now matches the proposed form. |
 | `rejected` | The anchored text now matches the original form. |
 | `modified` | The user edited the area during review — the agent must not assume either text survived. |
-| `pending` | Still unresolved at timeout (`complete: false`), or the pending scan was unreliable. A change whose token is gone while an agent-authored redline with no `wa-review` token touches its anchor (Undo then Redo, or an edited change comment) is still `pending`, and the wait keeps going until the user resolves it (`_pending_without_token`). Another author's redline there never counts. |
+| `pending` | Still unresolved at timeout (`complete: false`), or the pending scan was unreliable. A change whose token is gone while an agent-authored Insert or Delete redline with no `wa-review` token touches its anchor (Undo then Redo, or an edited change comment) is still `pending`, and the wait keeps going until the user resolves it (`_pending_without_token`). Another author's redline, and the untagged Format or ParagraphFormat redlines the style tools leave, never count. An untagged part of the same edit (a deletion stacked on another author's insertion) keeps the change `pending` until the user resolves that part in Edit > Track Changes > Manage. |
 
 Each change entry also includes `final_text` (preview of the anchored region after review). It is
 the anchored span, not the word the user sees. Text typed right after a pending change joins the
@@ -421,8 +421,9 @@ When the user turns on Track Changes > Record while agent review is Off, operati
   the change `pending` (see the outcome table), but inline review and the toolbar no longer see it
   as an agent change.
 * **`document_undo` and the user's review:** the tool refuses with `UNDO_USER_REVIEW` when the next
-  undo step is the user's Accept or Reject, because undoing a Reject would put the agent's change
-  back as pending. It matches WriterAgent's own `Resolve agent changes` step and LibreOffice's
+  undo step is an Accept or Reject of a tracked change, because undoing a Reject would put the
+  agent's change back as pending. `tracking_manage` dispatches the same native command, so the
+  refusal also covers a resolve the agent made through it. It matches WriterAgent's own `Resolve agent changes` step and LibreOffice's
   English `Accept change: ` / `Reject change: ` titles (`STR_ACCEPT_REDLINE`, `STR_REJECT_REDLINE`,
   `sw/inc/strings.hrc`); in another UI language a native Accept or Reject is not recognised.
 

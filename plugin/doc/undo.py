@@ -26,8 +26,12 @@ RESOLVE_AGENT_CHANGES_UNDO_TITLE = N_("Resolve agent changes")
 _NATIVE_RESOLVE_TITLE_PREFIXES = ("Accept change: ", "Reject change: ")
 
 
-def is_user_resolve_title(title: str) -> bool:
-    """True when the undo step titled *title* is the user's Accept or Reject of a tracked change."""
+def is_resolve_undo_title(title: str) -> bool:
+    """True when the undo step titled *title* is an Accept or Reject of a tracked change.
+
+    That is the user's review decision, or one ``tracking_manage`` dispatched for them; the title
+    does not say which.
+    """
     return title == _(RESOLVE_AGENT_CHANGES_UNDO_TITLE) or title.startswith(_NATIVE_RESOLVE_TITLE_PREFIXES)
 
 
@@ -105,11 +109,13 @@ def _step_undo_manager(
         for _unused in range(steps):
             if not possible_fn():
                 break
-            if action_key == "undone" and is_user_resolve_title(um.getCurrentUndoActionTitle()):
-                # Undoing the user's Reject would put a rejected agent change back as pending.
+            if action_key == "undone" and is_resolve_undo_title(um.getCurrentUndoActionTitle()):
+                # Undoing a Reject would put a rejected agent change back as pending. tracking_manage
+                # dispatches the native command too, so its own resolve carries the same title.
                 return make_tool_error(
-                    "The next undo step is the user's own Accept or Reject of a tracked change, so it was "
-                    "not undone. Ask the user before changing their review decision.",
+                    "The next undo step is an Accept or Reject of a tracked change (the user's, or one "
+                    "made through tracking_manage), so it was not undone. Ask the user before changing "
+                    "that review decision.",
                     code="UNDO_USER_REVIEW",
                     top_level={action_key: count},
                 )
