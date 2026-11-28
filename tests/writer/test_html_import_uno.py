@@ -4054,8 +4054,9 @@ def test_recorded_whole_paragraph_shapes_and_roundtrip_uno(ctx: Any, doc: Any) -
         _apply_base("<p>Intro</p><h1>Head</h1><p>Body</p>")
         doc.setPropertyValue("RecordChanges", True)
         text = doc.getText()
-        cur = text.createTextCursorByRange(body_paragraphs(text)[1].getEnd())
-        text.insertString(cur, " extra", False)
+        cur = text.createTextCursorByRange(body_paragraphs(text)[1].getStart())
+        cur.goRight(2, False)
+        text.insertString(cur, "mid ", False)
         doc.setPropertyValue("RecordChanges", False)
 
     def _seed_second_para_in_list() -> None:
@@ -4112,7 +4113,7 @@ def test_recorded_whole_paragraph_shapes_and_roundtrip_uno(ctx: Any, doc: Any) -
 
     cases = [
         ("page_break_follower", _seed_page_break_follower, "Middle", "<p>New</p>", False),
-        ("alice_insert_heading", _seed_alice_insert_heading, "Head extra", "<p>New</p>", False),
+        ("alice_insert_heading", _seed_alice_insert_heading, "Hemid ad", "<p>New</p>", False),
         ("second_para_in_list", _seed_second_para_in_list, "Item 2", "<p>New</p>", False),
         ("odf_store_before_heading", _seed_before_heading, "Clause", "<p>New</p>", True),
         ("odf_store_last_list_item", _seed_last_list_item, "Two", "<p>New</p>", True),
