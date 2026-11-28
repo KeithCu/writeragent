@@ -4023,6 +4023,8 @@ def test_recorded_whole_paragraph_shapes_and_roundtrip_uno(ctx: Any, doc: Any) -
                     str(el.getPropertyValue("PageDescName") or ""),
                     bool(el.getPropertyValue("ParaIsHyphenation")),
                     int(el.getPropertyValue("ParaOrphans")),
+                    str(el.getPropertyValue("CharFontName") or ""),
+                    float(el.getPropertyValue("CharHeight") or 0.0),
                 ))
         return out
 
@@ -4089,6 +4091,13 @@ def test_recorded_whole_paragraph_shapes_and_roundtrip_uno(ctx: Any, doc: Any) -
     def _seed_replaced_para_page_break() -> None:
         _apply_base('<p>A</p><p data-lo-para="page-break-before:always">Clause</p><p>B</p>')
 
+    def _seed_heading_plus_direct_font() -> None:
+        _apply_base("<h2>Title</h2><p>Body</p>")
+        text = doc.getText()
+        cur = text.createTextCursorByRange(body_paragraphs(text)[1])
+        cur.setPropertyValue("CharFontName", "Times New Roman")
+        cur.setPropertyValue("CharHeight", 12.0)
+
     cases = [
         ("page_break_follower", _seed_page_break_follower, "Middle", "<p>New</p>", False),
         ("alice_insert_heading", _seed_alice_insert_heading, "Head extra", "<p>New</p>", False),
@@ -4101,6 +4110,7 @@ def test_recorded_whole_paragraph_shapes_and_roundtrip_uno(ctx: Any, doc: Any) -
         ("alice_struck_prev_break", _seed_alice_struck_prev_break, "Two", "<p>New</p>", False),
         ("hyphenation_orphans_predecessor", _seed_hyphenation_orphans_predecessor, "Target", "<p>New</p>", False),
         ("replaced_para_page_break", _seed_replaced_para_page_break, "Clause", "<p>New</p>", False),
+        ("heading_plus_direct_font", _seed_heading_plus_direct_font, "Body", "<p>New body</p>", False),
     ]
 
     try:

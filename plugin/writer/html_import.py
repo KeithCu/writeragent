@@ -42,6 +42,7 @@ from plugin.doc.text_helpers import (
     reset_properties_to_default,
     set_paragraph_background,
     uniform_font,
+    writable_char_names,
 )
 from plugin.framework.constants import HTML_WRITER_FILTER
 from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_disposed, uno_read
@@ -1001,6 +1002,11 @@ def _without_trailing_break(rng: Any) -> Any:
     return start
 
 
+def _content_ends_with_table(content: str) -> bool:
+    """True when *content* ends with a closing ``</table>`` tag (ignoring trailing comments/whitespace)."""
+    return bool(re.search(r"</table>(?:\s|<!--[\s\S]*?-->)*$", content, re.IGNORECASE))
+
+
 def _import_and_drop_leftover(
     model: Any,
     ctx: Any,
@@ -1022,12 +1028,12 @@ def _import_and_drop_leftover(
     if report.added_content:
         # Untracked: the leftover break is part of the fresh absorb paragraph, and a tracked
         # delete of it joins paragraphs on Accept. When merge_forward_after_table is True and
-        # content has a table, the helper merges the leftover forward into the first deleted
+        # content ends with a table, the helper merges the leftover forward into the first deleted
         # paragraph, which Accept then empties: the same end state as without recording.
         with record_changes.record_changes(model, False):
             _drop_leftover_paragraph(
                 leftover,
-                merge_forward_after_table=merge_forward_after_table and "<table" in content.lower(),
+                merge_forward_after_table=merge_forward_after_table and _content_ends_with_table(content),
             )
     return report
 
@@ -1105,6 +1111,8 @@ _NUMBERING_PROPS = (
     "NumberingStartValue",
 )
 
+# Properties in lcl_CopyStyle's ranges (DocumentRedlineManager.cxx:433-436) outside
+# _ABSORB_PARA_PROPERTIES; hand-kept against that range so restored paragraphs do not keep predecessor attrs.
 _EXTRA_COPY_STYLE_PARA_PROPS = (
     "ParaWidows",
     "ParaOrphans",
@@ -1133,6 +1141,11 @@ _EXTRA_COPY_STYLE_PARA_PROPS = (
     "WritingModeAutomatic",
     "DropCapFormat",
     "DropCapWholeWord",
+    "ParaShadowFormat",
+    "LeftBorderDistance",
+    "RightBorderDistance",
+    "TopBorderDistance",
+    "BottomBorderDistance",
     "ParaExpandSingleWord",
     "ParaLastLineAdjust",
     "ParaIsHangingPunctuation",
@@ -1142,6 +1155,11 @@ _EXTRA_COPY_STYLE_PARA_PROPS = (
 )
 
 
+def _copy_style_extra_names(para: Any) -> tuple[str, ...]:
+    info = para.getPropertySetInfo()
+    return tuple(n for n in _EXTRA_COPY_STYLE_PARA_PROPS if info.hasPropertyByName(n))
+
+
 def _set_para_prop(target: Any, name: str, value: Any) -> None:
     if name == "ParaTabStops":
         uno.invoke(target, "setPropertyValue", cast("Any", (name, uno_any("[]com.sun.star.style.TabStop", value))))
@@ -1149,8 +1167,8 @@ def _set_para_prop(target: Any, name: str, value: Any) -> None:
         target.setPropertyValue(name, value)
 
 
-def _paragraph_format(cursor: Any) -> dict[str, Any]:
-    """Capture style, numbering, and direct paragraph properties of *cursor*'s paragraph."""
+def _paragraph_format(cursor: Any, rng: Any | None = None) -> dict[str, Any]:
+    """Capture style, numbering, and direct paragraph (and whole-range char) properties."""
     fmt: dict[str, Any] = {"ParaStyleName": cursor.getPropertyValue("ParaStyleName")}
     para = next(iter_elements(cursor.createEnumeration()), None)
     target = para if para is not None else cursor
@@ -1160,12 +1178,17 @@ def _paragraph_format(cursor: Any) -> dict[str, Any]:
         if target.getPropertyState(name).value == "DIRECT_VALUE":
             fmt[name] = target.getPropertyValue(name)
     if para is not None:
-        info = para.getPropertySetInfo()
-        extra_names = tuple(n for n in _EXTRA_COPY_STYLE_PARA_PROPS if info is not None and info.hasPropertyByName(n))
+        extra_names = _copy_style_extra_names(para)
         if extra_names:
             for name, state in zip(extra_names, para.getPropertyStates(extra_names)):
                 if state.value == "DIRECT_VALUE":
                     fmt[name] = para.getPropertyValue(name)
+    if rng is not None:
+        char_names = tuple(writable_char_names(rng) or ())
+        if char_names:
+            for name, state in zip(char_names, rng.getPropertyStates(char_names)):
+                if state.value == "DIRECT_VALUE":
+                    fmt[name] = rng.getPropertyValue(name)
     fmt.update(_direct_para_props(cursor))
     return fmt
 
@@ -1190,8 +1213,7 @@ def _restore_paragraph_format(cursor: Any, fmt: dict[str, Any]) -> None:
     _drop_absorb_paragraph_props(cursor)
     para = next(iter_elements(cursor.createEnumeration()), None)
     if para is not None:
-        info = para.getPropertySetInfo()
-        extra_names = tuple(n for n in _EXTRA_COPY_STYLE_PARA_PROPS if info is not None and info.hasPropertyByName(n))
+        extra_names = _copy_style_extra_names(para)
         if extra_names:
             extra = [
                 name for name, state in zip(extra_names, para.getPropertyStates(extra_names))
@@ -1200,7 +1222,7 @@ def _restore_paragraph_format(cursor: Any, fmt: dict[str, Any]) -> None:
             if extra:
                 reset_properties_to_default(cursor, extra)
     for name, value in fmt.items():
-        if name == "ParaStyleName" or name == "NumberingIsNumber" or name in _NUMBERING_PROPS:
+        if name == "ParaStyleName" or name == "NumberingIsNumber" or name in _NUMBERING_PROPS or name.startswith("Char"):
             continue
         if name == "ParaBackColor":
             if para is not None:
@@ -1267,28 +1289,34 @@ def _replace_whole_paragraphs(
 
     1. ``"previous"`` (preferred): strike the preceding paragraph break plus
        the old text (``¶old``) when a live, untracked break precedes *rng* in
-       the same section. Because the deletion starts mid-paragraph, the join on
-       Accept keeps the predecessor and leaves the follower untouched, and it
-       survives ODF ``SwXMLExport`` hide/show of deletions. Because
-       ``DocumentRedlineManager::AppendRedline``
+       the same section and *content* does not end with a table (a trailing
+       table leaves a leftover empty paragraph after it that
+       ``_drop_leftover_paragraph`` must merge forward into the struck
+       paragraph rather than into a live follower). Because the deletion starts
+       mid-paragraph, the join on Accept keeps the predecessor and leaves the
+       follower untouched, and it survives ODF ``SwXMLExport`` hide/show of
+       deletions. Because ``DocumentRedlineManager::AppendRedline``
        (``sw/source/core/doc/DocumentRedlineManager.cxx``) copies the
        predecessor's style and direct paragraph attributes onto the struck
-       paragraph, and ``CallParser`` captures the import target's ``GetParaAttr``,
-       we restore the struck paragraph's style, direct properties, and numbering
-       untracked, then split at the end of the struck text into a fresh
-       paragraph for the import—leaving the struck text first and the new
-       blocks after while pending.
-    2. ``"following"`` (first-paragraph fallback): strike ``old¶`` when no
-       usable previous break exists, the follower does not start a new page,
-       and no pending redline overlaps *rng*, then open the fresh paragraph
-       before the struck text.
+       paragraph (and resets whole-node character attributes via
+       ``SetTextFormatColl``), and ``CallParser`` captures the import target's
+       ``GetParaAttr``, we restore the struck paragraph's style, direct
+       properties, numbering, and whole-range character properties untracked,
+       then split at the end of the struck text into a fresh paragraph for the
+       import—leaving the struck text first and the new blocks after while
+       pending.
+    2. ``"following"`` (first-paragraph / trailing-table fallback): strike
+       ``old¶`` when ``"previous"`` is unavailable or *content* ends with a
+       table, the follower does not start a new page, and no pending redline
+       overlaps *rng*, then open the fresh paragraph before the struck text.
     3. ``"text"``: strike only *rng* when neither break is safe; one empty
        paragraph remains after Accept (for a text's first paragraph before a
        table, section edge, or document end), and it keeps its numbering.
 
     After splitting, ``_restore_numbering`` restores direct numbering and
-    ``NumberingIsNumber`` untracked on the struck paragraph (and on the import
-    target when ``keep_layout`` is True), countering ``SwTextNode::MakeNewTextNode``
+    ``NumberingIsNumber`` untracked on the struck paragraph under
+    ``"following"`` and ``"text"`` (and on the import target when
+    ``keep_layout`` is True), countering ``SwTextNode::MakeNewTextNode``
     (``sw/source/core/txtnode/ndtxt.cxx``) forcing ``SetCountedInList(true)`` and
     resetting restart flags on the tail. ``keep_layout`` preserves layout and
     uniform font when the first imported block is plain ``<p>``/text for the
@@ -1313,14 +1341,16 @@ def _replace_whole_paragraphs(
     end_cur = text_obj.createTextCursorByRange(rng.getEnd())
     fmt: dict[str, Any] = {}
     if recording:
-        fmt = _paragraph_format(cursor)
+        fmt = _paragraph_format(cursor, rng)
         kept_para = (
             {k: v for k, v in fmt.items() if k in _ABSORB_PARA_PROPERTIES or k == "ParaBackColor"}
             if keep_layout and apply_styles
             else {}
         )
+        # A trailing table leaves a leftover empty paragraph after it that _drop_leftover_paragraph
+        # merges forward into the next paragraph; that follower must be the struck paragraph, not a live one.
         shape, doomed = _deletion_shape(
-            model, text_obj, rng, ends_with_table=bool(re.search(r"</table>\s*$", content, re.IGNORECASE))
+            model, text_obj, rng, ends_with_table=_content_ends_with_table(content)
         )
     else:
         kept_para = _direct_para_props(cursor) if keep_layout and apply_styles else {}
@@ -1335,6 +1365,12 @@ def _replace_whole_paragraphs(
             # paragraph from the predecessor, and CallParser reads GetParaAttr from the import target.
             with record_changes.record_changes(model, False):
                 _restore_paragraph_format(cursor, fmt)
+                char_items = [(n, v) for n, v in fmt.items() if n.startswith("Char")]
+                if char_items:
+                    struck = text_obj.createTextCursorByRange(rng.getStart())
+                    struck.gotoRange(end_cur.getStart(), True)
+                    for name, value in char_items:
+                        struck.setPropertyValue(name, value)
             text_obj.insertControlCharacter(end_cur, PARAGRAPH_BREAK, False)
             cursor = end_cur
             with record_changes.record_changes(model, False):

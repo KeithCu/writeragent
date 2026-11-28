@@ -160,14 +160,18 @@ made in `record_preserve_replace` in
   link only when the whole range shares one URL. Whole-paragraph block replaces
   (whether Track Changes is recording or not)
   are owned by `_replace_whole_paragraphs`, which while recording chooses one of three deletion shapes:
-  (1) when an untracked paragraph break precedes the range in the same section, it deletes that break
-  plus the old text (`¶old`), restores the struck paragraph's style, direct properties, and numbering
-  untracked, and opens the import paragraph after the struck text (leaving struck text first, then new
-  blocks while pending); (2) when no usable previous break exists, the follower does not start a new
-  page, and no pending redline overlaps the paragraph, it falls back to deleting across the following
-  break (`old¶`) and imports before the struck text; (3) otherwise it deletes only the text, leaving
-  one empty paragraph (keeping its numbering) after Accept. In all cases, direct numbering and
-  `NumberingIsNumber` are restored untracked after the split, direct character formatting is reset on
+  (1) when an untracked paragraph break precedes the range in the same section and the replacement
+  does not end with a table (a trailing table leaves a leftover empty paragraph that
+  `_drop_leftover_paragraph` must merge forward into the struck paragraph rather than a live
+  follower), it deletes that break plus the old text (`¶old`), restores the struck paragraph's style,
+  direct properties, numbering, and whole-range character properties untracked, and opens the import
+  paragraph after the struck text (leaving struck text first, then new blocks while pending); (2)
+  when ``"previous"`` is unavailable or the replacement ends with a table, the follower does not
+  start a new page, and no pending redline overlaps the paragraph, it falls back to deleting across
+  the following break (`old¶`) and imports before the struck text; (3) otherwise it deletes only the
+  text, leaving one empty paragraph (keeping its numbering) after Accept. In all cases, direct
+  numbering and `NumberingIsNumber` are restored untracked after the split (for `"following"` and
+  `"text"`, and on the import target when keeping layout), direct character formatting is reset on
   the import target (and direct paragraph formatting and numbering too when the replacement changes block
   type or style, while keeping layout and uniform font for plain `<p>` replacements), and the leftover
   synthetic paragraph is dropped untracked. In `full_document` replace, an empty body (either blank
