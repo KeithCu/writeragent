@@ -1,5 +1,6 @@
 """Native tests for indexes bibliography v1 (cite insert, list, table)."""
 
+from plugin.framework.config import get_config, save
 from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import native_writer_tool_context, with_native_doc
@@ -15,7 +16,7 @@ from plugin.writer.specialized.indexes import (
     IndexesRefreshTocEntry,
     IndexesUpdateAll,
 )
-from tests.writer.doc_builders import body_texts
+from tests.writer.doc_builders import body_texts, list_redlines, reject_all_changes
 
 
 @native_test
@@ -1421,6 +1422,36 @@ def test_indexes_refuse_crossing_deletion_uno(ctx, doc):
     assert visible_range_text(doc, entry_para) == "New Title"
     reject_all_changes(doc, ctx)
     assert entry_para.getString() == "Heading 1\t1"
+
+
+@native_test
+@with_native_doc("writer")
+def test_toc_entry_tools_in_record_mode_are_tracked_and_reject_restores_uno(ctx, doc):
+    """In Record mode a TOC entry delete strikes the row and an insert is a tagged insertion; Reject All undoes both."""
+    _text, tctx, toc, protected, _alpha, _beta = _toc_fixture(ctx, doc)
+    if protected:
+        toc.IsProtected = True
+    rows_before = _entry_strings(doc)
+    prev = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "record"})
+    try:
+        deleted = IndexesDeleteTocEntry().execute(tctx, old_content="Beta title")
+        inserted = IndexesInsertTocEntry().execute(tctx, content="Gamma title", position="end")
+    finally:
+        save({"doc.agent_edit_review_mode": prev})
+
+    for res in (deleted, inserted):
+        assert res.get("status") == "ok", res
+        assert res.get("tracked") is True, res
+        assert res.get("pending_review") is True, res
+    assert "marked for deletion" in deleted["message"], deleted
+    assert any(row.startswith("Beta title") for row in _entry_strings(doc))
+    redlines = list_redlines(doc)
+    assert redlines and all(rl["RedlineComment"].startswith("wa-review:") for rl in redlines), redlines
+    assert doc.getPropertyValue("RecordChanges") is False
+
+    reject_all_changes(doc, ctx)
+    assert _entry_strings(doc) == rows_before
 
 
 def _headings_doc(ctx, doc, *titles):

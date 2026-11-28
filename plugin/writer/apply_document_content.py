@@ -48,6 +48,7 @@ from plugin.writer.review_scan import document_has_tracked_deletions
 from plugin.writer.search import replace_text_in_shape
 from plugin.writer.specialized.tables import (
     delete_leading_tables,
+    protected_cell_error,
     record_table_deletions,
     refuse_edit_over_pending_insertion,
 )
@@ -320,15 +321,25 @@ def build_search_replace_response(
     *,
     use_preserve: bool = False,
     message: str | None = None,
+    report: html_import_styles.WriteReport | None = None,
 ) -> dict[str, Any]:
-    """Standardized search-replace response dictionary."""
+    """Standardized search-replace response dictionary.
+
+    A plain replace claims "(formatting preserved)" unless *report* says a recorded replace
+    gave the new text one run's formatting over several runs.
+    """
     if message is not None:
         msg = message
     elif replaced_count == 1:
         msg = "Replaced 1 occurrence (by old_content)."
     else:
         msg = f"Replaced {replaced_count} occurrence(s)."
-    if use_preserve:
+    if use_preserve and report is not None and report.flattened_formatting:
+        msg += (
+            " It was recorded as one tracked replacement, so the new text has the formatting of one"
+            " part of the old text; bold, italic or links on the rest of it are gone after Accept."
+        )
+    elif use_preserve:
         msg += " (formatting preserved)"
     return {"status": "ok", "message": msg, "replaced_count": replaced_count}
 
@@ -810,7 +821,8 @@ class ApplyDocumentContent(ToolBase):
                 report.extend(rep)
 
             if use_preserve:
-                record_preserve_replace(session, doc, found, content, track_reviewable)
+                if not record_preserve_replace(session, doc, found, content, track_reviewable):
+                    report.flattened_formatting = True
             elif batch:
                 # The all_matches loop already entered an undo context. A second
                 # record_html_atomically would nest another and close it early.
@@ -1133,7 +1145,13 @@ class ApplyDocumentContent(ToolBase):
         )
         result = dict(result)
         result["review"] = review
-        if not review.get("complete"):
+        if review.get("changes_protected"):
+            result["message"] = (result.get("message") or "") + (
+                " The document's tracked changes are password-protected (Edit > Track Changes >"
+                " Protect), so the user must remove that protection before they can accept or"
+                " reject these changes."
+            )
+        elif not review.get("complete"):
             result["message"] = (result.get("message") or "") + (
                 " The user has not finished reviewing these tracked changes; ask them to"
                 " accept or reject the changes in the document, then continue."
@@ -1570,7 +1588,7 @@ class ApplyDocumentContent(ToolBase):
         if doomed and count == 0:
             resp = _table_deletion_result([name for _table, name in doomed], tracked_delete)
         else:
-            resp = build_search_replace_response(count, use_preserve=params.use_preserve)
+            resp = build_search_replace_response(count, use_preserve=params.use_preserve, report=report)
             if max_limit_hit:
                 resp["message"] += f" Note: Replacement stopped at the safety limit of {search_mod.MAX_SEARCH_REPLACEMENTS} to avoid excessive document changes. The document is not fully updated."
             if count > 1:
@@ -1647,6 +1665,8 @@ class ApplyDocumentContent(ToolBase):
                     "Choose anchors that leave it outside the range, or ask the user to turn on Track Changes.",
                     code="OBJECT_IN_ANCHOR_RANGE",
                 )
+            elif (protected := protected_cell_error(doc, found)) is not None:
+                res = protected
             else:
                 res = self._edit_replace_one(ctx, session, params, found)
             res.update(mode.result_fields())
@@ -1678,8 +1698,11 @@ class ApplyDocumentContent(ToolBase):
                 locks.append(lock)
             else:
                 editable.append(r)
+        protected = next((err for r in editable if (err := protected_cell_error(doc, r)) is not None), None)
         # Empty ranges fall through to the existing miss / drawing-shape path (models often send occurrence=0).
-        if picked and not editable and locks:
+        if protected is not None:
+            res = protected
+        elif picked and not editable and locks:
             res = make_tool_error(locks[0].message, code=locks[0].code, top_level={"replaced_count": 0})
         elif picked and not editable:
             res = make_tool_error(
@@ -1862,9 +1885,10 @@ class ApplyDocumentContent(ToolBase):
                 1,
                 use_preserve=params.use_preserve,
                 message="Replaced the range from start_anchor through end_anchor.",
+                report=report,
             )
         else:
-            resp = build_search_replace_response(1, use_preserve=params.use_preserve)
+            resp = build_search_replace_response(1, use_preserve=params.use_preserve, report=report)
         if params.occurrence is not None:
             resp["occurrence"] = params.occurrence
         html_import_styles.attach_write_report(

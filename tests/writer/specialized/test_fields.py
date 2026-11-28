@@ -21,8 +21,19 @@ def mock_ctx():
     doc.getPropertyValue.return_value = False
     mgr = MagicMock()
     mgr.isLocked.return_value = False
-    entered = {}
-    mgr.enterUndoContext.side_effect = lambda t: entered.__setitem__("title", t)
+    entered = {"depth": 0}
+
+    # While a group is open the stack's top entry is the outermost group; nested groups merge into it.
+    def enter(title):
+        if entered["depth"] == 0:
+            entered["title"] = title
+        entered["depth"] += 1
+
+    def leave():
+        entered["depth"] -= 1
+
+    mgr.enterUndoContext.side_effect = enter
+    mgr.leaveUndoContext.side_effect = leave
     mgr.getAllUndoActionTitles.side_effect = lambda: (entered.get("title"),)
     doc.getUndoManager.return_value = mgr
     return TestingFactory.create_context(doc=doc, doc_type="writer")
@@ -42,13 +53,20 @@ def _mk_field(*, is_annotation: bool = False, presentation: list[str] | None = N
 
 
 def _attach_fields(doc, *fields):
+    """Give *doc* these text fields; the first enumeration is returned, later ones are fresh."""
+
+    def make_enum():
+        mock_enum = MagicMock()
+        mock_enum.hasMoreElements.side_effect = [True] * len(fields) + [False]
+        mock_enum.nextElement.side_effect = list(fields)
+        return mock_enum
+
+    first = make_enum()
+    pending = iter([first])
     mock_fields = MagicMock()
-    mock_enum = MagicMock()
-    mock_enum.hasMoreElements.side_effect = [True] * len(fields) + [False]
-    mock_enum.nextElement.side_effect = list(fields)
-    mock_fields.createEnumeration.return_value = mock_enum
+    mock_fields.createEnumeration.side_effect = lambda: next(pending, None) or make_enum()
     doc.getTextFields.return_value = mock_fields
-    return mock_enum
+    return first
 
 
 def test_fields_list_empty(mock_ctx):

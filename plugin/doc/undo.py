@@ -15,7 +15,24 @@ from typing import Any
 
 from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
 from plugin.framework.errors import is_disposal, make_tool_error, reraise_if_disposed
+from plugin.framework.i18n import N_, _
 from plugin.framework.tool import ToolBase, ToolContext
+
+# Undo title of WriterAgent's own review popup when it groups several Accept or Reject
+# dispatches into one step (inline_review._grouped_resolve_undo).
+RESOLVE_AGENT_CHANGES_UNDO_TITLE = N_("Resolve agent changes")
+# Undo titles of a native Accept or Reject in an English UI (STR_ACCEPT_REDLINE and
+# STR_REJECT_REDLINE, sw/inc/strings.hrc); other UI languages translate them.
+_NATIVE_RESOLVE_TITLE_PREFIXES = ("Accept change: ", "Reject change: ")
+
+
+def is_resolve_undo_title(title: str) -> bool:
+    """True when the undo step titled *title* is an Accept or Reject of a tracked change.
+
+    That is the user's review decision, or one ``tracking_manage`` dispatched for them; the title
+    does not say which.
+    """
+    return title == _(RESOLVE_AGENT_CHANGES_UNDO_TITLE) or title.startswith(_NATIVE_RESOLVE_TITLE_PREFIXES)
 
 
 def commit_or_rollback_mutation(
@@ -92,6 +109,16 @@ def _step_undo_manager(
         for _unused in range(steps):
             if not possible_fn():
                 break
+            if action_key == "undone" and is_resolve_undo_title(um.getCurrentUndoActionTitle()):
+                # Undoing a Reject would put a rejected agent change back as pending. tracking_manage
+                # dispatches the native command too, so its own resolve carries the same title.
+                return make_tool_error(
+                    "The next undo step is an Accept or Reject of a tracked change (the user's, or one "
+                    "made through tracking_manage), so it was not undone. Ask the user before changing "
+                    "that review decision.",
+                    code="UNDO_USER_REVIEW",
+                    top_level={action_key: count},
+                )
             step_fn()
             count += 1
         return {"status": "ok", action_key: count, "can_undo": um.isUndoPossible(), "can_redo": um.isRedoPossible()}

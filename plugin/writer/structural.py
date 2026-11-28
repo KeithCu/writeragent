@@ -43,9 +43,11 @@ from plugin.doc.text_helpers import (
 from plugin.doc.visual_helpers import safe_get_property
 from plugin.draw.tree import custom_shape_geometry
 from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_disposed
-from plugin.framework.i18n import _
 from plugin.framework.tool import ToolBase, ToolBaseDummy
 from plugin.framework.tool_schema import page_index_param
+from plugin.framework.i18n import _
+from plugin.writer.edit_review import flag_tracked, flag_untracked
+from plugin.writer.record_changes import is_recording_changes
 from plugin.writer.target_resolver import update_selection_pin
 
 from .search import shape_text_boxes
@@ -411,4 +413,14 @@ class CloneHeadingBlock(ToolBaseDummy):
         suffix = (", %d tables skipped" % skipped_tables) if skipped_tables else ""
         msg = "Cloned heading block '%s' (%d paragraphs%s)." % (node.get("text", ""), total, suffix)
 
-        return {"status": "ok", "message": msg, "heading_text": node.get("text", ""), "block_size": total}
+        result: dict[str, Any] = {"status": "ok", "message": msg, "heading_text": node.get("text", ""), "block_size": total}
+        # The clone does not run in a review session, so only the user's own recording records it.
+        if is_recording_changes(ctx.doc):
+            flag_tracked(result)
+        else:
+            flag_untracked(
+                result,
+                ctx.doc,
+                _("The cloned block was inserted directly and is not tracked (Ctrl+Z undoes it). Tell the user."),
+            )
+        return result

@@ -23,6 +23,7 @@ from plugin.chatbot.dialogs import (
 )
 from plugin.framework.i18n import _
 from plugin.framework.doc_type import is_writer
+from plugin.writer.html_import import run_writer_mutation_with_optional_review
 from plugin.writer.math.math_mml_convert import (
     convert_latex_to_starmath,
     insert_writer_math_formula,
@@ -175,7 +176,10 @@ def _apply_latex_to_writer(
     else:
         controller = doc.getCurrentController()
         view_cursor = controller.getViewCursor()
-        insert_writer_math_formula(doc, view_cursor, starmath, display_block=display_block)
+        # Recorded and tagged in Record/Wait like the symbolic-math insert, so Reject removes it.
+        run_writer_mutation_with_optional_review(
+            doc, ctx, lambda: insert_writer_math_formula(doc, view_cursor, starmath, display_block=display_block)
+        )
         save({"last_latex_input": latex, "last_latex_display_block": display_block})
         msg = _("Formula inserted.")
     return True, msg

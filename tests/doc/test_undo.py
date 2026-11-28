@@ -14,6 +14,7 @@ def test_undo_counts_steps_and_reports_stack_state():
     um = MagicMock()
     um.isUndoPossible.side_effect = [True, True, False, False]
     um.isRedoPossible.return_value = True
+    um.getCurrentUndoActionTitle.return_value = "Typing: x"
     ctx = MagicMock()
     ctx.doc.getUndoManager.return_value = um
     res = Undo().execute(ctx, steps=3)
@@ -45,11 +46,42 @@ def test_undo_redo_huge_steps_clamped(tool_name, count_key, method_name):
     um = MagicMock()
     um.isUndoPossible.return_value = True
     um.isRedoPossible.return_value = True
+    um.getCurrentUndoActionTitle.return_value = "Typing: x"
     ctx = MagicMock()
     ctx.doc.getUndoManager.return_value = um
     res = getattr(undo_mod, tool_name)().execute(ctx, steps=10000)
     assert res["status"] == "ok" and res[count_key] == 10
     assert getattr(um, method_name).call_count == 10
+
+
+@pytest.mark.parametrize(
+    "resolve_title",
+    ["Reject change: 2 changes", "Accept change: Insert \u201cfast\u201d", "Resolve agent changes"],
+)
+def test_undo_stops_at_the_users_accept_or_reject(resolve_title):
+    # Undoing the user's Reject would put the agent's rejected change back as pending.
+    from plugin.doc.undo import Undo
+
+    um = MagicMock()
+    um.isUndoPossible.return_value = True
+    um.getCurrentUndoActionTitle.side_effect = ["WriterAgent edit#3", resolve_title]
+    ctx = MagicMock()
+    ctx.doc.getUndoManager.return_value = um
+    res = Undo().execute(ctx, steps=3)
+    assert res["status"] == "error" and res["code"] == "UNDO_USER_REVIEW"
+    assert res["undone"] == 1
+    assert um.undo.call_count == 1
+
+
+def test_redo_ignores_resolve_titles():
+    from plugin.doc.undo import Redo
+
+    um = MagicMock()
+    um.isRedoPossible.side_effect = [True, False, True]
+    um.getCurrentUndoActionTitle.return_value = "Reject change: 2 changes"
+    ctx = MagicMock()
+    ctx.doc.getUndoManager.return_value = um
+    assert Redo().execute(ctx, steps=2)["redone"] == 1
 
 
 def _failing_undo_doc():
@@ -207,6 +239,7 @@ def test_undo_null_steps_is_one_and_non_integer_steps_is_rejected_by_registry():
     um = MagicMock()
     um.isUndoPossible.return_value = True
     um.isRedoPossible.return_value = True
+    um.getCurrentUndoActionTitle.return_value = "Typing: x"
     doc.getUndoManager.return_value = um
 
     reg = ToolRegistry(services={})

@@ -33,7 +33,7 @@ from plugin.framework.errors import is_disposal, reraise_if_disposed
 from plugin.framework.tool import ToolBase
 from plugin.framework.uno_context import supports_service
 
-from ..edit_review import flag_tracked, next_agent_edit_undo_title
+from ..edit_review import flag_tracked, flag_tracked_delete, next_agent_edit_undo_title, record_write
 from ..record_changes import insert_recorded_content
 from ..search import LocationLabeler
 from ..specialized_base import ToolWriterFieldBase, target_params
@@ -142,6 +142,10 @@ class FieldsList(ToolWriterFieldBase):
         return {"status": "ok", "field_count": len(results), "snapshot": hasher.hexdigest(), "fields": results}
 
 
+def _field_count(doc: Any) -> int:
+    return sum(1 for _field in iter_elements(doc.getTextFields().createEnumeration()))
+
+
 class FieldsDelete(ToolWriterFieldBase):
     name: str | None = "field_delete"
     description: str = (
@@ -215,11 +219,17 @@ class FieldsDelete(ToolWriterFieldBase):
             deleted.append({"content": what, "location": where})
 
         undo_title = next_agent_edit_undo_title()
+        count_before = _field_count(doc)
+        recorded = False
 
-        def mutate() -> dict[str, Any] | None:
+        def delete_all() -> None:
             for anchor in anchors:
                 # setString("") on the anchor removes only the field (same as footnote_delete); see test_fields_uno.py.
                 anchor.setString("")
+
+        def mutate() -> dict[str, Any] | None:
+            nonlocal recorded
+            _unused, recorded = record_write(doc, ctx.ctx, delete_all)
             return None
 
         err = commit_or_rollback_mutation(
@@ -233,7 +243,7 @@ class FieldsDelete(ToolWriterFieldBase):
         if err is not None:
             return err
 
-        return {
+        result: dict[str, Any] = {
             "status": "ok",
             "message": f"Successfully deleted {len(deleted)} field(s).",
             "deleted_count": len(deleted),
@@ -241,6 +251,14 @@ class FieldsDelete(ToolWriterFieldBase):
             "missing_ids": missing_ids,
             "deleted": deleted,
         }
+        # A recorded delete strikes the field and leaves it in the document, except inside the
+        # agent's own pending insertion, where LibreOffice removes it outright.
+        struck = len(deleted) - (count_before - _field_count(doc))
+        if recorded and struck > 0:
+            removed = len(deleted) - struck
+            prefix = f"{removed} field(s) were deleted and " if removed else ""
+            flag_tracked_delete(result, f"{prefix}{struck} field(s) are")
+        return result
 
 
 class FieldsInsert(ToolWriterFieldBase):

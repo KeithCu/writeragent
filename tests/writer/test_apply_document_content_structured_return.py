@@ -51,6 +51,8 @@ def _no_libreoffice(monkeypatch):
     # MockRange has no table cell or redlines to check.
     monkeypatch.setattr("plugin.writer.apply_document_content.refuse_edit_over_pending_insertion", lambda *a, **k: None)
     monkeypatch.setattr(search_mod, "drawing_shape_object_containing", lambda *a, **k: None)
+    # Mock matches read as protected table cells; the refusal has its own UNO test.
+    monkeypatch.setattr("plugin.writer.apply_document_content.protected_cell_error", lambda *a, **k: None)
 
 
 class MockRange:

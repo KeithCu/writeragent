@@ -14,6 +14,13 @@ from plugin.writer.apply_document_content import ApplyDocumentContent
 from plugin.writer.search import MatchMode
 from plugin.tests.testing_utils import DisposedException
 
+
+@pytest.fixture(autouse=True)
+def _matches_outside_protected_cells():
+    """Mock matches read as protected table cells; the protected-cell refusal has its own UNO test."""
+    with patch("plugin.writer.apply_document_content.protected_cell_error", return_value=None):
+        yield
+
 def _edit_ctx():
     ctx = MagicMock()
     ctx.doc.getUndoManager.return_value.isLocked.return_value = False

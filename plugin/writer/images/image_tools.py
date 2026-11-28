@@ -518,8 +518,12 @@ def _insert_writer_graphic(
             log.debug("_insert_writer_graphic: linked dispatch failed, embedding")
         finally:
             if restore_view is not None:
+                # .uno:InsertGraphic leaves the new picture selected, and the view cursor refuses
+                # gotoRange then ("no text selection", SwXTextViewCursor::gotoRange in
+                # sw/source/uibase/uno/unotxvw.cxx). XSelectionSupplier.select of a text range
+                # leaves frame mode first (SwXTextView::select calls EnterStdMode).
                 best_effort(
-                    lambda: model.CurrentController.ViewCursor.gotoRange(restore_view, False),
+                    lambda: model.CurrentController.select(restore_view),
                     "_insert_writer_graphic: could not restore view cursor",
                     default=False,
                 )
