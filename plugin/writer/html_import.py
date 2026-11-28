@@ -21,7 +21,7 @@ import contextlib
 import logging
 import re
 import uuid
-from typing import Any, Iterator, cast
+from typing import Any, Iterator, NamedTuple, cast
 
 import uno
 from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK  # type: ignore
@@ -399,12 +399,12 @@ def _sections_at(cursor: Any) -> list[Any]:
     return out
 
 
-def _in_index(element: Any) -> bool:
-    """True when *element* (a paragraph or table) is inside an index such as a TOC."""
+def enclosing_index(element: Any) -> Any | None:
+    """The document index (such as a TOC) holding *element* (a paragraph, table or text range), or None."""
     # DocumentIndex climbs to the enclosing index (SwXTextSection, unosect.cxx
     # WID_SECT_DOCUMENT_INDEX), so the innermost section answers for the whole chain.
     sections = _sections_at(element)
-    return bool(sections) and sections[0].getPropertyValue("DocumentIndex") is not None
+    return sections[0].getPropertyValue("DocumentIndex") if sections else None
 
 
 def _host_text(text: Any) -> Any:
@@ -494,6 +494,45 @@ def raise_if_protected_sections(model: Any) -> None:
             % ", ".join(repr(n) for n in names),
             code="PROTECTED_SECTION",
         )
+
+
+class SectionLock(NamedTuple):
+    """Why a range cannot be edited: an error code, the section's name, and a message for the model."""
+
+    code: str
+    section: str
+    message: str
+
+
+def section_lock(text_range: Any) -> SectionLock | None:
+    """The lock when *text_range* starts or ends in a protected or linked section, else None.
+
+    UNO writes ignore section protection, so an edit there would change text the user
+    locked, which Writer refuses by hand (``SwPaM::HasReadonlySel``,
+    ``sw/source/core/crsr/pam.cxx``). A file- or DDE-linked section is overwritten from its
+    source on the next link update (``SwIntrnlSectRefLink::DataChanged``,
+    ``sw/source/core/docnode/section.cxx``), so an edit there is lost. An index section such
+    as a TOC is protected by default, and its rows are rebuilt from the headings, so the
+    message for it points at the heading and the TOC-entry tools instead of unprotecting.
+    """
+    for point in (text_range.getStart(), text_range.getEnd()):
+        for section in _sections_at(point):
+            name = section.getName()
+            if section.getPropertyValue("IsProtected"):
+                if section.getPropertyValue("DocumentIndex") is not None:
+                    return SectionLock("PROTECTED_SECTION", name, (
+                        f"The match is inside the index {name!r} (such as a table of contents), whose rows "
+                        "the next index update rebuilds from the headings; nothing was changed. Edit the "
+                        "heading itself, or change one row with index_refresh_toc_entry, "
+                        "index_insert_toc_entry or index_delete_toc_entry."))
+                return SectionLock("PROTECTED_SECTION", name, (
+                    f"The match is inside the protected section {name!r}; nothing was changed. "
+                    "Only if the user wants that text edited, unprotect it first with section_set_protection."))
+            if section.getPropertyValue("FileLink").FileURL or section.getPropertyValue("DDECommandType"):
+                return SectionLock("LINKED_SECTION", name, (
+                    f"The match is inside the section {name!r}, which is linked to another source and is "
+                    "overwritten from it when the link updates; nothing was changed. Tell the user to edit the source."))
+    return None
 
 
 def pending_change_authors(model: Any, region: Any | None = None) -> list[str]:
@@ -1619,7 +1658,7 @@ def replace_full_document(
             next(
                 (
                     el for el in iter_elements(text.createEnumeration())
-                    if not supports_service(el, "com.sun.star.text.TextTable") and not _in_index(el)
+                    if not supports_service(el, "com.sun.star.text.TextTable") and enclosing_index(el) is None
                 ),
                 cursor,
             )
@@ -2045,7 +2084,7 @@ def content_is_block(content: str | None) -> bool:
     )
 
 
-def _text_runs(target_range: Any, *, in_redlines: bool) -> list[Any]:
+def _text_runs(target_range: Any, *, in_redlines: bool, beside_objects: bool = False) -> list[Any]:
     """Non-empty text portions in *target_range*, or [] when it holds anything but text.
 
     A break between paragraphs is in no run, so a range over several paragraphs adds up to
@@ -2054,6 +2093,9 @@ def _text_runs(target_range: Any, *, in_redlines: bool) -> list[Any]:
     When *in_redlines* is False (untracked), a range edge may carry a leading/trailing
     marker, but text inside a redline or a mid-range redline returns ``[]`` so untracked
     replaces do not alter or split tracked-change markup without recording.
+    *beside_objects* also skips ``Frame`` portions (as-character pictures, frames and shapes).
+    A range enumeration is clipped to the range (``SwXTextCursor::createEnumeration``,
+    sw/source/core/unocore/unoobj.cxx), so text outside it is never a run.
     """
     runs: list[Any] = []
     inside = False
@@ -2065,6 +2107,8 @@ def _text_runs(target_range: Any, *, in_redlines: bool) -> list[Any]:
                     inside = portion.getPropertyValue("IsStart")
                     if runs and not inside and not in_redlines:
                         return []
+                    continue
+                if beside_objects and kind == "Frame":
                     continue
                 if kind not in ("Text", "SoftPageBreak"):
                     return []
@@ -2126,9 +2170,33 @@ def _step_replace_characters(text: Any, main_cursor: Any, old_text: str, new_tex
             _replace_run_text(text, main_cursor, old, new, inside_run=False)
 
 
+def _replace_runs_beside_objects(text: Any, runs: list[Any], new_text: str, author_deletion: bool) -> None:
+    """Recorded replace of the text *runs* around as-character objects, keeping the objects.
+
+    Striking the whole range would also strike each object's anchor character, so Accept All
+    would delete the picture. Each run is struck on its own instead; a recorded deletion leaves
+    the struck text in place, so the insert point taken first still lies after the longest
+    run, whose formatting the new text takes.
+    """
+    cursors = [text.createTextCursorByRange(run) for run in runs]
+    longest = max(cursors, key=lambda cur: len(cur.getString()))
+    point = text.createTextCursorByRange(longest.getEnd())
+    with _deletion_author() if author_deletion else contextlib.nullcontext():
+        for cur in cursors:
+            cur.setString("")
+    if new_text:
+        text.insertString(point, new_text, False)
+
+
 def _replace_recorded(
     model: Any, text: Any, target_range: Any, old_text: str, new_text: str, author_deletion: bool
 ) -> None:
+    if not old_text:
+        # Nothing to strike (an empty cell, or one holding only a picture): a whole-range
+        # replace would strike the picture's anchor, so insert at the start as the untracked path
+        # does. A range with no text keeps its paragraph breaks too.
+        text.insertString(text.createTextCursorByRange(target_range.getStart()), new_text, False)
+        return
     # Track Changes: run-by-run redlines scramble the edit, so insert the new text once after
     # the longest run (leaving the deletion in two parts when that run is not last).
     cursor = text.createTextCursorByRange(target_range)
@@ -2162,6 +2230,10 @@ def _replace_recorded(
         except Exception:
             best_effort(lambda: added.setString(""), "replace_preserving_format: could not take back the insertion")
             raise
+        return
+    beside = [] if runs else _text_runs(target_range, in_redlines=True, beside_objects=True)
+    if beside:
+        _replace_runs_beside_objects(text, beside, new_text, author_deletion)
         return
     if not author_deletion:
         # Single atomic path. Taken when split-author coloring is OFF, OR when the caller has NOT

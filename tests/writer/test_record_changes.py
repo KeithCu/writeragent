@@ -70,6 +70,25 @@ def test_record_changes_preserves_initial_state_on_exception():
     assert doc.recording is True
 
 
+class _UnoLikeError(Exception):
+    """Refuses attribute writes, as a pyuno exception does for ``__traceback__``."""
+
+    def __setattr__(self, name, value):
+        raise AttributeError("'traceback' object has no attribute 'getTypes'")
+
+
+def test_record_changes_propagates_an_exception_that_refuses_attribute_writes():
+    doc = _FakeDoc(recording=False)
+    err = _UnoLikeError("text interface and cursor not related")
+
+    with pytest.raises(_UnoLikeError) as caught:
+        with record_changes(doc, True):
+            raise err
+
+    assert caught.value is err
+    assert doc.recording is False
+
+
 def test_record_changes_no_op_when_already_in_desired_state():
     doc = _FakeDoc(recording=True)
     with record_changes(doc, True) as was_recording:
@@ -248,15 +267,15 @@ def test_overlaps_foreign_insertion():
         _FakeRL("Insert", _FakePoint(42, text=text), _FakePoint(48, text=text), author="Alice"),
     ]), ranges, "WriterAgent") is True
 
-    # Real compareRegionStarts error fails closed (returns True).
+    # One insertion that cannot be compared or read is skipped, so it does not mark the
+    # ranges as overlapped; a readable overlapping one after it still counts.
     bad_text = _FakeText(raise_on_compare=True)
+    incomparable = _FakeRL("Insert", _FakePoint(0, text=bad_text), _FakePoint(5, text=bad_text), author="Alice")
+    unreadable = _FakeRL("Insert", object(), object(), author="Alice")
+    assert overlaps_foreign_insertion(_FakeRedlineDoc([incomparable, unreadable]), ranges, "WriterAgent") is False
     assert overlaps_foreign_insertion(_FakeRedlineDoc([
-        _FakeRL("Insert", _FakePoint(0, text=bad_text), _FakePoint(5, text=bad_text), author="Alice"),
-    ]), ranges, "WriterAgent") is True
-
-    # Table-insertion shape (RedlineStart has no getText) also fails closed (returns True).
-    assert overlaps_foreign_insertion(_FakeRedlineDoc([
-        _FakeRL("Insert", object(), object(), author="Alice"),
+        incomparable,
+        _FakeRL("Insert", _FakePoint(42, text=text), _FakePoint(48, text=text), author="Alice"),
     ]), ranges, "WriterAgent") is True
 
     class _DisposedRL:

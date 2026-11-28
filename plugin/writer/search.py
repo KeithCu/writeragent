@@ -44,7 +44,7 @@ from plugin.doc.text_helpers import (
 from plugin.draw.tree import is_group, iter_shape_addresses
 from plugin.framework.errors import ToolExecutionError, make_tool_error, reraise_if_disposed, uno_read
 from plugin.framework.tool import ToolBase, ToolBaseDummy
-from plugin.framework.uno_context import get_ctx, get_service_manager, uno_same
+from plugin.framework.uno_context import get_ctx, get_service_manager, supports_service, uno_same
 from plugin.framework.worker_pool import run_in_background
 from plugin.writer import html_import
 from plugin.writer.review_scan import document_has_tracked_deletions
@@ -1121,7 +1121,19 @@ def _text_and_cursor(found: Any) -> tuple[Any, Any]:
     return text, text.createTextCursorByRange(found.getStart())
 
 
-def describe_match_location(found: Any, doc: Any, label_cache: dict[int, str] | None = None) -> str:
+def document_has_indexes(doc: Any) -> bool:
+    """True when *doc* has a document index such as a TOC (``is True`` keeps a test mock from counting)."""
+    return uno_read(lambda: doc.getDocumentIndexes().hasElements() is True, False)
+
+
+def describe_match_location(
+    found: Any, doc: Any, label_cache: dict[int, str] | None = None, *, has_indexes: bool | None = None,
+) -> str:
+    """Where *found* sits: a table cell, text box, index, footnote or endnote, header or footer, or body.
+
+    *has_indexes* is ``document_has_indexes(doc)``, passed by ``LocationLabeler`` so a long hit
+    list reads it once; without it each call reads it.
+    """
     got = uno_read(lambda: _text_and_cursor(found), None)
     if got is None:
         return "body"
@@ -1137,6 +1149,22 @@ def describe_match_location(found: Any, doc: Any, label_cache: dict[int, str] | 
     if tf is not None:
         name = _safe_name(tf)
         return "text box '%s'" % name if name else "a text box"
+    # search lists index rows, but apply_content does not count them as occurrences; the label
+    # tells the model which hits those are.
+    if has_indexes is None:
+        has_indexes = document_has_indexes(doc)
+    if has_indexes:
+        index = html_import.enclosing_index(cur)
+        if index is not None:
+            name = _safe_name(index)
+            return "index '%s'" % name if name else "an index"
+    # A note's text is the SwXFootnote itself (SwXFootnote::getImplementationName,
+    # sw/source/core/unocore/unoftn.cxx), so one read tells a note from body text. An endnote
+    # also supports com.sun.star.text.Endnote (g_ServicesFootnote in the same file).
+    if uno_read(lambda: text.getImplementationName() == "SwXFootnote", False):
+        kind = "endnote" if supports_service(text, "com.sun.star.text.Endnote") else "footnote"
+        mark = uno_read(lambda: text.getAnchor().getString().strip(), "")
+        return "%s %s" % (kind, mark) if mark else "a %s" % kind
     hf = _header_footer_label(text, doc, label_cache=label_cache)
     if hf:
         return hf
@@ -1144,17 +1172,21 @@ def describe_match_location(found: Any, doc: Any, label_cache: dict[int, str] | 
 
 
 class LocationLabeler:
-    """Labels match locations (body, table cell, text box, header/footer) with cached page-style lookups."""
+    """Labels match locations (body, table cell, text box, index, footnote, header/footer) with cached lookups."""
 
     doc: Any
     _cache: dict[int, str]
+    _has_indexes: bool | None
 
     def __init__(self, doc: Any) -> None:
         self.doc = doc
         self._cache = {}
+        self._has_indexes = None
 
     def describe(self, found: Any) -> str:
-        return describe_match_location(found, self.doc, label_cache=self._cache)
+        if self._has_indexes is None:
+            self._has_indexes = document_has_indexes(self.doc)
+        return describe_match_location(found, self.doc, label_cache=self._cache, has_indexes=self._has_indexes)
 
 
 def enclosing_paragraph_text(found: Any, deletions: TrackedDeletions) -> str:
@@ -1397,6 +1429,12 @@ def shape_text_hits(shape_text: str, pattern: str, use_regex: bool, case_sensiti
 
 
 def iter_floating_shape_texts(doc: Any) -> Iterator[tuple[Any, str]]:
+    """Yield ``(shape, text)`` for each draw-page shape the text-model search cannot reach.
+
+    Text frames are left out: ``doc.findAll`` already searches them (labelled ``text box``) and
+    drops hits inside pending deletions, while ``getString()`` here would return struck text as
+    live and count every frame hit twice. As-character shapes and Word text boxes are skipped too.
+    """
     try:
         draw_page = doc.getDrawPage()
     except Exception as exc:
@@ -1405,7 +1443,7 @@ def iter_floating_shape_texts(doc: Any) -> Iterator[tuple[Any, str]]:
         return
     for shape in iter_draw_shapes(draw_page):
         try:
-            if shape_is_as_character(shape) or shape_is_text_box(shape):
+            if shape_is_as_character(shape) or shape_is_text_box(shape) or supports_service(shape, "com.sun.star.text.TextFrame"):
                 continue
             text = shape.getString() if hasattr(shape, "getString") else ""
         except Exception as exc:
@@ -1452,11 +1490,16 @@ def _search_descriptor(doc: Any, pattern: str, use_regex: bool, case_sensitive: 
     return sd
 
 
-def find_ranges_regex_case(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool, all_matches: bool) -> list[Any]:
+def find_ranges_regex_case(
+    doc: Any, pattern: str, use_regex: bool, case_sensitive: bool, all_matches: bool,
+    keep: Callable[[Any], bool] | None = None,
+) -> list[Any]:
     # Callers validate the pattern with validate_icu_regex before searching.
     sd = _search_descriptor(doc, pattern, use_regex, case_sensitive)
     deletions = TrackedDeletions(doc)
     hits = _iter_descriptor_hits(doc, sd, deletions, literal=False)
+    if keep is not None:
+        hits = filter(keep, hits)
     if not all_matches:
         hit = next(hits, None)
         return [] if hit is None else [hit]
@@ -1692,6 +1735,8 @@ class SearchInDocument(ToolBase):
     """Search for text anywhere in a document (body, tables, text boxes) and report where."""
 
     name: str | None = "search"
+    # The bare name "search" has no read-verb prefix or later token, so the name heuristic would class it as mutating.
+    is_mutation: bool | None = False
     description: str = (
         "Search for text ANYWHERE in the document using LibreOffice native search — body paragraphs "
         "and headings, table cells, text boxes / frames, floating drawing shapes, page headers/footers, "

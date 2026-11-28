@@ -838,3 +838,68 @@ def test_search_crossing_skips_fields_and_finds_chained_and_anchor_uno(ctx, doc)
     found, miss_kind, _mode = find_anchor_span(doc, "Start here", "End here")
     assert miss_kind is None and found is not None
     assert visible_range_text(doc, found) == "Start here\nEnd here"
+
+
+def _struck_frame_doc(doc, ctx):
+    """Body paragraph plus text frame 'Fr1' holding 'Frame keeps FRAMEDEL word.' with 'FRAMEDEL ' struck."""
+    from tests.writer.doc_builders import reset_body
+
+    reset_body(doc, ctx, "Body paragraph.")
+    text = doc.getText()
+    frame = doc.createInstance("com.sun.star.text.TextFrame")
+    text.insertTextContent(text.getEnd(), frame, False)
+    frame.setName("Fr1")
+    frame.getText().setString("Frame keeps FRAMEDEL word.")
+    strike_substring(doc, frame.getText(), "FRAMEDEL ", ctx=ctx, author="Alice")
+    return frame
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_search_text_frame_hides_struck_text_and_counts_once_uno(ctx, doc):
+    """A text frame is searched once, through the text model, and its struck text is not a hit."""
+    from plugin.tests.testing_utils import native_writer_tool_context
+
+    _struck_frame_doc(doc, ctx)
+    tctx = native_writer_tool_context(doc, ctx)
+    assert _run_search(tctx, pattern="FRAMEDEL")["count"] == 0
+    res = _run_search(tctx, pattern="keeps")
+    assert [(m["location"], m["context"]) for m in res["matches"]] == [("text box 'Fr1'", "Frame keeps word.")], res
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_footnote_and_endnote_hits_and_changes_are_labelled_uno(ctx, doc):
+    """search and tracking_list name the footnote or endnote, not the body."""
+    from plugin.tests.testing_utils import TestingFactory, native_writer_tool_context
+    from tests.writer.doc_builders import reset_body
+
+    reset_body(doc, ctx, "Body text here.")
+    text = doc.getText()
+    for service, body in (("Footnote", "Foot keeps word."), ("Endnote", "End keeps zebra word.")):
+        note = doc.createInstance("com.sun.star.text." + service)
+        text.insertTextContent(text.getEnd(), note, False)
+        note.setString(body)
+    strike_substring(doc, doc.getEndnotes().getByIndex(0), "zebra ", ctx=ctx, author="Alice")
+
+    tctx = native_writer_tool_context(doc, ctx)
+    assert [m["location"] for m in _run_search(tctx, pattern="keeps")["matches"]] == ["footnote 1", "endnote i"]
+    listed = TestingFactory.execute_tool(doc, ctx, "tracking_list", {}, doc_type="writer")
+    assert [c["location"] for c in listed["changes"]] == ["endnote i"], listed
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_search_labels_table_of_contents_rows_as_index_uno(ctx, doc):
+    """search names a TOC row's index, so the model can tell it from the occurrences apply_content counts."""
+    from plugin.tests.testing_utils import native_writer_tool_context
+    from plugin.writer.specialized.indexes import IndexesCreate
+    from tests.writer.doc_builders import body_paragraphs, reset_body
+
+    reset_body(doc, ctx, "Definitions", "Body text.")
+    body_paragraphs(doc.getText())[0].setPropertyValue("ParaStyleName", "Heading 1")
+    tctx = native_writer_tool_context(doc, ctx)
+    assert IndexesCreate().execute(tctx, kind="toc", target="beginning", create_from_outline=True)["status"] == "ok"
+    toc_name = doc.getDocumentIndexes().getByIndex(0).getName()
+    labels = [m["location"] for m in _run_search(tctx, pattern="Definitions")["matches"]]
+    assert labels == ["index '%s'" % toc_name, "body"], labels

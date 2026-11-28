@@ -240,9 +240,15 @@ class UndoStepOrRollback(WriterCompoundUndo):
     ``rollback_failed_error``, or it reports a partial edit as a clean refusal. With a missing or
     locked undo manager the
     body runs without a group (``entered`` is False) and nothing can be rolled back;
-    callers that must refuse in that state should use ``commit_or_rollback``. Implemented
-    as a class rather than ``@contextmanager`` because pyuno turns a re-raised exception
-    from a generator context manager into a RuntimeException.
+    callers that must refuse in that state should use ``commit_or_rollback``.
+
+    Implemented as a class rather than ``@contextmanager``, as every context manager that
+    wraps UNO calls should be. When an exception leaves the block, the generator wrapper
+    assigns ``exc.__traceback__`` (CPython ``Lib/contextlib.py``,
+    ``_GeneratorContextManager.__exit__``). pyuno exception objects forward every attribute
+    write to the UNO value (``_uno_struct__setattr__`` in ``pyuno/source/module/uno.py``),
+    so that assignment raises "Couldn't convert <traceback object> to a UNO type" in place
+    of the original UNO error, and callers such as ``is_disposal`` see the wrong exception.
     """
 
     rolled_back: bool

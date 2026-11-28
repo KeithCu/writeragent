@@ -1639,6 +1639,45 @@ def test_struck_paragraphs_omitted_full_and_range_uno(ctx: Any, doc: Any) -> Non
 
 @native_test
 @with_native_doc("writer")
+def test_commented_deletion_keeps_paragraph_and_list_numbers_uno(ctx: Any, doc: Any) -> None:
+    import re
+    from plugin.writer.html_export import document_to_content
+
+    doc.setPropertyValue("RecordChanges", False)
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    cur.setPropertyValue("NumberingStyleName", "Numbering 123")
+    for idx, label in enumerate(("Apple", "Banana split", "Cherry")):
+        if idx:
+            text.insertControlCharacter(cur, 0, False)
+        text.insertString(cur, label, False)
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        found = doc.createSearchDescriptor()
+        found.setSearchString(" split")
+        hit = doc.findFirst(found)
+        hit.setString("")
+        # Every review-mode deletion WriterAgent records carries a comment.
+        enum = doc.getRedlines().createEnumeration()
+        while enum_has_more(enum):
+            enum.nextElement().setPropertyValue("RedlineComment", "checked by Bob")
+        full_html = document_to_content(doc, ctx, scope="full")
+        items = [
+            (
+                re.sub(r"<[^>]+>", "", lbl).strip(),
+                re.sub(r"<[^>]+>", "", body).replace("\xa0", "").strip(),
+            )
+            for lbl, body in re.findall(r"<li><p[^>]*>(<span[^>]*>[^<]*</span>)(.*?)</p></li>", full_html, re.DOTALL)
+        ]
+        assert items == [("1.", "Apple"), ("2.", "Banana"), ("3.", "Cherry")], full_html
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
 def test_numbered_list_with_struck_middle_item_uno(ctx: Any, doc: Any) -> None:
     import re
     from plugin.doc.text_helpers import read_visible_body
