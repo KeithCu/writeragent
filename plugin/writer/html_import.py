@@ -1410,6 +1410,9 @@ def _replace_whole_paragraphs(
         doomed.setString("")
     if recording:
         if shape == "previous":
+            # Split before restoring fmt so the new import paragraph is born from the
+            # predecessor-styled node rather than inheriting a heading's font size.
+            text_obj.insertControlCharacter(end_cur, PARAGRAPH_BREAK, False)
             # Untracked: AppendRedline (tdf#119571, DocumentRedlineManager.cxx) restyled the struck
             # paragraph from the predecessor, and CallParser reads GetParaAttr from the import target.
             with record_changes.record_changes(model, False):
@@ -1419,7 +1422,7 @@ def _replace_whole_paragraphs(
                 char_items = [(n, v) for n, v in fmt.items() if n.startswith("Char")]
                 if char_items:
                     struck = text_obj.createTextCursorByRange(rng.getStart())
-                    struck.gotoRange(end_cur.getStart(), True)
+                    struck.gotoRange(rng.getEnd(), True)
                     names = tuple(n for n, _val in char_items)
                     values = tuple(v for _name, v in char_items)
                     try:
@@ -1432,7 +1435,6 @@ def _replace_whole_paragraphs(
                             except Exception as item_exc:
                                 reraise_if_disposed(item_exc)
                                 log.debug("restore char prop %s failed", name, exc_info=True)
-            text_obj.insertControlCharacter(end_cur, PARAGRAPH_BREAK, False)
             cursor = end_cur
             with record_changes.record_changes(model, False):
                 if not keep_layout:
