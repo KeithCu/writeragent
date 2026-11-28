@@ -2116,7 +2116,8 @@ def _replace_recorded(
 ) -> None:
     if not old_text:
         # Nothing to strike (an empty cell, or one holding only a picture): a whole-range
-        # replace would strike the picture's anchor, so insert at the start as the untracked path does.
+        # replace would strike the picture's anchor, so insert at the start as the untracked path
+        # does. A range with no text keeps its paragraph breaks too.
         text.insertString(text.createTextCursorByRange(target_range.getStart()), new_text, False)
         return
     # Track Changes: run-by-run redlines scramble the edit, so insert the new text once after

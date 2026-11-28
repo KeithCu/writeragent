@@ -184,8 +184,9 @@ def _table_deletion_result(names: list[str], tracked: bool) -> dict[str, Any]:
 def _refuse_edits_over_pending_insertions(ctx: ToolContext, params: EditParams, ranges: list[Any]) -> None:
     """Refuse recorded replaces of cell matches over another author's pending table or row insertion.
 
-    Runs before the review session opens, so the recording author is decided here the way the
-    session will: WriterAgent in Record/Wait, the user's own name while the user records.
+    Runs before the review session opens, so a refusal leaves no undo step and no author switch
+    behind; the recording author is therefore decided here the way the session will: WriterAgent
+    in Record/Wait, the user's own name while the user records.
     """
     if not (params.track_reviewable or is_recording_changes(ctx.doc)):
         return
