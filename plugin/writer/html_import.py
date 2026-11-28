@@ -21,7 +21,7 @@ import contextlib
 import logging
 import re
 import uuid
-from typing import Any, Iterator, cast
+from typing import Any, Iterator, NamedTuple, cast
 
 import uno
 from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK  # type: ignore
@@ -399,12 +399,12 @@ def _sections_at(cursor: Any) -> list[Any]:
     return out
 
 
-def _in_index(element: Any) -> bool:
-    """True when *element* (a paragraph or table) is inside an index such as a TOC."""
+def enclosing_index(element: Any) -> Any | None:
+    """The document index (such as a TOC) holding *element* (a paragraph, table or text range), or None."""
     # DocumentIndex climbs to the enclosing index (SwXTextSection, unosect.cxx
     # WID_SECT_DOCUMENT_INDEX), so the innermost section answers for the whole chain.
     sections = _sections_at(element)
-    return bool(sections) and sections[0].getPropertyValue("DocumentIndex") is not None
+    return sections[0].getPropertyValue("DocumentIndex") if sections else None
 
 
 def _host_text(text: Any) -> Any:
@@ -494,6 +494,45 @@ def raise_if_protected_sections(model: Any) -> None:
             % ", ".join(repr(n) for n in names),
             code="PROTECTED_SECTION",
         )
+
+
+class SectionLock(NamedTuple):
+    """Why a range cannot be edited: an error code, the section's name, and a message for the model."""
+
+    code: str
+    section: str
+    message: str
+
+
+def section_lock(text_range: Any) -> SectionLock | None:
+    """The lock when *text_range* starts or ends in a protected or linked section, else None.
+
+    UNO writes ignore section protection, so an edit there would change text the user
+    locked, which Writer refuses by hand (``SwPaM::HasReadonlySel``,
+    ``sw/source/core/crsr/pam.cxx``). A file- or DDE-linked section is overwritten from its
+    source on the next link update (``SwIntrnlSectRefLink::DataChanged``,
+    ``sw/source/core/docnode/section.cxx``), so an edit there is lost. An index section such
+    as a TOC is protected by default, and its rows are rebuilt from the headings, so the
+    message for it points at the heading and the TOC-entry tools instead of unprotecting.
+    """
+    for point in (text_range.getStart(), text_range.getEnd()):
+        for section in _sections_at(point):
+            name = section.getName()
+            if section.getPropertyValue("IsProtected"):
+                if section.getPropertyValue("DocumentIndex") is not None:
+                    return SectionLock("PROTECTED_SECTION", name, (
+                        f"The match is inside the index {name!r} (such as a table of contents), whose rows "
+                        "the next index update rebuilds from the headings; nothing was changed. Edit the "
+                        "heading itself, or change one row with index_refresh_toc_entry, "
+                        "index_insert_toc_entry or index_delete_toc_entry."))
+                return SectionLock("PROTECTED_SECTION", name, (
+                    f"The match is inside the protected section {name!r}; nothing was changed. "
+                    "Only if the user wants that text edited, unprotect it first with section_set_protection."))
+            if section.getPropertyValue("FileLink").FileURL or section.getPropertyValue("DDECommandType"):
+                return SectionLock("LINKED_SECTION", name, (
+                    f"The match is inside the section {name!r}, which is linked to another source and is "
+                    "overwritten from it when the link updates; nothing was changed. Tell the user to edit the source."))
+    return None
 
 
 def pending_change_authors(model: Any, region: Any | None = None) -> list[str]:
@@ -1619,7 +1658,7 @@ def replace_full_document(
             next(
                 (
                     el for el in iter_elements(text.createEnumeration())
-                    if not supports_service(el, "com.sun.star.text.TextTable") and not _in_index(el)
+                    if not supports_service(el, "com.sun.star.text.TextTable") and enclosing_index(el) is None
                 ),
                 cursor,
             )

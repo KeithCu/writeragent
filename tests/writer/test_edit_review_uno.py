@@ -510,6 +510,26 @@ def test_cross_paragraph_change_reports_accepted_and_rejected_uno(ctx, doc):
         assert expected_text == normalize_linebreaks(text.getString())
 
 
+@native_test
+@with_native_doc("writer")
+def test_edited_context_leaves_out_pending_deletions_uno(ctx, doc):
+    """edited_context reads as after Accept: neither the replaced text nor another author's deletion shows."""
+    from plugin.tests.testing_utils import native_writer_tool_context
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from tests.writer.doc_builders import strike_substring
+
+    reset_body(doc, ctx, "Intro keeps DELINLINE word.", "Third paragraph.", "Tail.")
+    strike_substring(doc, doc.getText(), "DELINLINE ", ctx=ctx, author="Alice")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = ApplyDocumentContent().execute(
+            native_writer_tool_context(doc, ctx), target="search", old_content="Third", content="3rd")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+    assert res.get("tracked") is True, res
+    assert res["edited_context"] == "Intro keeps word.\n3rd paragraph.\nTail.", res
+
+
 def _shape(doc):
     """Snapshot paragraph styles, adjustments, bold runs, and embedded object counts."""
     from com.sun.star.awt.FontWeight import BOLD  # type: ignore

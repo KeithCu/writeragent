@@ -249,3 +249,29 @@ def test_field_delete_in_record_mode_strikes_the_field_and_reject_restores_uno(c
 
     reject_all_changes(doc, ctx)
     assert _count_text_fields(doc) == 1
+
+
+@native_test
+@with_native_doc("writer")
+def test_field_list_flags_field_inside_pending_deletion_uno(ctx, doc):
+    """A field inside struck text is flagged pending_deletion; a live field is not."""
+    set_body_text(doc, "")
+    text = doc.getText()
+    cur = text.createTextCursor()
+    for word in ("KEEPF", "GONEF"):
+        text.insertString(cur, " %s " % word.lower(), False)
+        field = doc.createInstance("com.sun.star.text.textfield.Input")
+        field.setPropertyValue("Content", word)
+        text.insertTextContent(cur, field, False)
+    # The field is one character: strike " gonef " and the field after it.
+    struck = text.createTextCursorByRange(text.getEnd())
+    struck.goLeft(len(" gonef ") + 1, True)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        struck.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    res = TestingFactory.execute_tool(doc, ctx, "field_list", {}, doc_type="writer")
+    flagged = {row["presentation"]: row.get("pending_deletion", False) for row in res["fields"]}
+    assert flagged == {"KEEPF": False, "GONEF": True}, res

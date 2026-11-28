@@ -376,7 +376,7 @@ CONFIRM_EDITS_FROM_STRUCTURED_FIELDS = """- Confirm edits from structured fields
 # Confirm-from-fields is CONFIRM_EDITS_FROM_STRUCTURED_FIELDS (appended last for recency).
 TOOL_USAGE_PATTERNS = f"""TOOL USAGE PATTERNS:
 - Earlier document text may be a partial/truncated snapshot — call get_content before a targeted edit that needs the exact current text.
-- Successful apply_content returns edited_context (touched paragraphs plus neighbors; in record/wait including the pending change).
+- Successful apply_content returns edited_context (touched paragraphs plus neighbors as they read after Accept: pending insertions included, pending deletions left out).
   Use it to confirm placement instead of an immediate re-read; target='full_document' returns paragraph_count and headings — trust those instead of reading the document back (table cells are not counted; this reflects the written HTML, not a second read).
 - apply_style on paragraphs is a tracked change only when its result says tracked=true.
   If style_unreviewed=true, briefly tell the user which style or page-layout change they cannot accept/reject like a text edit (the warning, if any, says which part).
