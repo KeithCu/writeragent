@@ -642,7 +642,7 @@ def test_run_module_suite_timeout_recycles_office_and_skips_rest_of_suite(monkey
     monkeypatch.setattr(tr, "_NATIVE_TEST_KILL_GRACE_SEC", 5)
     monkeypatch.setattr(tr, "kill_process_tree", lambda _proc: killed.set())
     monkeypatch.setattr(office, "soffice_proc", types.SimpleNamespace(poll=lambda: None))
-    office.urp_bridge_dead = False
+    monkeypatch.setattr(office, "urp_bridge_dead", False)
     office.consume_recycle_request()
 
     def test_hangs(ctx=None):
@@ -671,6 +671,59 @@ def test_native_test_watchdog_disarmed_in_time_never_stops_office(monkeypatch) -
     watchdog = tr._NativeTestWatchdog("fake.fast", 5)
     assert watchdog.disarm() is False
     assert kills == []
+
+
+def test_run_module_suite_post_return_probe_timeout_recycles_office(monkeypatch) -> None:
+    killed = threading.Event()
+    office = tr.current_office()
+    monkeypatch.setattr(tr, "_native_test_timeout_sec", lambda *_args: 0.2)
+    monkeypatch.setattr(tr, "_NATIVE_TEST_KILL_GRACE_SEC", 5)
+    monkeypatch.setattr(tr, "kill_process_tree", lambda _proc: killed.set())
+    monkeypatch.setattr(office, "soffice_proc", types.SimpleNamespace(poll=lambda: None))
+    monkeypatch.setattr(office, "urp_bridge_dead", False)
+    office.consume_recycle_request()
+
+    probe_calls = 0
+
+    def fake_collect_post_test_death(_ctx):
+        nonlocal probe_calls
+        probe_calls += 1
+        if probe_calls == 1:
+            return None
+        assert killed.wait(timeout=3.0)
+        raise RuntimeError("Binary URP bridge disposed during call")
+
+    monkeypatch.setattr(tr, "collect_post_test_death", fake_collect_post_test_death)
+
+    def test_fast_body(ctx=None):
+        pass
+
+    module = _make_module(test_fast_body=test_fast_body)
+    passed, failed, suite_log = tr.run_module_suite(object(), module, "fake.post")
+    assert passed == 0
+    assert failed == 1
+    assert office.urp_bridge_dead is False
+    assert office.consume_recycle_request() is True
+    assert any("Timeout" in line and "soffice stopped; office recycled" in line for line in suite_log)
+
+
+def test_run_module_suite_timeout_without_managed_soffice_skips_recycle(monkeypatch) -> None:
+    office = tr.current_office()
+    monkeypatch.setattr(tr, "_native_test_timeout_sec", lambda *_args: 0.1)
+    monkeypatch.setattr(tr, "_NATIVE_TEST_KILL_GRACE_SEC", 5)
+    monkeypatch.setattr(office, "soffice_proc", None)
+    monkeypatch.setattr(office, "urp_bridge_dead", False)
+    office.consume_recycle_request()
+
+    def test_slow_inproc(ctx=None):
+        threading.Event().wait(0.25)
+
+    module = _make_module(test_slow_inproc=test_slow_inproc)
+    passed, failed, suite_log = tr.run_module_suite(object(), module, "fake.inproc")
+    assert passed == 0
+    assert failed == 1
+    assert office.consume_recycle_request() is False
+    assert any("soffice not managed by this runner; no kill" in line for line in suite_log)
 
 
 def test_run_module_suite_records_fail_reason() -> None:

@@ -242,11 +242,18 @@ def _progress_verbose(msg: str) -> None:
 # seconds (override with WRITERAGENT_UNO_TEST_TIMEOUT). Silent — do not print
 # arm/disarm lines.
 _NATIVE_TEST_TIMEOUT_SEC = 30
-_NATIVE_TEST_KILL_GRACE_SEC = 30  # after the watchdog stops soffice, hard-exit if the test still has not returned
+# Hard-exit grace after stopping soffice: pure-Python hangs are not unblocked by killing it.
+_NATIVE_TEST_KILL_GRACE_SEC = 30
 
 
 class _NativeTestTimeout(Exception):
-    """Raised when the per-test watchdog stopped soffice to unblock a hung test."""
+    """Raised when the per-test watchdog stopped soffice (or expired) on a hung test."""
+
+    killed: bool
+
+    def __init__(self, message: str, *, killed: bool) -> None:
+        super().__init__(message)
+        self.killed = killed
 
 
 def _native_test_timeout_sec(min_timeout_sec: int | None = None) -> int:
@@ -271,6 +278,7 @@ class _NativeTestWatchdog:
     _done: threading.Event
     _fired: bool
     _disarmed: bool
+    _killed: bool
     _job: Any
 
     def __init__(self, qual: str, seconds: float) -> None:
@@ -280,6 +288,7 @@ class _NativeTestWatchdog:
         self._done = threading.Event()
         self._fired = False
         self._disarmed = False
+        self._killed = False
         try:
             import faulthandler
 
@@ -301,7 +310,14 @@ class _NativeTestWatchdog:
             if self._disarmed:
                 return
             self._fired = True
-        _progress("TIMEOUT %s after %ss: stopping soffice" % (self._qual, self.seconds))
+        proc = _office.soffice_proc
+        if proc is not None:
+            _progress("TIMEOUT %s after %ss: stopping soffice" % (self._qual, self.seconds))
+        else:
+            _progress(
+                "TIMEOUT %s after %ss: soffice not managed by this runner; no kill"
+                % (self._qual, self.seconds)
+            )
         try:
             import faulthandler
 
@@ -310,8 +326,18 @@ class _NativeTestWatchdog:
                 faulthandler.dump_traceback(file=err_file, all_threads=True)
         except Exception:
             log.debug("native test watchdog traceback dump failed", exc_info=True)
-        if _office.soffice_proc is not None:
-            kill_process_tree(_office.soffice_proc)
+        if proc is not None:
+            self._killed = True
+            kill_process_tree(proc)
+
+    @property
+    def killed(self) -> bool:
+        return self._killed
+
+    def timeout_message(self) -> str:
+        if self._killed:
+            return f"Timeout ({self.seconds}s): soffice stopped; office recycled"
+        return f"Timeout ({self.seconds}s): soffice not managed by this runner; no kill"
 
     def disarm(self) -> bool:
         """Stop the watchdog and return True when it fired (test timed out)."""
@@ -1512,51 +1538,54 @@ def run_module_suite(
             )
             watchdog = _arm_native_test_watchdog(qual, getattr(test_func, "_timeout_sec", None))
             try:
-                # SalAbort can print after the previous TEST end OK. Fail-closed
-                # here so we do not open another Draw factory on a dying office.
-                gap_death = collect_post_test_death(ctx)
-                if gap_death:
-                    dead_exc = RuntimeError(gap_death)
-                    msg = (
-                        "LIFECYCLE office death before TEST call %s soffice_exit=%s %s"
-                        % (qual, _office.soffice_exit_code(), format_lifecycle_breadcrumb())
-                    )
-                    _fail_dead_office(qual, test_line, dead_exc, msg)
-                    break
-                # GHA 33703959362: execute-done then 20min silence, no TEST end.
-                # call vs returned splits body hang from post-return bookkeeping.
-                _progress(f"TEST call {qual}")
-                # In-process SalAbort text hits Python stderr; soffice PIPE drain
-                # catches the same marker from the child.
-                old_err = sys.stderr
-                sys.stderr = _StderrMarkerTee(old_err)
                 try:
-                    _call_with_ctx(test_func, ctx)
-                finally:
-                    sys.stderr = old_err
-                    if watchdog.disarm():
-                        raise _NativeTestTimeout(
-                            f"Timeout ({watchdog.seconds}s): soffice stopped; office recycled"
-                        )
-                _progress(f"TEST returned {qual}")
-                # Harness attribution (not a product fix): body + @with_native_doc
-                # teardown returned, but SalAbort already printed, soffice exited,
-                # or getServiceManager is disposed. Name *this* test as the killer.
-                death = collect_post_test_death(ctx)
-                if death:
-                    dead_exc = RuntimeError(death)
-                    if _APPLICATION_ERROR_MARKER in death:
+                    # SalAbort can print after the previous TEST end OK. Fail-closed
+                    # here so we do not open another Draw factory on a dying office.
+                    gap_death = collect_post_test_death(ctx)
+                    if gap_death:
+                        dead_exc = RuntimeError(gap_death)
                         msg = (
-                            "LIFECYCLE application error after TEST returned %s soffice_exit=%s %s"
+                            "LIFECYCLE office death before TEST call %s soffice_exit=%s %s"
                             % (qual, _office.soffice_exit_code(), format_lifecycle_breadcrumb())
                         )
-                    else:
-                        msg = (
-                            "LIFECYCLE office dead after TEST returned %s %s"
-                            % (qual, format_lifecycle_breadcrumb())
+                        _fail_dead_office(qual, test_line, dead_exc, msg)
+                        break
+                    # GHA 33703959362: execute-done then 20min silence, no TEST end.
+                    # call vs returned splits body hang from post-return bookkeeping.
+                    _progress(f"TEST call {qual}")
+                    # In-process SalAbort text hits Python stderr; soffice PIPE drain
+                    # catches the same marker from the child.
+                    old_err = sys.stderr
+                    sys.stderr = _StderrMarkerTee(old_err)
+                    try:
+                        _call_with_ctx(test_func, ctx)
+                    finally:
+                        sys.stderr = old_err
+                    _progress(f"TEST returned {qual}")
+                    # Harness attribution (not a product fix): body + @with_native_doc
+                    # teardown returned, but SalAbort already printed, soffice exited,
+                    # or getServiceManager is disposed. Name *this* test as the killer.
+                    death = collect_post_test_death(ctx)
+                    if death:
+                        dead_exc = RuntimeError(death)
+                        if _APPLICATION_ERROR_MARKER in death:
+                            msg = (
+                                "LIFECYCLE application error after TEST returned %s soffice_exit=%s %s"
+                                % (qual, _office.soffice_exit_code(), format_lifecycle_breadcrumb())
+                            )
+                        else:
+                            msg = (
+                                "LIFECYCLE office dead after TEST returned %s %s"
+                                % (qual, format_lifecycle_breadcrumb())
+                            )
+                        _fail_dead_office(qual, test_line, dead_exc, msg)
+                        break
+                finally:
+                    if watchdog.disarm():
+                        raise _NativeTestTimeout(
+                            watchdog.timeout_message(),
+                            killed=watchdog.killed,
                         )
-                    _fail_dead_office(qual, test_line, dead_exc, msg)
-                    break
                 total_passed += 1
                 suite_log.append(f"{test_line} — OK")
                 record_test_end(qual, "OK")
@@ -1576,7 +1605,8 @@ def run_module_suite(
                     suite_log.append(f"NOT RUN after timeout: {', '.join(remaining)}")
                 _progress(f"TEST end {qual} FAIL {e}")
                 record_test_end(qual, "FAIL")
-                _office.request_recycle()
+                if e.killed:
+                    _office.request_recycle()
                 break
             except unittest.SkipTest as e:
                 total_passed += 1

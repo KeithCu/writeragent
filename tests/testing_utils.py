@@ -747,8 +747,10 @@ def _reset_calc_doc(doc, ctx) -> None:  # ctx unused; same signature as writer r
     _native_teardown_progress("native_doc: _reset_calc_doc start")
     _native_teardown_progress("native_doc: _reset_calc_doc remove_charts start")
     _remove_all_calc_charts(doc)
-    _remove_all_calc_pivots(doc)
     _native_teardown_progress("native_doc: _reset_calc_doc remove_charts done")
+    _native_teardown_progress("native_doc: _reset_calc_doc remove_pivots start")
+    _remove_all_calc_pivots(doc)
+    _native_teardown_progress("native_doc: _reset_calc_doc remove_pivots done")
     sheets = doc.getSheets()
     while sheets.getCount() > 1:
         name = sheets.getByIndex(sheets.getCount() - 1).Name

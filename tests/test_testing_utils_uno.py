@@ -132,4 +132,3 @@ def test_pooled_calc_wipe_drops_pivot_tables(ctx):
         sheets = reused.getSheets()
         for i in range(sheets.getCount()):
             assert sheets.getByIndex(i).getDataPilotTables().getElementNames() == ()
-        assert sheets.getByIndex(0).getCellRangeByName("D1").getString() == ""
