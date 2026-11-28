@@ -1372,7 +1372,7 @@ def test_run_cells_document_disposed_mid_batch_value_error_stops_quietly():
     def _apply(_result):
         seen["applies"] += 1
         if seen["applies"] == 2:
-            doc.getImplementationName.side_effect = DisposedException("document closed")
+            doc.getURL.side_effect = DisposedException("document closed")
             raise ValueError("property missing during close")
 
     result, applied, _state = _run_cells_with(_exec, _apply, doc=doc)

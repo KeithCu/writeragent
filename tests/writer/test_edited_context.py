@@ -95,6 +95,9 @@ class FakeText:
     def insertString(self, _cursor, _s, _absorb):
         pass
 
+    def compareRegionStarts(self, a, b):
+        return 0 if (a.para, a.at_end) == (b.para, b.at_end) else 1
+
 
 def _anchor_at(text, para):
     return FakeCursor(text, para)
@@ -247,4 +250,4 @@ def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
     # An unreadable RedlineType on a redline portion still fails closed.
     node = MagicMock()
     node.getPropertyValue.side_effect = lambda name: "Redline" if name == "TextPortionType" else (_ for _ in ()).throw(RuntimeException("uno"))
-    assert _is_blocking_redline(node) is True
+    assert _is_blocking_redline(node, None) is True

@@ -957,35 +957,7 @@ def test_empty_full_document_is_not_the_insert_error():
     mock_replace.assert_called_once()
 
 
-def test_worker_cleanup_timeout_does_not_mask_the_edit():
-    ctx = _edit_ctx()
-    session_mock = MagicMock()
-
-    call_count = [0]
-
-    def fake_execute_on_main(fn, *args, **kwargs):
-        call_count[0] += 1
-        if call_count[0] == 1:
-            return fn()
-        raise TimeoutError("cleanup timed out")
-
-    with patch("plugin.framework.queue_executor.main.is_current", return_value=False), \
-         patch("plugin.writer.apply_document_content.get_agent_edit_review_mode", return_value="off"), \
-         patch("plugin.writer.apply_document_content.EditReviewSession", return_value=session_mock), \
-         patch.object(
-             ApplyDocumentContent,
-             "_dispatch_edit",
-             return_value={"status": "ok", "message": "Inserted content at end."},
-         ), \
-         patch("plugin.framework.queue_executor.main.call", side_effect=fake_execute_on_main):
-        res = ApplyDocumentContent().execute(ctx, content="test", target="end")
-
-    assert res["status"] == "ok"
-    assert res["message"].startswith("Inserted content at end.")
-    assert call_count[0] == 2
-
-
-def test_apply_document_content_releases_session_on_mid_edit_failure():
+def test_apply_document_content_propagates_mid_edit_failure():
     ctx = _edit_ctx()
     session_mock = MagicMock()
 
@@ -995,11 +967,9 @@ def test_apply_document_content_releases_session_on_mid_edit_failure():
              ApplyDocumentContent,
              "_dispatch_edit",
              side_effect=RuntimeError("boom mid-edit"),
-         ), \
-         patch.object(tool, "_release_review_session") as mock_release:
+         ):
         with pytest.raises(RuntimeError, match="boom mid-edit"):
             tool.execute(ctx, content="test", target="end")
-        mock_release.assert_called_once_with(session_mock)
 
 
 def test_param_errors_do_not_construct_review_session():

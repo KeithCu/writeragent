@@ -47,7 +47,7 @@ from plugin.framework.constants import HTML_WRITER_FILTER
 from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_disposed, uno_read
 from plugin.framework.html_stripper import escape_prose_angle_brackets, html_to_search_text, text_has_real_html_tag
 from plugin.framework.i18n import _
-from plugin.framework.uno_context import create_property_value, supports_service, uno_any
+from plugin.framework.uno_context import create_property_value, supports_service, uno_any, uno_same
 from . import field_restore, html_import_styles, html_ruby, hyperlink_fixup, image_placeholders, record_changes
 from .html_export import strip_html_boilerplate
 from .math.html_math_segment import (
@@ -407,6 +407,17 @@ def enclosing_index(element: Any) -> Any | None:
     return sections[0].getPropertyValue("DocumentIndex") if sections else None
 
 
+def _host_text(text: Any) -> Any:
+    """Outermost XText holding *text*: walks ``ParentText`` up through ``SwXCell`` and ``SwXTextFrame``; None for a page-anchored frame.
+
+    (``SwXCell::getPropertyValue`` in ``sw/source/core/unocore/unotbl.cxx`` and
+    ``SwXFrame::getPropertyValue`` in ``sw/source/core/unocore/unoframe.cxx``.)
+    """
+    while text is not None and text.getImplementationName() in ("SwXCell", "SwXTextFrame"):
+        text = text.getPropertyValue("ParentText")
+    return text
+
+
 def _in_header_footer(text: Any) -> bool:
     """Return True when *text* lives inside a Writer header or footer.
 
@@ -415,9 +426,8 @@ def _in_header_footer(text: Any) -> bool:
     ``SwXFrame::getPropertyValue`` in ``sw/source/core/unocore/unoframe.cxx``).
     A page-anchored frame has ``ParentText == None`` and counts as body.
     """
-    while text is not None and text.getImplementationName() in ("SwXCell", "SwXTextFrame"):
-        text = text.getPropertyValue("ParentText")
-    return text is not None and text.getImplementationName() == "SwXHeadFootText"
+    host = _host_text(text)
+    return host is not None and host.getImplementationName() == "SwXHeadFootText"
 
 
 def _iter_body_sections(model: Any) -> Iterator[tuple[str, Any]]:
@@ -525,19 +535,9 @@ def section_lock(text_range: Any) -> SectionLock | None:
     return None
 
 
-def raise_if_pending_changes_untracked(model: Any) -> None:
-    """Refuse full_document when Track Changes is off over pending body Insert/Delete redlines.
-
-    Without recording, ``replace_full_document`` calls ``setString("")``, which removes every
-    redline in the body (``DocumentContentOperationsManager::DeleteRangeImplImpl``), whoever
-    made it. While recording, ``PreAppendDeleteRedline`` keeps another author's deletion and
-    ``PreAppendForeignRedline`` stacks the new deletion on another author's insertion, so nothing
-    is lost. Header and footer redlines are untouched by ``full_document`` and do not count.
-    Checks the live ``RecordChanges`` state, so record/wait mode (enabled by
-    ``EditReviewSession.__enter__``) passes.
-    """
-    if record_changes.is_recording_changes(model):
-        return
+def pending_change_authors(model: Any, region: Any | None = None) -> list[str]:
+    """Authors (first-seen order) of pending Insert/Delete redlines in *region* (a header, footer or
+    note XText, with its tables and frames), or, when None, everywhere outside headers and footers."""
     redlines = model.getRedlines()
     authors: list[str] = []
     seen: set[str] = set()
@@ -545,19 +545,52 @@ def raise_if_pending_changes_untracked(model: Any) -> None:
         if rl.getPropertyValue("RedlineType") not in ("Insert", "Delete"):
             continue
         text, _start, _end = redline_bounds(rl)
-        if _in_header_footer(text):
+        if region is not None:
+            if not uno_same(_host_text(text), region):
+                continue
+        elif _in_header_footer(text):
             continue
         author = str(rl.getPropertyValue("RedlineAuthor") or "Unknown Author")
         if author not in seen:
             seen.add(author)
             authors.append(author)
+    return authors
+
+
+_FULL_DOCUMENT_ADVICE = (
+    "Edit the text around them with target='search' (old_content, or start_anchor/end_anchor that do not span a tracked change). "
+    "To replace the whole document, ask the user to turn on Track Changes or the record/wait review mode first, or to resolve those changes."
+)
+
+
+def raise_if_pending_changes_untracked(
+    model: Any,
+    region: Any | None = None,
+    *,
+    rewrite: str = "target='full_document'",
+    advice: str = _FULL_DOCUMENT_ADVICE,
+) -> None:
+    """Refuse an unrecorded whole-text rewrite over pending Insert/Delete redlines.
+
+    Without recording, clearing the text with ``setString("")`` removes every redline in that
+    ``XText`` (``DocumentContentOperationsManager::DeleteRangeImplImpl``), whoever made it;
+    writing back read text also silently accepts pending insertions. While recording,
+    ``PreAppendDeleteRedline`` keeps another author's deletion and ``PreAppendForeignRedline``
+    stacks the new deletion on another author's insertion, so nothing is lost. When *region* is
+    None (``full_document``), header and footer redlines are untouched and do not count; when
+    *region* is a header, footer or note ``XText``, only redlines hosted inside it count. Checks
+    the live ``RecordChanges`` state, so record/wait mode (enabled by ``EditReviewSession.__enter__``)
+    passes.
+    """
+    if record_changes.is_recording_changes(model):
+        return
+    authors = pending_change_authors(model, region)
     if authors:
         names = ", ".join(repr(a) for a in authors)
+        subject = "Document" if region is None else "The text"
         raise ToolExecutionError(
-            f"Document has pending tracked insertions or deletions (by {names}) and Track Changes is off, "
-            "so target='full_document' would remove them without review; nothing was changed. "
-            "Edit the text around them with target='search' (old_content, or start_anchor/end_anchor that do not span a tracked change). "
-            "To replace the whole document, ask the user to turn on Track Changes or the record/wait review mode first, or to resolve those changes.",
+            f"{subject} has pending tracked insertions or deletions (by {names}) and Track Changes is off, "
+            f"so {rewrite} would remove them without review; nothing was changed. {advice}",
             code="PENDING_TRACKED_CHANGES",
         )
 

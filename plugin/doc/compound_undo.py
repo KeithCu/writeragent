@@ -180,6 +180,9 @@ class WriterCompoundUndo:
     def rollback_if_top(self) -> bool:
         """Roll back the undo context if it is the top action on the undo stack.
 
+        A successful rollback also clears Redo so the rolled-back group cannot
+        be re-applied via Redo.
+
         An empty group leaves no entry (``SfxUndoManager::ImplLeaveListAction``),
         so unchanged titles set ``left_no_entry = True`` and return False. At a full
         undo stack, ``EnterListAction`` drops the oldest entry on entry and
@@ -210,6 +213,10 @@ class WriterCompoundUndo:
                 return False
             if after and after[0] == self._title:
                 self._undo_manager.undo()
+                # A rolled-back group must not come back through Redo;
+                # impl_clearRedo throws only while a list action is open,
+                # and this method already returns False when self._open is True.
+                self._undo_manager.clearRedo()
                 return True
             return False
         except Exception as e:

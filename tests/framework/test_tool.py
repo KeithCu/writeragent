@@ -1170,8 +1170,8 @@ class TestToolIsolation:
             pass
 
         class LiveDoc:
-            def getImplementationName(self):
-                return "SwXTextDocument"
+            def getURL(self):
+                return ""
 
         class InsertTool(ToolBase):
             name = "image_generate"
@@ -1205,8 +1205,8 @@ class TestToolIsolation:
                 return ""
 
         class LiveDoc:
-            def getImplementationName(self):
-                return "SwXTextDocument"
+            def getURL(self):
+                return ""
 
         class FailingAsyncTool(ToolBase):
             name = "failing_async"
@@ -1240,9 +1240,9 @@ class TestToolIsolation:
             def __init__(self):
                 self.calls = []
 
-            def getImplementationName(self):
-                self.calls.append("getImplementationName")
-                return "SwXTextDocument"
+            def getURL(self):
+                self.calls.append("getURL")
+                return ""
 
         class FailingAsyncTool(ToolBase):
             name = "async_probe_tool"

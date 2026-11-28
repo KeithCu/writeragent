@@ -448,13 +448,20 @@ CROSSES_DELETION_MESSAGE = (
     "The matched text overlaps a pending tracked deletion, so it was not changed. Do not accept or "
     "reject that deletion; use a shorter piece of text on one side of it."
 )
-UNRECORDED_CROSSES_DELETION_MESSAGE = CROSSES_DELETION_MESSAGE + (
+SELECTION_CROSSES_DELETION_MESSAGE = (
+    "The selected text overlaps a pending tracked deletion, so it was not changed. Do not accept or "
+    "reject that deletion; to change the selection, use target='search' on the text on one side of it."
+)
+_RECORDED_CROSSES_DELETION_ADVICE = (
     " With Track Changes on, this edit is recorded beside the deletion, so ask the user to turn "
     "Track Changes on if the whole passage must change."
 )
+UNRECORDED_CROSSES_DELETION_MESSAGE = CROSSES_DELETION_MESSAGE + _RECORDED_CROSSES_DELETION_ADVICE
 
 
-def crossing_match_error(doc: Any, found: Any, *, recorded: bool) -> dict[str, Any] | None:
+def crossing_match_error(
+    doc: Any, found: Any, *, recorded: bool, selection: bool = False
+) -> dict[str, Any] | None:
     """MATCH_CROSSES_DELETION when an unrecorded edit of *found* would overlap a pending deletion.
 
     Made with Track Changes off, a replace removes struck text outright, so the deletion
@@ -464,7 +471,12 @@ def crossing_match_error(doc: Any, found: Any, *, recorded: bool) -> dict[str, A
     """
     if recorded or not TrackedDeletions(doc).overlaps(found):
         return None
-    return make_tool_error(UNRECORDED_CROSSES_DELETION_MESSAGE, code="MATCH_CROSSES_DELETION")
+    msg = (
+        SELECTION_CROSSES_DELETION_MESSAGE + _RECORDED_CROSSES_DELETION_ADVICE
+        if selection
+        else UNRECORDED_CROSSES_DELETION_MESSAGE
+    )
+    return make_tool_error(msg, code="MATCH_CROSSES_DELETION")
 
 
 def find_text_ranges(
