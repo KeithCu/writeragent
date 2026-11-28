@@ -50,7 +50,9 @@ def test_extend_selection_uses_non_empty_range(mock_create_client, mock_stream_c
         apply_chunk_fn("new chunk")
 
         rng0.setString.assert_not_called()
-        rng1.setString.assert_called()
+        rng1.setString.assert_not_called()
+        rng0.getText().createTextCursorByRange.assert_not_called()
+        rng1.getText().createTextCursorByRange.return_value.setString.assert_called_with("new chunk")
 
 
 @patch("plugin.writer.editselection.stream_completion")
@@ -83,8 +85,10 @@ def test_extend_selection_falls_back_to_index0_if_all_empty(mock_create_client, 
         apply_chunk_fn = _stream_completion_args(mock_stream_completion)["apply_chunk_fn"]
         apply_chunk_fn("new chunk")
 
-        rng0.setString.assert_called()
+        rng0.setString.assert_not_called()
         rng1.setString.assert_not_called()
+        rng0.getText().createTextCursorByRange.return_value.setString.assert_called_with("new chunk")
+        rng1.getText().createTextCursorByRange.assert_not_called()
         assert mock_stream_completion.called
 
 
@@ -101,8 +105,8 @@ def test_extend_selection_fails_when_setString_fails(mock_create_client, mock_st
 
     model = MagicMock()
     text_range = MagicMock()
-    # Mock setString to throw Exception
-    text_range.setString.side_effect = Exception("failed to write to document")
+    # Mock preview cursor setString to throw Exception
+    text_range.getText.return_value.createTextCursorByRange.return_value.setString.side_effect = Exception("failed to write to document")
     selection = MagicMock()
     selection.getByIndex.return_value = text_range
     model.CurrentController.getSelection.return_value = selection
@@ -258,7 +262,7 @@ def test_edit_selection_preset_whole_body_without_select_first_msgbox(
     with patch("plugin.writer.editselection.selected_text_range", return_value=None), \
          patch("plugin.writer.editselection.visible_range_text", return_value="Para one\nPara two"), \
          patch("plugin.writer.editselection.normalize_linebreaks", return_value="Para one\nPara two"), \
-         patch("plugin.writer.editselection.refuse_tracked_insert_or_delete"), \
+         patch("plugin.writer.editselection.refuse_streamed_selection"), \
          patch("plugin.writer.editselection.review_recording_enabled", return_value=False), \
          patch("plugin.writer.editselection.get_config", return_value=100), \
          patch("plugin.writer.editselection.WriterStreamedRewriteSession") as session_cls:

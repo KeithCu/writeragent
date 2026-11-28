@@ -752,7 +752,7 @@ def test_copy_cell_xtext_marks_struck_only_when_requested():
         para.getString.return_value = "gone"
         redline_start = MagicMock()
         redline_start.getPropertyValue.side_effect = lambda k: (
-            "Redline" if k == "TextPortionType" else ("Delete" if k == "RedlineType" else True)
+            "Redline" if k == "TextPortionType" else ("Delete" if k == "RedlineType" else k == "IsStart")
         )
         redline_end = MagicMock()
         redline_end.getPropertyValue.side_effect = lambda k: (

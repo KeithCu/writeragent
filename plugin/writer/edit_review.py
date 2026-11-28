@@ -10,7 +10,7 @@ the redline helpers and many call sites import from here (compound undo is in
 plugin.doc.compound_undo).
 
 One module owns the whole review story (recording state, author scoping, change tagging,
-anchoring, outcome detection, wait-for-review, cleanup), so entry points don't sprinkle
+anchoring, outcome detection, wait-for-review), so entry points don't sprinkle
 ``RecordChanges`` / author toggles around::
 
     with EditReviewSession(doc, ctx, enabled=flag) as session:
@@ -25,13 +25,13 @@ How a change is tracked end to end:
   Completion is a reliable empty intersection of those comments with tokens on registered
   ``ChangeRecord``s — NOT "zero redlines in the document", and NOT "every
   ``wa-review:<session>:`` comment is gone". A tag left behind when the change was not
-  registered (tagging failed, or the missing-bookmark clear left the token) must not keep
+  registered (tagging failed, or the missing-anchor clear left the token) must not keep
   ``wait_for_review`` blocked. An incomplete scan still fail-closes. The user's own
   pre-existing redlines never block or confuse it.
-* Each change is anchored with a bookmark (``wa_review_<session>_<n>``) spanning the affected
-  range (for a change across several texts such as table cells, the first text that changes),
-  so it survives positions shifting as other changes are resolved. Bookmarks are
-  always removed when the review finishes (success, timeout, or error).
+* Each change is anchored by a text cursor spanning its redline span (for a change across
+  several texts such as table cells, the first text that changes), so it survives positions
+  shifting as other changes are resolved. Cursors follow edits and never enter undo history,
+  so nothing is removed after review. Text typed directly after a pending change joins it.
 * Outcome detection must survive the redline disappearing on BOTH accept and reject, and the
   user editing the text during review. At record time we derive, from the tracked state, the
   paragraph text as it would read after an accept (skip tracked deletions) and after a reject
@@ -46,7 +46,7 @@ returns an empty complete result), and degrades to inert if tracking cannot be e
 from __future__ import annotations
 
 import contextlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import itertools
 import logging
 import re
@@ -57,12 +57,18 @@ from typing import Any, Callable, ClassVar, Generator, TypeVar
 from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK  # type: ignore
 
 from plugin.doc.compound_undo import UndoLock, UndoOutcome, UndoUnavailable, WriterCompoundUndo, commit_or_rollback
-from plugin.doc.text_helpers import FAILED, go_right, iter_elements, iter_portions
+from plugin.doc.text_helpers import FAILED, go_right, is_text_table, iter_elements, iter_portions
 # Module-qualified on purpose: plugin/testing_runner.py replaces config.get_config while native
 # suites run (review mode reads "off" unless a test sets it); a from-import would keep the original.
 from plugin.framework import config
 from plugin.framework.doc_type import is_writer
-from plugin.framework.errors import ToolExecutionError, document_is_disposed, reraise_if_disposed, uno_read
+from plugin.framework.errors import (
+    DocumentDisposedError,
+    ToolExecutionError,
+    document_is_disposed,
+    reraise_if_disposed,
+    uno_read,
+)
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 from plugin.framework.i18n import N_, _
 from plugin.framework.uno_context import get_ctx
@@ -82,7 +88,6 @@ from plugin.writer.word_diff_split import split_change
 
 log = logging.getLogger(__name__)
 
-_BOOKMARK_PREFIX = "wa_review_"
 _PREVIEW_MAX_CHARS = 300
 # Frame portions read "", so without a mark an object-only change reads the same accepted
 # and rejected; _preview strips it because it is not document text.
@@ -167,9 +172,8 @@ def flag_style_unreviewed(result: dict[str, Any], doc: Any | None = None) -> Non
     when the user has Track Changes > Record on while agent review is Off), including
     header/footer writes that enabled the region or changed auto-height. Callers omit
     *doc* when Writer records the change itself while the document is recording
-    (header/footer text-only writes, character styles). Paragraph ``apply_style`` records
-    its own ``ParagraphFormat`` redline whenever the document is recording or agent review
-    is on.
+    (character styles). Paragraph ``apply_style`` records its own ``ParagraphFormat``
+    redline whenever the document is recording or agent review is on.
     """
     if result.get("status") != "ok":
         return
@@ -334,15 +338,17 @@ def _tag_new_change(
     return token, new_redlines
 
 
-def tag_agent_redlines(doc: Any, before_ids: set[Any],
-                       before_reliable: bool = False) -> str | None:
-    """Stamp a fresh ``wa-review:<session>:<n>`` token on every redline created since
+def tag_agent_redlines(
+    doc: Any,
+    before_ids: set[Any],
+    before_reliable: bool = False,
+    token: str | None = None,
+) -> str | None:
+    """Stamp a ``wa-review:<session>:<n>`` token on every redline created since
     *before_ids*, marking them as ONE agent change so the inline review UI recognizes them.
 
-    For edit paths that produce their own redlines and only need them reviewable (e.g. the
-    streamed extend-selection rewrite, which already collapses to a single tracked change) --
-    no anchor/outcome/wait, which the streamed chat path doesn't use. Returns the token, or
-    None if nothing new was tagged.
+    When *token* is given, that token is stamped instead of minting a fresh one so
+    separate writes in one streamed edit share a single change token.
 
     Refuses (returns None) when *before_reliable* is False: a partial BEFORE snapshot could
     misclassify a pre-existing USER redline as new and stamp it as an agent change, after which
@@ -350,11 +356,16 @@ def tag_agent_redlines(doc: Any, before_ids: set[Any],
     its redlines just stay untagged -> treated as the user's -> never auto-resolved. *before_reliable*
     defaults to False (fail closed): a caller must explicitly assert a verified-complete snapshot
     (the boolean returned by ``snapshot_redline_ids``) to enable tagging."""
+    mint_token = (
+        (lambda: token)
+        if token is not None
+        else (lambda: _review_scan.make_agent_token(uuid.uuid4().hex[:8], 0))
+    )
     tagged = _tag_new_change(
         doc,
         before_ids,
         before_reliable,
-        lambda: _review_scan.make_agent_token(uuid.uuid4().hex[:8], 0),
+        mint_token,
         "tag_agent_redlines",
     )
     if tagged is None:
@@ -440,7 +451,8 @@ class ChangeRecord:
     """One reviewable change: its token, anchor, and the two expected end states."""
 
     token: str
-    bookmark: str
+    # Live UNO cursor; exclude from repr/compare/hash so off-main-thread logging or == never calls UNO.
+    anchor: Any = field(compare=False, repr=False)
     accepted_text: str
     rejected_text: str
     original_preview: str
@@ -448,13 +460,9 @@ class ChangeRecord:
 
 
 def run_in_review_session(doc: Any, ctx: Any, run: Callable[[EditReviewSession], Any]) -> Any:
-    """Run *run(session)* inside an ``EditReviewSession`` and clean up its bookmarks."""
-    review = EditReviewSession(doc, ctx, enabled=review_recording_enabled())
-    try:
-        with review:
-            return run(review)
-    finally:
-        review.cleanup()
+    """Run *run(session)* inside an ``EditReviewSession``."""
+    with EditReviewSession(doc, ctx, enabled=review_recording_enabled()) as review:
+        return run(review)
 
 
 _T = TypeVar("_T")
@@ -529,7 +537,7 @@ class EditReviewSession:
         if self._record_cm is not None:
             self._record_cm.__exit__(exc_type, exc, tb)
             self._record_cm = None
-        # Bookmarks stay until wait_for_review/cleanup: outcomes are read after this block.
+        # The anchors stay on the change records: outcomes are read after this block.
 
     # -- recording ---------------------------------------------------------------------------
 
@@ -561,7 +569,7 @@ class EditReviewSession:
                 self._first_snapshot = (before, before_ok)
             result = apply_fn()
 
-            # A failed tag or a failed missing-bookmark clear can leave
+            # A failed tag or a failed missing-anchor clear can leave
             # wa-review:<session>:<n> on a redline without appending a ChangeRecord.
             # len(self.changes) would mint that same n again, so the leftover becomes
             # the next registered token and wait_for_review stays blocked after the
@@ -576,7 +584,7 @@ class EditReviewSession:
                 return result
             token, new_redlines = tagged
 
-            # Bounding span across the new redlines -> anchor bookmark + expected end states.
+            # Bounding span across the new redlines -> anchor cursor + expected end states.
             # Built with cursor.gotoRange(range, expand=True): XTextRangeCompare is unreliable on
             # redline ranges (a tracked DELETE's text sits outside the normal flow), so comparing
             # starts/ends can collapse the span for replace changes.
@@ -600,7 +608,7 @@ class EditReviewSession:
                             break
                     else:
                         groups.append([end])
-            bookmark_name = ""
+            anchor: Any = None
             accepted_text = rejected_text = ""
             accepted_all: list[str] = []
             rejected_all: list[str] = []
@@ -611,7 +619,7 @@ class EditReviewSession:
                         span = text_group[0].getText().createTextCursorByRange(text_group[0])
                         for point in text_group[1:]:
                             span.gotoRange(point, True)  # expand=True grows the span in either direction
-                        # Scope the captured states AND the anchor bookmark to the CHANGE's own redline
+                        # Scope the captured states AND the anchor cursor to the CHANGE's own redline
                         # span, not the whole paragraph -- so when several changes share a paragraph each
                         # one's outcome/final_text reflects only itself, and a change deep in a long
                         # paragraph is never truncated out of the preview.
@@ -624,29 +632,25 @@ class EditReviewSession:
                         # one that changes can tell Accept from Reject.
                         if anchor_span is None and (acc != rej or (len(groups) == 1 and not at_table)):
                             anchor_span, accepted_text, rejected_text = span, acc, rej
-                    if anchor_span is not None:
-                        bookmark_name = "%s%s_%d" % (_BOOKMARK_PREFIX, self.session_id, n)
-                        bm = self.doc.createInstance("com.sun.star.text.Bookmark")
-                        bm.setName(bookmark_name)
-                        anchor_span.getText().insertTextContent(anchor_span, bm, True)
+                    anchor = anchor_span
                 except Exception:
-                    bookmark_name = ""
+                    anchor = None
                     log.debug("EditReviewSession: anchoring failed for change %d", n, exc_info=True)
         finally:
             if group is not None:
                 group.close()
 
-        # No bookmark → do not register. ChangeRecord with bookmark="" makes _outcome guess
+        # No anchor → do not register. ChangeRecord with anchor=None makes _outcome guess
         # rejected/modified (current is None). That is a lie to the model. Same as failed tagging:
         # the edit already applied; it stays untagged. Do not "fix" this by appending and
-        # special-casing _outcome — empty bookmark is not the same as a bookmark the user later
-        # removed (pure-insert reject).
+        # special-casing _outcome — missing anchor is not the same as a cursor that later became
+        # unusable (pure-insert reject).
         # A failed clear can leave wa-review:<session>:<n> on the redline. The leftover stays
         # unregistered, its index is not issued again, and _pending_tokens ignores tokens that
         # are not on a ChangeRecord, so wait_for_review still finishes once every registered
         # change is resolved. Keep this untag attempt: when it succeeds the redline comment
         # is cleared.
-        if not bookmark_name:
+        if anchor is None:
             log.warning(
                 "EditReviewSession: no review anchor for change %d; leaving this edit untagged "
                 "(not a reviewable agent change)",
@@ -658,7 +662,7 @@ class EditReviewSession:
             return result
 
         self.changes.append(ChangeRecord(
-            token, bookmark_name, accepted_text, rejected_text,
+            token, anchor, accepted_text, rejected_text,
             original_preview or "\n".join(rejected_all),
             proposed_preview or "\n".join(accepted_all)))
         # A new pending change exists -> reveal the review fast-travel toolbar. Runs on the main
@@ -708,13 +712,18 @@ class EditReviewSession:
 
     # -- review ------------------------------------------------------------------------------
 
-    def _pending_tokens(self) -> tuple[set[str], bool]:
-        """``(registered tokens that still have an unresolved redline, reliable)``.
+    def _pending_tokens(self) -> tuple[set[str], bool] | None:
+        """``(registered tokens that still have an unresolved redline, reliable)``, or ``None`` if closed.
+
+        ``getRedlines()`` on a closed Writer model dereferences a null doc shell
+        (``SwXTextDocument::getSwRedlines``, ``sw/source/uibase/uno/unotxdoc.cxx``). The
+        liveness probe and the scan therefore share one main-thread call; this is the
+        dispose check that ``execute_safe`` skips for async tools.
 
         The scan still collects every ``RedlineComment`` that starts with this session's
         prefix. The returned set is the intersection with tokens on ``ChangeRecord``s.
 
-        A failed tag, or a missing-bookmark clear that left orphans, does
+        A failed tag, or a missing-anchor clear that left orphans, does
         not register a change, but the redline can still carry
         ``wa-review:<session>:<n>``. ``wait_for_review`` must not loop
         until every such comment is gone. An unregistered leftover blocks
@@ -729,6 +738,8 @@ class EditReviewSession:
         fail-closes and keeps waiting, because the unseen tail might
         still hold a registered change.
         """
+        if document_is_disposed(self.doc):
+            return None
         prefix = _review_scan.session_token_prefix(self.session_id)
         registered = {record.token for record in self.changes}
         seen: set[str] = set()
@@ -748,22 +759,18 @@ class EditReviewSession:
         return seen & registered, reliable
 
     def _change_text_at_anchor(self, record: ChangeRecord) -> str | None:
-        """Current text of the CHANGE's own region (its anchor bookmark span), or None if the anchor
-        is gone. Scoped to the change, not the whole paragraph, so a neighbouring change sharing the
-        paragraph never contaminates this one's reported text."""
+        """Current text of the CHANGE's own region (its anchor cursor span), or None when the
+        cursor is unusable, for example when its table cell or frame was deleted. Scoped to the
+        change, not the whole paragraph, so a neighbouring change sharing the paragraph never
+        contaminates this one's reported text."""
         try:
-            bookmarks = self.doc.getBookmarks()
-            if not bookmarks.hasByName(record.bookmark):
-                return None
-            anchor = bookmarks.getByName(record.bookmark).getAnchor()
             # Skip tracked DELETIONS so the text reads as the region WOULD after accepting, instead
             # of gluing struck text to the insertion (e.g. "quickfast"). _outcome is unaffected: a
             # RESOLVED change has no redlines left, so this equals the raw string there; for a
             # pending change _outcome short-circuits to "pending" before comparing text.
-            cur = anchor.getText().createTextCursorByRange(anchor)
-            return _string_skipping_redline(cur, "Delete")
+            return _string_skipping_redline(record.anchor, "Delete")
         except Exception:
-            log.debug("EditReviewSession: anchor read failed for %s", record.bookmark, exc_info=True)
+            log.debug("EditReviewSession: anchor read failed for %s", record.token, exc_info=True)
             return None
 
     def _outcome(self, record: ChangeRecord, pending_tokens: set[str], pending_reliable: bool) -> str:
@@ -774,9 +781,9 @@ class EditReviewSession:
             return "pending"
         current = self._change_text_at_anchor(record)
         if current is None:
-            # The anchor bookmark is gone: a rejected pure insertion can take its whole span (and
-            # the bookmark) with it; an accepted pure deletion does the same; anything else means
-            # the user reworked/removed the area.
+            # The anchor cursor is unusable (its text was deleted): a rejected pure insertion
+            # can take its whole span with it; an accepted pure deletion does the same; anything
+            # else means the user reworked/removed the area.
             if record.rejected_text == "":
                 return "rejected"
             if record.accepted_text == "":
@@ -796,45 +803,11 @@ class EditReviewSession:
                 return "rejected"
         return "modified"
 
-    def _remove_anchor_bookmarks(self, records: list[ChangeRecord]) -> None:
-        """Remove the anchor bookmarks of *records*, under the undo lock so the removal stays off the
-        user's undo stack. Best-effort: any failure is logged at debug, never raised. Shared by
-        cleanup() and discard_changes_since()."""
-        try:
-            bookmarks = self.doc.getBookmarks()
-            with UndoLock(self.doc):
-                for record in records:
-                    try:
-                        if bookmarks.hasByName(record.bookmark):
-                            bm = bookmarks.getByName(record.bookmark)
-                            bm.getAnchor().getText().removeTextContent(bm)
-                    except Exception:
-                        log.debug("EditReviewSession: anchor bookmark removal failed for %s",
-                                  record.bookmark, exc_info=True)
-        except Exception:
-            log.debug("EditReviewSession: anchor bookmark removal failed", exc_info=True)
-
-    def cleanup(self) -> None:
-        """Remove this session's anchor bookmarks. Safe to call more than once."""
-        if not self._active or not self.changes:
-            return
-        self._remove_anchor_bookmarks(self.changes)
-
     def discard_changes_since(self, count: int) -> None:
-        """Drop change records recorded after index *count*, removing their anchor bookmarks.
-
-        Used to roll back a partially-applied batch (a surgical multi-edit that failed mid-apply):
-        the caller undoes the document mutations, then calls this so neither the change
-        list nor the document is left holding records/bookmarks for edits that no longer exist.
-        Best-effort and self-contained: bookmark removal runs under the undo lock (kept off the
-        user's undo stack) and any failure is logged, never raised."""
+        """Trim the records of a rolled-back batch after index *count*."""
         if count < 0 or count >= len(self.changes):
             return
-        doomed = self.changes[count:]
         del self.changes[count:]
-        if not self._active:
-            return
-        self._remove_anchor_bookmarks(doomed)
 
     def _review_payload(self, complete: bool, timed_out: bool) -> dict[str, Any]:
         # Derive BOTH the header and the per-change outcomes from THIS one scan so they can never
@@ -842,7 +815,9 @@ class EditReviewSession:
         # outcome), AND only report complete when this same scan is reliable and shows nothing pending
         # (never upgrade a False). Otherwise a transient unreliable/non-empty re-scan here could pair
         # complete=True with all-"pending" outcomes -- an internally contradictory report.
-        pending, pending_ok = self._pending_tokens()
+        scan = self._pending_tokens()
+        # A closed document reports every change as pending without touching the model.
+        pending, pending_ok = scan if scan is not None else (set(), False)
         complete = complete and pending_ok and not pending
         return {
             "complete": complete,
@@ -860,7 +835,7 @@ class EditReviewSession:
                     # anchor paragraph is gone (e.g. a rejected pure insertion removed it).
                     # The anchor is read again here instead of reusing _outcome's read: this runs
                     # once per change after review and keeps _outcome self-contained.
-                    "final_text": _preview(self._change_text_at_anchor(record) or ""),
+                    "final_text": _preview(self._change_text_at_anchor(record) or "") if scan is not None else "",
                 }
                 for record in self.changes
             ],
@@ -879,41 +854,35 @@ class EditReviewSession:
 
         Thread placement: poll from a background/HTTP thread so the main thread stays free for
         the user's accept/reject clicks. UNO is not thread-safe, so callers off the main thread
-        pass ``uno_runner`` (e.g. ``main.call``) and every document read/cleanup in
+        pass ``uno_runner`` (e.g. ``main.call``) and every document read in
         the loop is marshalled through it; the sleep itself stays on the calling thread.
         """
         run = uno_runner if uno_runner is not None else (lambda fn: fn())
         if not self._active or not self.changes:
             return {"complete": True, "timed_out": False, "changes": []}
-        try:
-            deadline = time.monotonic() + max(0.0, timeout)
-            timed_out = False
-            while True:
-                # execute_safe skips the pre-execute disposed probe when is_async() (review-wait
-                # runs off the main thread). This loop is that probe. Do not add assert_main_thread
-                # here and do not force the execute_safe check onto async tools.
-                if run(lambda: document_is_disposed(self.doc)):
-                    # Dead doc, not a user-timeout. Unreliable getRedlines() is a *different*
-                    # signal (incomplete enum on a live doc) — never treat that as complete
-                    # (would resolve the user's own redlines) and never equate it with dispose.
-                    return run(lambda: self._review_payload(complete=False, timed_out=False))
-                pending, reliable = run(self._pending_tokens)
-                # Done ONLY on a reliable empty intersection of scanned tags with registered
-                # change tokens. An orphan tag (not on a ChangeRecord) does not count. An
-                # unreliable scan keeps waiting — never complete off a partial read that might
-                # have missed an unresolved registered change (fail closed).
-                if reliable and not pending:
-                    break
-                # Only explicit False ends the wait (review mode off); other falsy returns keep waiting.
-                if is_cancelled(cancel) or (still_reviewing is not None and still_reviewing() is False):
-                    return run(lambda: self._review_payload(complete=False, timed_out=False))
-                if time.monotonic() >= deadline:
-                    timed_out = True
-                    break
-                time.sleep(poll)
-            return run(lambda: self._review_payload(complete=not timed_out, timed_out=timed_out))
-        finally:
-            run(self.cleanup)
+        deadline = time.monotonic() + max(0.0, timeout)
+        timed_out = False
+        while True:
+            scan = run(self._pending_tokens)
+            if scan is None:
+                # A closed document, not a timeout. An unreliable scan (..., False) is a live
+                # document whose enumeration is incomplete; keep waiting on it, and never merge it with None.
+                return run(lambda: self._review_payload(complete=False, timed_out=False))
+            pending, reliable = scan
+            # Done ONLY on a reliable empty intersection of scanned tags with registered
+            # change tokens. An orphan tag (not on a ChangeRecord) does not count. An
+            # unreliable scan keeps waiting — never complete off a partial read that might
+            # have missed an unresolved registered change (fail closed).
+            if reliable and not pending:
+                break
+            # Only explicit False ends the wait (review mode off); other falsy returns keep waiting.
+            if is_cancelled(cancel) or (still_reviewing is not None and still_reviewing() is False):
+                return run(lambda: self._review_payload(complete=False, timed_out=False))
+            if time.monotonic() >= deadline:
+                timed_out = True
+                break
+            time.sleep(poll)
+        return run(lambda: self._review_payload(complete=not timed_out, timed_out=timed_out))
 
 
 # ---------------------------------------------------------------------------
@@ -1255,20 +1224,45 @@ def _replace_range_with_paragraph_text(text_range: Any, text: str, *, collapse_b
         cursor.setString(part)
 
 
-_BLOCKING_REDLINE_TYPES = frozenset({"Insert", "Delete"})
+INSERT_DELETE_REDLINES = frozenset({"Insert", "Delete"})
 
 # Shown by the Extend/Edit Selection message box.
-TRACKED_SELECTION_MESSAGE = N_("This selection contains tracked insertions or deletions. Accept or reject those changes first. The selection was not modified.")
+TRACKED_SELECTION_MESSAGE = N_(
+    "This selection contains tracked changes. Accept or reject them first. "
+    "The selection was not modified."
+)
+TABLE_SELECTION_MESSAGE = N_(
+    "This selection includes a table. Edit Selection and Extend Selection work on text only: "
+    "select text outside the table or inside one cell. The selection was not modified."
+)
+WHOLE_DOCUMENT_TABLE_MESSAGE = N_(
+    "This document contains a table. Whole-document rewrite works on text documents without tables."
+)
 
 
-class TrackedChangesInSelection(Exception):
-    """The selection contains a tracked Insert or Delete, so a streamed edit must not write it.
+class StreamedSelectionRefused(Exception):
+    """Base for streamed-selection refusal; ``str(exc)`` is the user-facing ``N_`` message."""
 
-    ``setString`` with ``RecordChanges`` off accepts deletions and flattens insertions.
+
+class TrackedChangesInSelection(StreamedSelectionRefused):
+    """The selection contains, touches, or lies inside a tracked change.
+
+    Replacing the range would drop another author's pending Format or ParagraphFormat
+    change, and an untracked write accepts or flattens an Insert or Delete.
     """
 
     def __init__(self) -> None:
         super().__init__(TRACKED_SELECTION_MESSAGE)
+
+
+class TableInSelection(StreamedSelectionRefused):
+    """The selection includes a text table.
+
+    Replacing the range deletes the table, and Reject cannot bring it back.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(TABLE_SELECTION_MESSAGE)
 
 
 def _portion_type(node: Any) -> str | None:
@@ -1293,29 +1287,31 @@ def _open_enum(owner: Any) -> Any:
     return uno_read(create, FAILED)
 
 
-def _is_blocking_redline(node: Any) -> bool:
-    """True for a tracked Insert or Delete, or a redline whose type cannot be read.
+def _is_blocking_redline(node: Any, kinds: frozenset[str] | None = None) -> bool:
+    """True for a redline portion matching *kinds* (any redline when *kinds* is None).
 
-    Format (and other) redlines are left alone: this guard exists so ``setString``
-    cannot accept a deletion or flatten an insertion. An unreadable type on a
-    confirmed redline portion fails closed, because that write would resolve it.
+    An unreadable ``RedlineType`` on a confirmed redline portion fails closed
+    because a write could resolve it.
     """
     if _portion_type(node) != "Redline":
         return False
+    if kinds is None:
+        return True
     kind = uno_read(lambda: str(node.getPropertyValue("RedlineType")), FAILED)
     if kind is FAILED:
         return True
-    return kind in _BLOCKING_REDLINE_TYPES
+    return kind in kinds
 
 
-def range_has_tracked_insert_or_delete(doc: Any, text_range: Any) -> bool:
-    """True when *text_range* contains, or (if non-collapsed) lies wholly inside, a tracked Insert or Delete.
+def range_has_redline(
+    doc: Any,
+    text_range: Any,
+    kinds: frozenset[str] | None = None,
+) -> bool:
+    """True when *text_range* contains, touches, or (if non-collapsed) lies inside a redline of *kinds*.
 
-    A selection inside one change has no redline marker portions of its own, so
-    we first check ``redline_kinds_covering`` for non-collapsed ranges and then
-    walk the range's elements and portions. When the walk starts and then fails,
-    the result is True: ``setString`` must not run on a range we could not prove
-    is free of Insert/Delete redlines.
+    When *kinds* is None, any ``RedlineType`` matches. A failed enumeration
+    returns True so callers fail closed rather than touching an unchecked range.
     """
     # A collapsed caret selects nothing, and redline_kinds_covering is edge-inclusive,
     # so checking it on a caret at either edge would refuse before "Select text first".
@@ -1323,19 +1319,21 @@ def range_has_tracked_insert_or_delete(doc: Any, text_range: Any) -> bool:
         lambda: text_range.getText().compareRegionStarts(text_range.getStart(), text_range.getEnd()),
         None,
     )
-    if cmp_val != 0 and (_BLOCKING_REDLINE_TYPES & redline_kinds_covering(redline_spans(doc), text_range)):
-        return True
+    if cmp_val != 0:
+        covering = redline_kinds_covering(redline_spans(doc), text_range)
+        if covering and (kinds is None or bool(kinds & covering)):
+            return True
     top = _open_enum(text_range)
     if top is None:
         return False
     if top is FAILED:
         log.warning(
-            "range_has_tracked_insert_or_delete: could not enumerate the selection; "
-            "refusing so setString cannot accept an unseen redline")
+            "range_has_redline: could not enumerate the selection; "
+            "refusing so an unseen redline cannot be modified")
         return True
     try:
         for node in iter_elements(top):
-            if _is_blocking_redline(node):
+            if _is_blocking_redline(node, kinds):
                 return True
             # A portion (text, redline mark, …) does not contain nested redlines.
             # Only descend into paragraphs / other containers.
@@ -1344,47 +1342,63 @@ def range_has_tracked_insert_or_delete(doc: Any, text_range: Any) -> bool:
             sub = _open_enum(node)
             if sub is FAILED:
                 log.warning(
-                    "range_has_tracked_insert_or_delete: could not enumerate a selection "
-                    "child; refusing so setString cannot accept an unseen redline")
+                    "range_has_redline: could not enumerate a selection "
+                    "child; refusing so an unseen redline cannot be modified")
                 return True
             if sub is None:
                 continue
             for sub_elem in iter_elements(sub):
-                if _is_blocking_redline(sub_elem):
+                if _is_blocking_redline(sub_elem, kinds):
                     return True
     except Exception:
         log.warning(
-            "range_has_tracked_insert_or_delete: portion walk failed; refusing so "
-            "setString cannot accept a redline the walk did not finish",
+            "range_has_redline: portion walk failed; refusing so "
+            "a redline the walk did not finish cannot be modified",
             exc_info=True)
         return True
     return False
 
 
-def refuse_tracked_insert_or_delete(doc: Any, text_range: Any) -> None:
-    """Raise before any streamed-edit write when the range touches an Insert or Delete.
-
-    Extend/Edit Selection reads the selection with ``visible_range_text``
-    (Delete text dropped, Insert text kept as ordinary characters).
-    ``WriterStreamedRewriteSession`` then turns ``RecordChanges`` off and calls
-    ``setString("")``. ``WriterStreamedAppendSession`` streams with
-    ``setString(original + continuation)`` and ``finish`` calls
-    ``setString(original_text)``. With tracking off, ``setString`` accepts or
-    splits every redline covering or inside the range before the model returns
-    anything.
-
-    Both session constructors call this before the undo context,
-    before ``RecordChanges`` is changed, and before the first
-    ``setString``, so the redlines stay untouched even if the menu
-    wrapper is skipped. A range with no Insert/Delete keeps the
-    rewrite path. An empty model result restores the original text
-    and does not record a deletion.
-    """
-    if range_has_tracked_insert_or_delete(doc, text_range):
+def range_contains_table(text_range: Any) -> bool:
+    """True when *text_range*'s top-level enumeration holds a ``TextTable`` (or fails)."""
+    top = _open_enum(text_range)
+    if top is None:
+        return False
+    if top is FAILED:
         log.warning(
-            "streamed selection edit refused: selection contains a tracked Insert or "
-            "Delete; RecordChanges was not changed and setString was not called")
+            "range_contains_table: could not enumerate the selection; "
+            "refusing because table presence cannot be verified")
+        return True
+    try:
+        return any(is_text_table(node) for node in iter_elements(top))
+    except Exception:
+        log.warning(
+            "range_contains_table: enumeration failed; "
+            "refusing because table presence cannot be verified",
+            exc_info=True)
+        return True
+
+
+def refuse_streamed_selection(doc: Any, text_range: Any) -> None:
+    """Raise before any streamed-edit write when the range touches any redline or a table.
+
+    Replacing the range would drop another author's pending Format/ParagraphFormat
+    change, accept or flatten an Insert/Delete on an untracked write, or delete a
+    table that Reject cannot bring back.
+
+    Both streamed session constructors call this before opening the undo context
+    and before any write (the slash whole-body target calls it too).
+    """
+    if range_has_redline(doc, text_range):
+        log.warning(
+            "streamed selection edit refused: selection contains a tracked change; "
+            "no write was performed")
         raise TrackedChangesInSelection()
+    if range_contains_table(text_range):
+        log.warning(
+            "streamed selection edit refused: selection includes a table; "
+            "no write was performed")
+        raise TableInSelection()
 
 
 def _stream_write_warning(exc: Exception | None) -> str | None:
@@ -1393,32 +1407,31 @@ def _stream_write_warning(exc: Exception | None) -> str | None:
     return _("Failed to write streamed text to the document: {0}").format(exc)
 
 
-def _begin_streamed_edit(doc: Any, text_range: Any, title: str) -> tuple[WriterCompoundUndo, bool, Any]:
-    refuse_tracked_insert_or_delete(doc, text_range)
-
-    record_cm = record_changes(doc, False)
-    was_recording = record_cm.__enter__()
-    try:
-        compound_undo = WriterCompoundUndo(doc, title)
-    except Exception:
-        record_cm.__exit__(None, None, None)
-        raise
-    return compound_undo, was_recording, record_cm
-
-
 def _write_stream_chunk(session: Any, text: str, label: str) -> None:
+    if document_is_disposed(session.doc):
+        # The chunk is dropped, because a write into a closed document's range aborts LibreOffice.
+        return
     try:
-        session.text_range.setString(text)
+        recording = is_recording_changes(session.doc)
+        if recording and not session._preview_recorded:
+            # Replacing an untracked preview while Record is on would strike it as a user
+            # deletion that outlives the stream; drop it untracked before the recorded write.
+            with record_changes(session.doc, False):
+                session._preview.setString("")
+        session._preview.setString(text)
+        session._preview_recorded = recording
     except Exception as exc:
         session.last_write_error = exc
         log.warning("%s: chunk apply failed", label, exc_info=True)
 
 
 class _WriterStreamedSessionBase:
-    """Base class for streamed Writer edits that collapse to one tracked change.
+    """Base class for streamed Writer edits.
 
-    Streaming runs with tracking OFF so chunks paint without a redline per chunk.
-    finish() then collapses the edit into a single tracked change with tracking ON.
+    Recorded runs strike the selection first (for rewrites) and stream the preview
+    at a collapsed cursor in front of it (or after the selection for appends).
+    Untracked runs clear and stream in place. Recording is never switched off
+    across the whole stream, so user typing during the stream stays recorded.
     """
 
     _UNDO_CONTEXT_TITLE: ClassVar[str] = ""
@@ -1427,27 +1440,70 @@ class _WriterStreamedSessionBase:
     text_range: Any
     original_text: str
     track_reviewable: bool
-    was_recording: bool
+    recorded: bool
     last_write_error: Exception | None
     _headings: list[tuple[int, str]] | None
     _compound_undo: WriterCompoundUndo
-    _record_cm: Any
+    _preview: Any
+    _preview_recorded: bool
+    _token: str | None
 
     def __init__(self, doc: Any, text_range: Any, original_text: str, track_reviewable: bool = False) -> None:
+        refuse_streamed_selection(doc, text_range)
         self.doc = doc
         self.text_range = text_range
         self.original_text = original_text
         self.track_reviewable = track_reviewable
+        self.recorded = is_recording_changes(doc) or track_reviewable
         self.last_write_error = None
+        self._token = _review_scan.make_agent_token(uuid.uuid4().hex[:8], 0) if track_reviewable else None
         self._headings = headings_if_touched(doc, [text_range])
-        self._compound_undo, self.was_recording, self._record_cm = _begin_streamed_edit(doc, text_range, self._UNDO_CONTEXT_TITLE)
+        self._compound_undo = WriterCompoundUndo(doc, self._UNDO_CONTEXT_TITLE)
+        try:
+            self._preview = self._open_preview()
+        except Exception:
+            self._compound_undo.close()
+            raise
+        self._preview_recorded = is_recording_changes(doc)
+
+    def _open_preview(self) -> Any:
+        raise NotImplementedError
+
+    def _record(self, write: Callable[[], None]) -> None:
+        if self.track_reviewable:
+            with EditReviewSession(self.doc, get_ctx(), enabled=True):
+                before_ids: set[Any] | None = None
+                before_ids_ok = False
+                try:
+                    before_ids, before_ids_ok = _review_scan.snapshot_redline_ids(self.doc)
+                except Exception:
+                    log.debug("streamed edit: review tagging setup failed", exc_info=True)
+                write()
+                if before_ids is not None and self._token is not None:
+                    try:
+                        # Tag redlines so the inline review UI treats the streamed edit as one agent change.
+                        # If the second-half tag call (at finish) returns None or raises, the start Delete
+                        # keeps self._token while the final Insert stays untagged: the untagged Insert is
+                        # still authored WriterAgent, so author-based guards treat it as the agent's, but
+                        # the toolbar lists only the tagged Delete.
+                        self._token = tag_agent_redlines(
+                            self.doc,
+                            before_ids,
+                            before_reliable=before_ids_ok,
+                            token=self._token,
+                        )
+                    except Exception:
+                        log.debug("streamed edit: redline tagging failed", exc_info=True)
+        else:
+            with record_changes(self.doc, True):
+                write()
 
     def _retarget_links(self) -> str | None:
         """Point links at headings this edit renamed. Returns a warning for links left stale."""
         if not self._headings:
             return None
         try:
-            with record_changes(self.doc, self.was_recording or self.track_reviewable), \
+            with record_changes(self.doc, self.recorded), \
                  EditReviewSession(self.doc, get_ctx(), enabled=self.track_reviewable) as session:
                 detail = ", ".join(retarget_renamed_links(session, self.doc, self._headings)[1])
         except Exception as exc:
@@ -1456,88 +1512,64 @@ class _WriterStreamedSessionBase:
             detail = str(exc)
         return _("Links to a renamed or deleted heading could not all be updated: {0}").format(detail) if detail else None
 
-    def _exit_stream_recording(self) -> None:
-        """Exit the stream's record_changes(False) context, restoring prior recording state."""
-        if self._record_cm is not None:
-            cm = self._record_cm
-            self._record_cm = None
-            cm.__exit__(None, None, None)
-
-    def _finish_collapse(
+    def _finish(
         self,
         label: str,
-        collapse_fn: Callable[[], None],
+        write_final: Callable[[], None],
         fallback_text: str,
         fallback_desc: str,
         fallback_err_msg: str,
         success_msg: str,
     ) -> str | None:
-        """Finalize the streamed edit, collapsing it into a single tracked change."""
+        """Replace the streamed preview with the final write (recorded once when ``self.recorded``)."""
         try:
-            if not (self.was_recording or self.track_reviewable):
-                link_warning = self._retarget_links()
-                self._exit_stream_recording()
-                return _stream_write_warning(self.last_write_error) or link_warning
-
+            if document_is_disposed(self.doc):
+                # A closed document must not reach getRedlines or setString.
+                raise DocumentDisposedError("Document closed during streamed edit")
             try:
-                before_ids = None
-                before_ids_ok = False
-                if self.track_reviewable:
-                    try:
-                        before_ids, before_ids_ok = _review_scan.snapshot_redline_ids(self.doc)
-                    except Exception:
-                        log.debug("%s: review tagging setup failed", label, exc_info=True)
-
-                # setString(original) runs with recording off so the reset is not its own redline.
-                self.text_range.setString(self.original_text)
-
-                if self.track_reviewable:
-                    with EditReviewSession(self.doc, get_ctx(), enabled=True):
-                        collapse_fn()
+                # Remove the preview untracked (it may be the user's own recorded Insert)
+                # so that only the final write is recorded as one Insert.
+                with record_changes(self.doc, False):
+                    self._preview.setString("")
+                if self.recorded:
+                    self._record(write_final)
                 else:
-                    with record_changes(self.doc, True):
-                        collapse_fn()
-
-                if before_ids is not None:
-                    try:
-                        # Tag redlines so the inline review UI treats the streamed edit as an agent change.
-                        tag_agent_redlines(self.doc, before_ids, before_reliable=before_ids_ok)
-                    except Exception:
-                        log.debug("%s: redline tagging failed", label, exc_info=True)
+                    with record_changes(self.doc, False):
+                        write_final()
                 return self._retarget_links()
             except Exception as exc:
                 # A closed document is not "the text was kept".
                 reraise_if_disposed(exc)
-                log.exception("Failed to collapse %s into one tracked change", label)
+                log.exception("Failed to finalize %s", label)
 
                 try:
-                    self.text_range.setString(fallback_text)
+                    with record_changes(self.doc, False):
+                        self._preview.setString(fallback_text)
                 except Exception as e:
                     reraise_if_disposed(e)
                     log.warning("%s: fallback setString failed", label, exc_info=True)
                     return fallback_err_msg.format(f"{fallback_desc}: {e}")
                 return success_msg
         finally:
-            # Restore the prior recording state so the user's later typing is not tracked.
-            self._exit_stream_recording()
             self._compound_undo.close()
 
 
 class WriterStreamedRewriteSession(_WriterStreamedSessionBase):
-    """Manage a streamed Writer edit that collapses to one tracked change.
+    """Manage a streamed Writer edit that replaces the selection.
 
-    Refuses with :class:`TrackedChangesInSelection` before any write when the range
-    already contains a tracked Insert or Delete. ``finish()`` with an empty
-    ``generated_text`` puts ``original_text`` back and records nothing. Characters
-    the model actually sent, including whitespace, still collapse as one tracked
-    change when recording is on. The undo context spans the whole stream, so user
-    edits made while streaming join the agent's undo step (known limitation, see
-    :class:`WriterCompoundUndo`).
+    Refuses with :class:`StreamedSelectionRefused` before any write when the range
+    contains, touches, or lies inside a tracked change, or includes a table.
+    ``finish()`` with empty or scaffold-only ``generated_text`` leaves the
+    document unchanged and records nothing. Characters the model actually sent,
+    including whitespace, still apply as a rewrite. The undo context spans the
+    whole stream, so user edits made while streaming join the agent's undo step
+    (known limitation, see :class:`WriterCompoundUndo`).
     """
 
     _UNDO_CONTEXT_TITLE: ClassVar[str] = "WriterAgent: Edit selection"
 
     generated_text: str
+    preserve_paragraph_breaks: bool
 
     def __init__(
         self,
@@ -1548,19 +1580,25 @@ class WriterStreamedRewriteSession(_WriterStreamedSessionBase):
         *,
         preserve_paragraph_breaks: bool = False,
     ) -> None:
-        super().__init__(doc, text_range, original_text, track_reviewable=track_reviewable)
         self.generated_text = ""
-        self.preserve_paragraph_breaks: bool = preserve_paragraph_breaks
+        self.preserve_paragraph_breaks = preserve_paragraph_breaks
+        super().__init__(doc, text_range, original_text, track_reviewable=track_reviewable)
 
-        try:
-            self.text_range.setString("")
-        except Exception:
-            self._exit_stream_recording()
-            self._compound_undo.close()
-            raise
+    def _open_preview(self) -> Any:
+        text = self.text_range.getText()
+        if self.recorded:
+            # SwContentIndexReg::Update (sw/source/core/bastyp/index.cxx:231-275) moves
+            # collapsed cursors at the boundary; placing preview at getStart() keeps it
+            # in front of the struck original deletion.
+            preview = text.createTextCursorByRange(self.text_range.getStart())
+            self._record(lambda: self.text_range.setString(""))
+        else:
+            preview = text.createTextCursorByRange(self.text_range)
+            preview.setString("")
+        return preview
 
     def append_chunk(self, chunk: str) -> None:
-        """Append streamed text to the visible range and shadow buffer."""
+        """Append streamed text to the visible preview and shadow buffer."""
         if not chunk:
             return
         self.generated_text += chunk
@@ -1572,27 +1610,27 @@ class WriterStreamedRewriteSession(_WriterStreamedSessionBase):
     def finish(self) -> str | None:
         """Finalize the rewrite. Returns a warning message on degraded success."""
         try:
-            if not self.generated_text:
+            final_text = strip_echoed_edit_scaffolding(self.generated_text)
+            if not final_text:
                 self.abort_and_restore()
                 return _stream_write_warning(self.last_write_error)
 
-            final_text = strip_echoed_edit_scaffolding(self.generated_text)
-            if self.preserve_paragraph_breaks:
-                _write_stream_chunk(self, final_text, "streamed rewrite")
-
-            def _collapse() -> None:
+            def _write_final() -> None:
                 if self.preserve_paragraph_breaks:
+                    # _replace_range_with_paragraph_text writes via its own internal cursor,
+                    # leaving _preview collapsed at the end; a rare partial failure there would
+                    # append fallback_text after the partial paragraphs.
                     _replace_range_with_paragraph_text(
-                        self.text_range,
+                        self._preview,
                         final_text,
                         collapse_blank_paragraph_lines=True,
                     )
                 else:
-                    self.text_range.setString(final_text)
+                    self._preview.setString(final_text)
 
-            return self._finish_collapse(
+            return self._finish(
                 label="streamed rewrite",
-                collapse_fn=_collapse,
+                write_final=_write_final,
                 fallback_text=final_text,
                 fallback_desc="restore generated text failed",
                 fallback_err_msg=_("Failed to finalize the tracked edit and preserve the generated text: {0}"),
@@ -1605,37 +1643,35 @@ class WriterStreamedRewriteSession(_WriterStreamedSessionBase):
             self._compound_undo.close()
 
     def abort_and_restore(self) -> None:
-        """Restore the original text and recording state after an error."""
-        try:
-            # We close the compound undo first, so we can undo the whole streamed operation
-            restored_via_undo = False
-            if self._compound_undo.close():
-                restored_via_undo = self._compound_undo.rollback_if_top()
-            if not restored_via_undo:
-                log.warning("streamed rewrite: compound undo never opened or undo failed; restoring original text via setString")
-                try:
-                    self.text_range.setString(self.original_text)
-                except Exception:
-                    log.exception("streamed rewrite: fallback setString(original_text) failed")
-        finally:
-            self._exit_stream_recording()
+        """Restore the original text after an error (or clear preview if undo is unavailable in a recorded run)."""
+        restored_via_undo = False
+        if self._compound_undo.close():
+            restored_via_undo = self._compound_undo.rollback_if_top()
+        if not restored_via_undo:
+            log.warning(
+                "streamed rewrite: compound undo never opened or undo failed; %s",
+                "clearing preview untracked" if self.recorded else "restoring original text via setString",
+            )
+            try:
+                with record_changes(self.doc, False):
+                    self._preview.setString("" if self.recorded else self.original_text)
+            except Exception:
+                log.exception("streamed rewrite: fallback setString failed")
 
 
 class WriterStreamedAppendSession(_WriterStreamedSessionBase):
-    """Manage a streamed Writer APPEND (extend-selection) that collapses to one tracked insertion.
+    """Manage a streamed Writer APPEND (extend-selection) that records one tracked insertion.
 
-    Unlike :class:`WriterStreamedRewriteSession` (which REPLACES the range), extend-selection
-    keeps the user's original text and streams the agent's continuation AFTER it. Streaming runs
-    with tracking OFF (the user sees the text appear without a redline per chunk); ``finish()``
-    then converts ONLY the appended continuation into a single tracked INSERTION -- the original
-    is never struck through -- authored as the agent and tagged for the inline review UI.
-    The undo context spans the whole stream, so user edits made while streaming join the
-    agent's undo step (known limitation, see :class:`WriterCompoundUndo`).
+    Unlike :class:`WriterStreamedRewriteSession` (which replaces the range), extend-selection
+    never writes the selection in any mode and streams the continuation at a collapsed
+    cursor after it. In recorded runs ``finish()`` removes the untracked preview and
+    inserts the continuation once as a tracked insertion. The undo context spans the whole
+    stream, so user edits made while streaming join the agent's undo step (known limitation,
+    see :class:`WriterCompoundUndo`).
 
-    Refuses with :class:`TrackedChangesInSelection` before ``RecordChanges`` is changed and
-    before the first ``setString`` when the range already contains a tracked Insert or Delete.
-    ``original_text`` is the accept-deletions view, so writing it back would accept those
-    redlines.
+    Refuses with :class:`StreamedSelectionRefused` before opening the undo context and
+    before any write when the range contains, touches, or lies inside a tracked change,
+    or includes a table.
     """
 
     _UNDO_CONTEXT_TITLE: ClassVar[str] = "WriterAgent: Extend selection"
@@ -1643,32 +1679,29 @@ class WriterStreamedAppendSession(_WriterStreamedSessionBase):
     appended_text: str
 
     def __init__(self, doc: Any, text_range: Any, original_text: str, track_reviewable: bool = False) -> None:
-        super().__init__(doc, text_range, original_text, track_reviewable=track_reviewable)
         self.appended_text = ""
+        super().__init__(doc, text_range, original_text, track_reviewable=track_reviewable)
+
+    def _open_preview(self) -> Any:
+        return self.text_range.getText().createTextCursorByRange(self.text_range.getEnd())
 
     def append_chunk(self, chunk: str) -> None:
-        """Append streamed text after the original (tracking off; one redline created at finish)."""
+        """Append streamed text at the cursor after the selection."""
         if not chunk:
             return
         self.appended_text += chunk
-        _write_stream_chunk(self, self.original_text + self.appended_text, "streamed append")
+        _write_stream_chunk(self, self.appended_text, "streamed append")
 
     def finish(self) -> str | None:
-        """Collapse the appended continuation into one tracked insertion. Returns a warning on degraded success."""
+        """Finalize the appended continuation. Returns a warning on degraded success."""
         try:
             if not self.appended_text:
-                self._exit_stream_recording()
                 return _stream_write_warning(self.last_write_error)
 
-            def _collapse() -> None:
-                text = self.text_range.getText()
-                end_cursor = text.createTextCursorByRange(self.text_range.getEnd())
-                text.insertString(end_cursor, self.appended_text, False)
-
-            return self._finish_collapse(
+            return self._finish(
                 label="streamed append",
-                collapse_fn=_collapse,
-                fallback_text=self.original_text + self.appended_text,
+                write_final=lambda: self._preview.setString(self.appended_text),
+                fallback_text=self.appended_text,
                 fallback_desc="restore continuation failed",
                 fallback_err_msg=_("Failed to collapse the streamed continuation into a single tracked change: {0}"),
                 success_msg=_(
