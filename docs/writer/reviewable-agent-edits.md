@@ -418,6 +418,14 @@ When the user turns on Track Changes > Record while agent review is Off, operati
   `IsSelectFrameAnchoredAtPara` / `IsDestroyFrameAnchoredAtChar`).
 * **Undo then Redo of a review-session edit:** Redo brings the redline back untagged and splits an
   `Unknown Author` Insert piece (`RedlineComment` is not an undoable action).
+* **HTML replace of the first words of the agent's own pending inserted paragraph:** content
+  with markup (for example `<b>…</b>`) is imported after the old words are deleted, so it lands on
+  the insertion's start edge and stays a separate Insert. The rest of the earlier insertion then
+  starts mid-paragraph and ends with the paragraph break, and Reject All leaves the next original
+  paragraph in the inserted paragraph's style (`sw_GetJoinFlags`, `sw/source/core/doc/docedt.cxx`,
+  joins backwards only from offset 0). Removing the old words outright instead gives the same
+  Reject All result and also loses them when only the new change is rejected, so they are struck.
+  A plain-text replace of the same words joins the insertion and is not affected.
 * **Undo then Redo of rejecting a stacked Delete:** rejecting a Delete that sits on an Insert
   (for example the user's deletion inside the agent's pending insertion), then Undo and Redo,
   drops the Insert redline as well. The text becomes ordinary text and survives Reject All. This is

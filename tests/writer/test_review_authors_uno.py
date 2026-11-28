@@ -132,7 +132,6 @@ def test_replace_inside_own_pending_insertion_registers_no_change_uno(ctx: Any, 
             session.record_mutation(
                 lambda: html_import.replace_preserving_format(doc, find_first(doc, "agent"), "AGENT", in_undo_context=True)
             )
-        session.cleanup()
     assert session.changes == []
     assert "Beta two inserted AGENT words." in body_texts(doc.getText())
     reject_all_changes(doc, ctx)

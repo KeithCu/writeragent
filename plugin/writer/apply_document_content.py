@@ -150,7 +150,7 @@ def _inside_own_insertion(doc: Any, ranges: list[Any], review: bool) -> bool:
     The edit may then fold into that insertion and leave no redline of its own (see
     ``review_authors.deletion_author``); ``_do_edit`` checks that it did.
     """
-    return review and inside_insertion_by(doc, ranges, review_authors.INSERT_AUTHOR)
+    return review and inside_insertion_by(doc, ranges, review_authors.INSERT_AUTHOR, strict=False)
 
 
 def _flag_replace_result(result: dict[str, Any], own_format: bool, inside_own: bool) -> None:

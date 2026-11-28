@@ -420,7 +420,7 @@ def test_deletion_author_noop_when_review_authors_missing(monkeypatch):
     import plugin.writer.html_import as html_import
 
     monkeypatch.setitem(sys.modules, "plugin.writer.review_authors", None)
-    cm = html_import._deletion_author(object(), object())
+    cm = html_import._deletion_author(object(), object(), strict=False)
     with cm:
         pass
     assert isinstance(cm, contextlib.nullcontext)

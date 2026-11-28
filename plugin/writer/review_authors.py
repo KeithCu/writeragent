@@ -216,7 +216,7 @@ def end(ctx: Any, prior: tuple[str, str] | None) -> None:
 
 
 @contextlib.contextmanager
-def deletion_author(doc: Any, doomed: Any, *, strict: bool = False) -> Generator[None, None, None]:
+def deletion_author(doc: Any, doomed: Any, *, strict: bool) -> Generator[None, None, None]:
     """Author the tracked deletion of *doomed* inside this block as the DELETE author, then restore
     the INSERT author. A no-op unless ``begin()`` armed split authoring on this thread.
 
@@ -226,12 +226,13 @@ def deletion_author(doc: Any, doomed: Any, *, strict: bool = False) -> Generator
     style or list on the following original paragraph (``sw_GetJoinFlags``,
     ``sw/source/core/doc/docedt.cxx``, joins backwards only from offset 0).
 
-    Callers that insert new text where *doomed* was pass *strict*: the new text joins the
-    insertion unconditionally only strictly inside it (``PreAppendInsertRedline``, ``Inside``
-    case); at its edge LibreOffice merges only redlines that ``SwRedlineData::CanCombine``
+    Callers that insert new text where *doomed* was pass *strict*, which also requires the
+    insertion to extend past both ends of *doomed*. The new text joins the insertion
+    unconditionally only strictly inside it (``PreAppendInsertRedline``, ``Inside`` case); at its
+    edge LibreOffice merges only redlines that ``SwRedlineData::CanCombine``
     (``sw/source/core/doc/docredln.cxx``: same comment, within a minute), which a tagged
     insertion never is. A separate new Insert next to text removed outright could not be rejected
-    back to that text, so the deletion then stacks.
+    back to that text, so the deletion then stacks and rejecting the new change restores it.
     """
     ctx = getattr(_state, "ctx", None)
     if (

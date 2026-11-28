@@ -1205,7 +1205,7 @@ def _replace_whole_paragraphs(
         # Before the delete: on the emptied paragraph this reset cannot be undone, and
         # Undo would bring the old text back without its font, size and language.
         reset_direct_char_formatting(text_obj.createTextCursorByRange(rng), kept_char)
-    with _deletion_author(model, doomed):
+    with _deletion_author(model, doomed, strict=True):
         doomed.setString("")
     if recording:
         text_obj.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
@@ -1547,10 +1547,10 @@ def insert_content_at_position(
         raise ToolExecutionError("Unknown position: %s" % position)
 
 
-def _deletion_author(model: Any, doomed: Any, *, strict: bool = True) -> Any:
+def _deletion_author(model: Any, doomed: Any, *, strict: bool) -> Any:
     """WriterAgent split-author coloring for deleting *doomed*; no-op when ``review_authors`` is omitted (LibrePy).
 
-    *strict* (the default) is for a deletion followed by new content where *doomed* was; see
+    *strict* is for a deletion followed by new content where *doomed* was; see
     ``review_authors.deletion_author``.
     """
     try:
@@ -1669,7 +1669,7 @@ def replace_full_document(
         reset_first = one_paragraph and not recording
         if reset_first:
             reset_direct_char_formatting(cursor, language)
-        with _deletion_author(model, cursor):  # author the deletion distinctly (split by-author coloring)
+        with _deletion_author(model, cursor, strict=True):  # author the deletion distinctly (split by-author coloring)
             cursor.setString("")
         cursor.gotoStart(False)
         if recording:
@@ -1734,7 +1734,7 @@ def replace_single_range_with_content(
         if saved_style is not None:
             # Imported at call time: styles.py is WriterAgent-only (not in scripts/librepy_bundle_paths.py) and imports this module back through edit_review.
             from .styles import apply_paragraph_style_preserving_direct_char
-            with _deletion_author(model, cursor):  # author the deletion distinctly (split by-author coloring)
+            with _deletion_author(model, cursor, strict=True):  # author the deletion distinctly (split by-author coloring)
                 cursor.setString("")
             anchor = text_obj.createTextCursorByRange(cursor.getStart())
             # Insert the inline fragment RAW (do not route through ensure_html_linebreaks:
@@ -1777,7 +1777,7 @@ def replace_single_range_with_content(
         else:
             apply_styles, whole_paragraphs, note = _block_range_replace_flags(text_range, prepared)
         if not whole_paragraphs:
-            with _deletion_author(model, cursor):  # author the deletion distinctly (split by-author coloring)
+            with _deletion_author(model, cursor, strict=True):  # author the deletion distinctly (split by-author coloring)
                 cursor.setString("")
         try:
             return _import_block_range_replace(
