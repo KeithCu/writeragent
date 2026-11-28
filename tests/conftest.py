@@ -314,6 +314,16 @@ def _file_url_to_system_path_without_pyuno(url: str) -> str:
     return path
 
 
+def _system_path_to_file_url_without_pyuno(path: str) -> str:
+    """Like pyuno.systemPathToFileUrl, for venvs that cannot import LibreOffice's pyuno (macOS, Windows).
+
+    pyuno returns a relative path unchanged.
+    """
+    from plugin.framework.url_utils import path_to_file_url
+
+    return path_to_file_url(path) if os.path.isabs(path) else path
+
+
 # Create a mock for uno to prevent ModuleNotFoundError in headless tests
 _mock_uno = MagicMock()
 try:
@@ -323,6 +333,7 @@ try:
     _mock_uno.systemPathToFileUrl = MagicMock(side_effect=pyuno.systemPathToFileUrl)
 except Exception:
     _mock_uno.fileUrlToSystemPath = MagicMock(side_effect=_file_url_to_system_path_without_pyuno)
+    _mock_uno.systemPathToFileUrl = MagicMock(side_effect=_system_path_to_file_url_without_pyuno)
 _mock_uno.createUnoStruct = MagicMock(side_effect=lambda _name, *a, **kw: types.SimpleNamespace(**kw))
 sys.modules["uno"] = _mock_uno
 

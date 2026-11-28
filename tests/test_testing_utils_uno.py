@@ -9,7 +9,7 @@ from __future__ import annotations
 from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK
 
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import TestingFactory
+from plugin.tests.testing_utils import TestingFactory, execute_calc_tool
 
 _USER_STYLE = "WipeCheckUserStyle"
 
@@ -88,3 +88,48 @@ def test_pooled_writer_wipe_leaves_next_document_clean(ctx):
         para_styles = families.getByName("ParagraphStyles")
         assert not para_styles.hasByName(_USER_STYLE)
         assert para_styles.getByName("Standard").getPropertyValue("CharWeight") == 100.0
+
+
+@native_test
+def test_pooled_calc_wipe_drops_pivot_tables(ctx):
+    with TestingFactory.native_doc(ctx, doc_type="calc") as doc:
+        sn = doc.getSheets().getByIndex(0).getName()
+        res_write = execute_calc_tool(
+            doc,
+            ctx,
+            "write_range",
+            {
+                "range": "A1:B4",
+                "values": [
+                    ["Month", "Sales"],
+                    ["Jan", "100"],
+                    ["Feb", "150"],
+                    ["Mar", "200"],
+                ],
+            },
+        )
+        assert res_write.get("status") == "ok", f"write_range failed: {res_write}"
+        res_pivot = execute_calc_tool(
+            doc,
+            ctx,
+            "pivot_table_create",
+            {
+                "name": "WA_WipePivot",
+                "source_range": "A1:B4",
+                "source_sheet": sn,
+                "destination_sheet": sn,
+                "destination_cell": "D1",
+                "row_fields": ["Month"],
+                "column_fields": [],
+                "data_fields": ["Sales"],
+                "page_fields": [],
+            },
+        )
+        assert res_pivot.get("status") == "ok", f"pivot_table_create failed: {res_pivot}"
+
+    with TestingFactory.native_doc(ctx, doc_type="calc") as reused:
+        assert reused is doc
+        sheets = reused.getSheets()
+        for i in range(sheets.getCount()):
+            assert sheets.getByIndex(i).getDataPilotTables().getElementNames() == ()
+        assert sheets.getByIndex(0).getCellRangeByName("D1").getString() == ""
