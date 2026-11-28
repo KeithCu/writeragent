@@ -847,7 +847,7 @@ test could reach it.
 - **Bugfix comments deleted while the guard stayed**, against `AGENTS.md`:
   `56e1f5f19` (the BibliographicType int-range and name-mapping notes),
   `b2d9cce2c` (the `uno_same` identity-ladder history), `f4e4d9695` (the
-  `refuse_streamed_selection` rationale). A cheap check for next time:
+  `refuse_tracked_insert_or_delete` (now `refuse_streamed_selection`) rationale). A cheap check for next time:
   `git show <hash> | grep '^-.*Bugfix'` and confirm each hit has a replacement.
 - **Unverified reviewer notes:** `192018692` `should_emit_silence_progress`
   dropped its `self._config.enabled` check (is the caller gating?);

@@ -44,6 +44,7 @@ from plugin.doc.text_helpers import normalize_linebreaks, selected_text_range, v
 from plugin.writer.edit_review import (
     StreamedSelectionRefused,
     TableInSelection,
+    WHOLE_DOCUMENT_TABLE_MESSAGE,
     WriterStreamedAppendSession,
     WriterStreamedRewriteSession,
     build_writer_rewrite_prompt,
@@ -206,15 +207,7 @@ def _whole_body_target(ctx: Any, model: Any, title: str) -> tuple[Any, str] | No
     try:
         refuse_streamed_selection(model, cursor)
     except TableInSelection:
-        msgbox(
-            ctx,
-            title,
-            _(
-                "This document contains a table. Whole-document rewrite works on text "
-                "documents without tables. Select text outside the table or inside one "
-                "cell to edit a selection."
-            ),
-        )
+        msgbox(ctx, title, _(WHOLE_DOCUMENT_TABLE_MESSAGE))
         return None
     except StreamedSelectionRefused as exc:
         msgbox(ctx, title, _(str(exc)))

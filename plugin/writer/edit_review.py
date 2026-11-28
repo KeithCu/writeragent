@@ -1279,6 +1279,9 @@ TABLE_SELECTION_MESSAGE = N_(
     "This selection includes a table. Edit Selection and Extend Selection work on text only: "
     "select text outside the table or inside one cell. The selection was not modified."
 )
+WHOLE_DOCUMENT_TABLE_MESSAGE = N_(
+    "This document contains a table. Whole-document rewrite works on text documents without tables."
+)
 
 
 class StreamedSelectionRefused(Exception):
@@ -1524,8 +1527,9 @@ class _WriterStreamedSessionBase:
                     try:
                         # Tag redlines so the inline review UI treats the streamed edit as one agent change.
                         # If the second-half tag call (at finish) returns None or raises, the start Delete
-                        # keeps self._token while the final Insert stays untagged (author-based agent
-                        # identity still recognizes WriterAgent redlines).
+                        # keeps self._token while the final Insert stays untagged: the untagged Insert is
+                        # still authored WriterAgent, so author-based guards treat it as the agent's, but
+                        # the toolbar lists only the tagged Delete.
                         self._token = tag_agent_redlines(
                             self.doc,
                             before_ids,

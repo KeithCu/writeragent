@@ -646,17 +646,15 @@ def test_streamed_sessions_refuse_table_and_any_redline_uno(ctx, doc):
         with unittest.TestCase().assertRaises(TableInSelection):
             cls(doc, whole, whole.getString(), track_reviewable=True)
 
-    # Body-into-table partial view selection is also refused.
-    cell_cur = tbl.getCellByName("A1").createTextCursor()
-    cell_cur.gotoStart(False)
-    view_cur = doc.getCurrentController().getViewCursor()
+    # Partial body selection spanning the table (non-whole-body range).
     before_hit = find_first(doc, "Before table")
-    assert before_hit is not None
-    view_cur.gotoRange(before_hit.getStart(), False)
-    view_cur.gotoRange(cell_cur, True)
+    after_hit = find_first(doc, "After table")
+    assert before_hit is not None and after_hit is not None
+    span_cur = text.createTextCursorByRange(before_hit.getStart())
+    span_cur.gotoRange(after_hit.getEnd(), True)
     for cls in (WriterStreamedRewriteSession, WriterStreamedAppendSession):
         with unittest.TestCase().assertRaises(TableInSelection):
-            cls(doc, view_cur, view_cur.getString(), track_reviewable=True)
+            cls(doc, span_cur, span_cur.getString(), track_reviewable=True)
 
     assert doc.getTextTables().getCount() == 1
     assert doc.getUndoManager().getAllUndoActionTitles() == undo_before
