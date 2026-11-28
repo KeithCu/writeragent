@@ -143,15 +143,15 @@ def scan_redline_view(model: Any) -> RedlineView:
 
     def on_item(rl: Any) -> bool:
         comment_raw = rl.getPropertyValue("RedlineComment")
-        comment_str = review_scan.normalize_redline_comment(comment_raw)
-        token = comment_str if (comment_str and review_scan.is_agent_token(comment_str)) else None
+        author_raw = rl.getPropertyValue("RedlineAuthor")
+        token = review_scan.agent_review_token(author_raw, comment_raw)
         start = rl.getPropertyValue("RedlineStart")
         end = rl.getPropertyValue("RedlineEnd")
 
         identity = (
             None
             if token is not None
-            else review_scan.redline_identity_key(rl, comment=comment_raw)
+            else review_scan.redline_identity_key(rl, comment=comment_raw, author=author_raw)
         )
 
         rows.append(
@@ -181,21 +181,25 @@ def resolve_change_at_cursor(
 
     Only agent changes (wa-review session tokens) are eligible -- the user's own tracked
     changes are left to LibreOffice's native review UI. Returns ``(ok, message)``.
-    The resolve runs with deleted text shown (``review_scan.RedlinesShown``); a *view* read
-    while it was hidden is discarded, because its positions cover only the visible half.
+    The token is found in the current display type (it names the change, not a position, and
+    the cursor can only sit in a visible half), so a click that resolves nothing never toggles the
+    display. The resolve itself runs with deleted text shown (``review_scan.RedlinesShown``); a
+    *view* read while it was hidden is read again, because its positions cover only the visible half.
     """
-    with review_scan.RedlinesShown(model) as shown:
-        if view is None or shown.changed:
-            view = scan_redline_view(model)
-        if token is None:
-            token = cursor_in_agent_change(model, view=view)
-        if token is None:
-            if not view.reliable:
-                return False, _review_message(ResolveStatus.UNRELIABLE, accept=accept)
-            if not any(r.token is not None for r in view.rows):
-                return False, _("No agent changes to review in this document.")
-            return False, _("Put the cursor on a highlighted agent change first.")
+    if view is None:
+        view = scan_redline_view(model)
+    if token is None:
+        token = cursor_in_agent_change(model, view=view)
+    if token is None:
+        if not view.reliable:
+            return False, _review_message(ResolveStatus.UNRELIABLE, accept=accept)
+        if not any(r.token is not None for r in view.rows):
+            return False, _("No agent changes to review in this document.")
+        return False, _("Put the cursor on a highlighted agent change first.")
 
+    with review_scan.RedlinesShown(model) as shown:
+        if shown.changed:
+            view = scan_redline_view(model)
         res, after_view = resolve_agent_change(model, ctx, token, accept, before=view)
         if res.status == ResolveStatus.RESOLVED:
             return True, _review_message(ResolveStatus.RESOLVED, accept=accept)
@@ -225,10 +229,9 @@ def show_review_message(ctx: Any, message: str) -> None:
 
 # --- agent-change helpers (used by the click popup and the context menu) -------------------
 #
-# Every redline an EditReviewSession records carries a RedlineComment "wa-review:<session>:<n>"
-# (see review_scan.TOKEN_PREFIX); one token is one logical change (the Delete and Insert
-# of a replace share it). These helpers see the document purely through those tokens, so the user's
-# own tracked changes are never listed or resolved.
+# The review UI lists and resolves only redlines whose comment is a ``wa-review:<session>:<n>``
+# token and whose author is an agent author (one token is one logical change: the Delete and
+# Insert of a replace share it). The user's own tracked changes are never listed or resolved.
 def _is_all_redlines_agent(view: RedlineView) -> bool:
     """True only if every tracked change in the view is an agent change and scan was complete."""
     return (
@@ -240,13 +243,11 @@ def _is_all_redlines_agent(view: RedlineView) -> bool:
 
 
 # --- Agent-self-resolution guard (used by the agent-facing tracking_* tools) -------------
-# wa-review changes are recorded for the HUMAN to accept/reject in the review UI;
-# the agent must never resolve them. tracking.py's accept/reject tools drive the
-# native .uno:Accept/Reject(All)TrackedChanges, which cannot see the wa-review token,
-# and the LLM can reach them (domain='tracking'). Without a gate, a tool call could
-# resolve the changes the same turn just made. These two token-scoped, fail-closed
-# gates refuse the agent's own changes while still letting the user's own redlines
-# be resolved on request.
+# The model guard refuses any agent-authored redline, because DOCX/DOC/RTF drop the comment
+# and some agent redlines are never tagged. tracking.py's accept/reject tools drive the native
+# .uno:Accept/Reject(All)TrackedChanges, which cannot distinguish authors or tokens. Without
+# this fail-closed gate a tool call could resolve the agent's own edits. The user's own
+# redlines can still be resolved on request.
 _BULK_UNRELIABLE_MSG = (
     "Couldn't read this document's tracked changes reliably, so accept/reject-all is blocked to "
     "avoid resolving agent edits that are awaiting your review. Resolve changes in LibreOffice "
@@ -266,7 +267,7 @@ def agent_self_resolution_block_reason(model: Any) -> str | None:
             return None
     except Exception:
         return _BULK_UNRELIABLE_MSG
-    count, reliable = review_scan.agent_change_presence(model)
+    count, reliable = review_scan.agent_change_presence(model, include_untagged=True)
     if not reliable:
         return _BULK_UNRELIABLE_MSG
     if count > 0:
@@ -937,99 +938,105 @@ def _resolve_overlapping_agent_changes(
 
 
 def _resolve_all_agent_changes(model: Any, ctx: Any, accept: bool) -> ResolveAllResult:
-    """Accept/reject all agent changes with deleted text shown (``review_scan.RedlinesShown``)."""
-    with review_scan.RedlinesShown(model):
-        return _resolve_all_shown(model, ctx, accept)
+    """Accept/reject all agent changes; returns ResolveAllResult.
 
-
-def _resolve_all_shown(model: Any, ctx: Any, accept: bool) -> ResolveAllResult:
+    The "nothing to resolve" checks run in the current display type, so they never toggle it;
+    the dispatches run with deleted text shown (``review_scan.RedlinesShown``), from a view read
+    again when that changed the display type.
+    """
     entry_view = scan_redline_view(model)
     if not entry_view.reliable:
         log.warning("inline_review: resolve-all aborted -- redline snapshot unreliable")
         return ResolveAllResult(status=ResolveStatus.UNRELIABLE, resolved=0, total=0)
-    entry_tokens = agent_tokens(entry_view)
-    total = len(entry_tokens)
+    total = len(agent_tokens(entry_view))
     if total == 0:
         return ResolveAllResult(status=ResolveStatus.RESOLVED, resolved=0, total=0)
 
-    if _is_all_redlines_agent(entry_view):
-        try:
-            controller = model.getCurrentController()
-            command = ".uno:AcceptAllTrackedChanges" if accept else ".uno:RejectAllTrackedChanges"
-            execute_dispatch(ctx, controller, command)
-        except Exception:
-            log.exception("inline_review: resolve-all global dispatch failed")
-            return ResolveAllResult(status=ResolveStatus.PARTIAL, resolved=0, total=total)
+    with review_scan.RedlinesShown(model) as shown:
+        if shown.changed:
+            entry_view = scan_redline_view(model)
+            if not entry_view.reliable:
+                log.warning("inline_review: resolve-all aborted -- redline snapshot unreliable after showing deleted text")
+                return ResolveAllResult(status=ResolveStatus.UNRELIABLE, resolved=0, total=0)
 
-        after = scan_redline_view(model)
-        if not after.reliable:
-            return ResolveAllResult(status=ResolveStatus.PARTIAL, resolved=0, total=total)
-        after_tokens = agent_tokens(after)
-        resolved = max(0, total - len(after_tokens))
-        if not after_tokens:
+        if _is_all_redlines_agent(entry_view):
+            try:
+                controller = model.getCurrentController()
+                command = ".uno:AcceptAllTrackedChanges" if accept else ".uno:RejectAllTrackedChanges"
+                execute_dispatch(ctx, controller, command)
+            except Exception:
+                log.exception("inline_review: resolve-all global dispatch failed")
+                return ResolveAllResult(status=ResolveStatus.PARTIAL, resolved=0, total=total)
+
+            after = scan_redline_view(model)
+            if not after.reliable:
+                return ResolveAllResult(status=ResolveStatus.PARTIAL, resolved=0, total=total)
+            after_tokens = agent_tokens(after)
+            resolved = max(0, total - len(after_tokens))
+            if not after_tokens:
+                return ResolveAllResult(status=ResolveStatus.RESOLVED, resolved=total, total=total)
+            if len(after_tokens) == total:
+                return ResolveAllResult(status=ResolveStatus.NO_OP, resolved=0, total=total)
+            return ResolveAllResult(status=ResolveStatus.PARTIAL, resolved=resolved, total=total)
+
+        skip_reasons: dict[str, ResolveStatus] = {}
+        dispatched = False
+        cur_view = entry_view
+        exact_unsupported = False
+
+        with _grouped_resolve_undo(model):
+            # Tip: no fixed cap. Each pass resolves the head change or adds it to `skip_reasons`, so pending
+            # strictly shrinks. An unreliable re-read aborts (PARTIAL once dispatched, else UNRELIABLE)
+            # instead of silently leaving changes pending.
+            while True:
+                cur_tokens = agent_tokens(cur_view)
+                pending = sorted(t for t in cur_tokens if t not in skip_reasons)
+                if not pending:
+                    break
+                token = pending[0]
+                before_count = len(cur_tokens)
+                # Resolve-all wants sibling agent changes resolved together; only a user redline blocks it.
+                res, next_view = resolve_agent_change(
+                    model, ctx, token, accept, policy=ResolvePolicy.PARAGRAPH_ONLY, before=cur_view
+                )
+                if res.status == ResolveStatus.REFUSED_FOREIGN and not exact_unsupported:
+                    # Tip: retry exact bounds; valid only while paragraph REFUSED_FOREIGN is pre-dispatch.
+                    exact_res, exact_view = resolve_agent_change(
+                        model,
+                        ctx,
+                        token,
+                        accept,
+                        policy=ResolvePolicy.EXACT_ONLY,
+                        before=cur_view,
+                    )
+                    if exact_res.status == ResolveStatus.NO_OP:
+                        exact_unsupported = True
+                    else:
+                        res, next_view = exact_res, exact_view
+                # A dispatch was attempted once status is in this set.
+                if res.status in (ResolveStatus.RESOLVED, ResolveStatus.NO_OP, ResolveStatus.PARTIAL):
+                    dispatched = True
+                cur_view = next_view
+                if not cur_view.reliable:
+                    return ResolveAllResult(
+                        status=ResolveStatus.PARTIAL if dispatched else ResolveStatus.UNRELIABLE,
+                        resolved=0,
+                        total=total,
+                    )
+                after_tokens = agent_tokens(cur_view)
+                if res.status != ResolveStatus.RESOLVED or len(after_tokens) >= before_count:
+                    # Tip: skip refused/failed/no-progress changes so the rest resolve and nothing spins.
+                    log.debug("inline_review: skipping %s in resolve-all (%s)", token, res.status)
+                    skip_reasons[token] = res.status
+
+        final_tokens = agent_tokens(cur_view)
+        # Tip: count tokens that disappeared; one dispatch can clear several siblings.
+        resolved = max(0, total - len(final_tokens))
+
+        if resolved == total:
             return ResolveAllResult(status=ResolveStatus.RESOLVED, resolved=total, total=total)
-        if len(after_tokens) == total:
+        if skip_reasons and all(s == ResolveStatus.REFUSED_FOREIGN for s in skip_reasons.values()):
+            return ResolveAllResult(status=ResolveStatus.REFUSED_FOREIGN, resolved=resolved, total=total)
+        if resolved == 0 and not any(s == ResolveStatus.REFUSED_FOREIGN for s in skip_reasons.values()):
             return ResolveAllResult(status=ResolveStatus.NO_OP, resolved=0, total=total)
         return ResolveAllResult(status=ResolveStatus.PARTIAL, resolved=resolved, total=total)
-
-    skip_reasons: dict[str, ResolveStatus] = {}
-    dispatched = False
-    cur_view = entry_view
-    exact_unsupported = False
-
-    with _grouped_resolve_undo(model):
-        # Tip: no fixed cap. Each pass resolves the head change or adds it to `skip_reasons`, so pending
-        # strictly shrinks. An unreliable re-read aborts (PARTIAL once dispatched, else UNRELIABLE)
-        # instead of silently leaving changes pending.
-        while True:
-            cur_tokens = agent_tokens(cur_view)
-            pending = sorted(t for t in cur_tokens if t not in skip_reasons)
-            if not pending:
-                break
-            token = pending[0]
-            before_count = len(cur_tokens)
-            # Resolve-all wants sibling agent changes resolved together; only a user redline blocks it.
-            res, next_view = resolve_agent_change(
-                model, ctx, token, accept, policy=ResolvePolicy.PARAGRAPH_ONLY, before=cur_view
-            )
-            if res.status == ResolveStatus.REFUSED_FOREIGN and not exact_unsupported:
-                # Tip: retry exact bounds; valid only while paragraph REFUSED_FOREIGN is pre-dispatch.
-                exact_res, exact_view = resolve_agent_change(
-                    model,
-                    ctx,
-                    token,
-                    accept,
-                    policy=ResolvePolicy.EXACT_ONLY,
-                    before=cur_view,
-                )
-                if exact_res.status == ResolveStatus.NO_OP:
-                    exact_unsupported = True
-                else:
-                    res, next_view = exact_res, exact_view
-            # A dispatch was attempted once status is in this set.
-            if res.status in (ResolveStatus.RESOLVED, ResolveStatus.NO_OP, ResolveStatus.PARTIAL):
-                dispatched = True
-            cur_view = next_view
-            if not cur_view.reliable:
-                return ResolveAllResult(
-                    status=ResolveStatus.PARTIAL if dispatched else ResolveStatus.UNRELIABLE,
-                    resolved=0,
-                    total=total,
-                )
-            after_tokens = agent_tokens(cur_view)
-            if res.status != ResolveStatus.RESOLVED or len(after_tokens) >= before_count:
-                # Tip: skip refused/failed/no-progress changes so the rest resolve and nothing spins.
-                log.debug("inline_review: skipping %s in resolve-all (%s)", token, res.status)
-                skip_reasons[token] = res.status
-
-    final_tokens = agent_tokens(cur_view)
-    # Tip: count tokens that disappeared; one dispatch can clear several siblings.
-    resolved = max(0, total - len(final_tokens))
-
-    if resolved == total:
-        return ResolveAllResult(status=ResolveStatus.RESOLVED, resolved=total, total=total)
-    if skip_reasons and all(s == ResolveStatus.REFUSED_FOREIGN for s in skip_reasons.values()):
-        return ResolveAllResult(status=ResolveStatus.REFUSED_FOREIGN, resolved=resolved, total=total)
-    if resolved == 0 and not any(s == ResolveStatus.REFUSED_FOREIGN for s in skip_reasons.values()):
-        return ResolveAllResult(status=ResolveStatus.NO_OP, resolved=0, total=total)
-    return ResolveAllResult(status=ResolveStatus.PARTIAL, resolved=resolved, total=total)

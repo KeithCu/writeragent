@@ -387,18 +387,18 @@ class TestSuppressDisposed:
             pass
 
         class NoCallableDoc:
-            getImplementationName = "not_callable"
+            getURL = "not_callable"
 
         class LiveDoc:
-            def getImplementationName(self):
-                return "SwXTextDocument"
+            def getURL(self):
+                return ""
 
         class DisposedProbeDoc:
-            def getImplementationName(self):
+            def getURL(self):
                 raise CustomDisposedException("gone")
 
         class RuntimeProbeDoc:
-            def getImplementationName(self):
+            def getURL(self):
                 raise CustomRuntimeException("probe failed")
 
         docs = [
@@ -1001,12 +1001,12 @@ def test_is_document_disposed():
     disposed_exc = DisposedException("Document disposed")
 
     class MockDisposedDoc:
-        def getImplementationName(self):
+        def getURL(self):
             raise disposed_exc
 
     class MockValidDoc:
-        def getImplementationName(self):
-            return "SwXTextDocument"
+        def getURL(self):
+            return ""
 
     assert document_is_disposed(MockDisposedDoc()) is True
     assert document_is_disposed(MockValidDoc()) is False

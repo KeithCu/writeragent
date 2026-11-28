@@ -80,10 +80,8 @@ Blocking wait applies only to **`apply_content`** from a **background thread** (
 chat worker or MCP HTTP thread). The main thread never block-waits so the user can click accept/reject.
 
 The edit runs on the main thread in `_do_edit`. Checks finish before `EditReviewSession` is
-constructed. That object is appended to a one-element list before the target method runs, because
-`MainThread.call` re-raises and drops the return value; the list is how anchor bookmarks are released
-when the edit raises. Wait mode keeps the returned session and `wait_for_review` cleans it up. Every
-other path releases it, including a successful non-wait edit.
+constructed. Wait mode keeps the returned session to poll `wait_for_review`; the session holds
+no document state that needs releasing when an edit raises or completes.
 
 ## How a change is tracked
 
@@ -91,28 +89,33 @@ other path releases it, including a successful non-wait edit.
 
 * `record_mutation()` snapshots the document's redline identifiers, runs the edit, and tags every
   **new** redline's `RedlineComment` with a per-change token `wa-review:<session>:<n>`. Only an exact
-  `wa-review:<session>:<n>` comment (no whitespace, no extra colons, numeric `<n>`) counts as an
-  agent token; a user comment that merely starts with `wa-review:` does not. `<n>` is the session's
-  per-attempt counter, not the number of registered changes, so a tag left behind on an unregistered
-  edit cannot be the token of the next registered change.
+  `wa-review:<session>:<n>` comment (no whitespace, no extra colons, numeric `<n>`) on a redline
+  authored by `WriterAgent` or `WriterAgent (deletions)` counts as an agent token; a user comment
+  that merely starts with `wa-review:` or a token-shaped comment on another author's redline does not.
+  `<n>` is the session's per-attempt counter, not the number of registered changes, so a tag left
+  behind on an unregistered edit cannot be the token of the next registered change.
 * Tagging is **fail-closed**: if the pre- or post-edit redline scan is incomplete, the edit still
   applies but its redlines are **not** tagged — they stay untagged (treated as the user's own) so
   Accept/Reject All never touches a misclassified user redline; an unreadable `RedlineDateTime` or
   `RedlineSuccessorData` also makes tagging refuse (fail closed).
+* The **split-piece rule** skips any new-identifier redline whose `(type, author, date, comment)`
+  matches an old redline, because splitting an existing insertion creates a tail piece with a new
+  identifier and the old metadata. Exception: an untagged agent-authored redline dated within the
+  last 10 s belongs to the current edit rather than an older split piece, so a new edit in the same
+  clock second as an untagged agent redline is still tagged completely.
 * Completion is a reliable empty intersection of redline comments with tokens on **registered**
   changes — **not** "zero redlines in the document", and **not** "every `wa-review:<session>:`
   comment is gone". A tag left behind when the change was not registered (tagging failed, or the
-  missing-bookmark clear left the token) does not keep `wait_for_review` blocked. `<n>` is the
+  missing-anchor clear left the token) does not keep `wait_for_review` blocked. `<n>` is the
   session's per-attempt counter, not the number of registered changes, so a tag left behind on an
   unregistered edit cannot be the token of the next registered change. An incomplete
   scan still fail-closes. The user's own pre-existing redlines never block or confuse it.
-* Each change is anchored with a `wa_review_<session>_<n>` bookmark spanning the **change's own
-  redline span** (not the whole paragraph; for a change spanning several texts such as table cells,
-  the first text that changes), so several changes in one paragraph each get a correct
-  outcome and `final_text` preview. The anchor bookmark lives inside the edit's undo step without
-  locking the undo manager, so one Undo removes both the edit and the bookmark together. Before
-  dispatching Accept or Reject, any leftover `wa_review_*` bookmarks are removed under undo lock so
-  undoing the reject never encounters unregistered bookmark indexes. Bookkeeping writes use `UndoLock`
+* Each change is anchored by a text cursor spanning its **change's own redline span** (not the
+  whole paragraph; for a change spanning several texts such as table cells, the first text that
+  changes), so several changes in one paragraph each get a correct outcome and `final_text` preview.
+  Cursors follow edits and never enter undo history, so nothing is removed after review (undo after
+  a resolve finds nothing missing, and nothing reaches saved files). Text typed directly after a
+  pending change joins the cursor and reports `modified`. Bookkeeping writes use `UndoLock`
   (`compound_undo.py`), which leaves a document with undo off untouched.
 * Tracking is forced on for the duration even if the user didn't have it on, and their prior
   `RecordChanges` state is restored afterward. Markup is forced **visible** (`ShowChanges = True`)
@@ -140,6 +143,15 @@ other path releases it, including a successful non-wait edit.
   `WriterAgent` (not `WriterAgent (deletions)`). When the user records changes with review off,
   the link redlines are still authored `WriterAgent` so they do not merge with the user's own
   redlines across a paragraph mark.
+
+**Agent identity:** `tracking_manage` refuses any redline authored by `WriterAgent` or
+`WriterAgent (deletions)` in every review mode, tagged or not. This covers DOCX/DOC/RTF reloads
+(which drop the comment on a tracked change), style `Format`/`ParagraphFormat` redlines,
+table-only inserts, a deletion stacked on another author's insertion, and an agent change whose
+comment the user edited. Those untagged redlines are not in the review toolbar, popup, or Reject
+all; resolve them in *Edit ▸ Track Changes ▸ Manage*. A user whose office name is exactly
+`WriterAgent` or `WriterAgent (deletions)` is treated as the agent by `tracking_manage`. RTF
+stores header and footnote change authors as `0`, which loses the identity.
 
 ### Surgical word-level edits
 
@@ -283,14 +295,14 @@ Delete and Insert as two independent rows. WriterAgent adds:
    agent changes exist; hidden when the count drops to zero. Toolbar visibility uses
    `agent_change_presence(model, stop_at_first=True)`: if the scan is unreliable, visibility is left
    unchanged. Menu actions `review_prev` / `review_next` call `goto_adjacent_agent_change`. Counting
-   follows the count-without-previews rule: `agent_change_presence` returns this distinct-comment
-   count without reading text previews with `XTextCursor.getString()`. The toolbar's per-document
+   follows the count-without-previews rule: `agent_change_presence` returns the distinct-token
+   count on agent-authored redlines without reading text previews with `XTextCursor.getString()`. The toolbar's per-document
    modify listener (`review_view_attachment.schedule_toolbar_refresh` → `refresh_review_toolbar`) queues recount per burst with `main.post`, which runs on a later main-loop
    turn so it does not walk redlines inside the modify notification. The listener makes no UNO
    call per keystroke; the queued run looks up the LayoutManager and skips the recount while the
    toolbar is hidden.
 
-It is strictly token-scoped — only `wa-review` changes are listed or resolved.
+The inline review UI lists and resolves only redlines that carry a `wa-review` token and an agent author.
 
 ### Exact-bounds resolve (modern LibreOffice)
 
@@ -341,8 +353,12 @@ View ▸ Track Changes ▸ Show toggle is layout-only and leaves the type at 2.
   type 2 before resolving (`DocumentRedlineManager::AcceptRedline` / `RejectRedline`), so it would
   resolve only that half. Inline resolve, resolve-all and `tracking_manage` therefore run inside
   `review_scan.RedlinesShown`: they set type 2, read the redlines again, resolve, and put the user's
-  type back. `tracking_manage` finds the change at the listed index again by its identity key,
-  because showing deletions resorts the redline table.
+  type back. The "nothing to resolve here" answers (cursor off any change, no agent changes) come
+  first, so they never toggle the display. `tracking_manage` finds the change at the listed index
+  again by its identity key, because showing deletions resorts the redline table.
+* **Navigation:** Next/Previous and the click popup cannot land on an agent change that is only a
+  deletion while deletions are hidden, because it has no span; a replace is reached through its
+  insertion.
 * **Toggles:** `tracking_start`, `tracking_stop` and `tracking_show` change the user's own
   settings; when the document holds pending tracked changes their result carries a `warning`
   telling the model to say what it changed.
@@ -382,9 +398,11 @@ When the user turns on Track Changes > Record while agent review is Off, operati
   display back manually if they had it off. Do not treat that as a missing restore bug in the wait loop.
 * **Formatting across a foreign pending insertion** (or across both the user's and the agent's) still
   lets LibreOffice turn one of them into a Format redline; rejecting then keeps that text.
-* **Closing the document during wait** aborts with ``complete=False`` and ``timed_out=False`` (not a
-  full-timeout spin). A change that never gets an anchor bookmark is **not** registered as a
-  reviewable agent edit.
+* **Closing the document during wait** returns ``complete=False``, ``timed_out=False``, every
+  change ``pending`` with ``final_text=""`` (not a full-timeout spin). A change that never gets an
+  anchor is **not** registered as a reviewable agent edit.
+* **Closing during a streamed Edit/Extend selection** drops queued chunks, and ``finish()`` raises
+  ``DocumentDisposedError``.
 * **Toolbar fast-travel** skips changes whose bounds cannot be read (`_change_bounds` fails); the
   pending counter may still include them. Stops with unreadable bounds are omitted from Next/Previous;
   a change with bounds in another text object is visited in redline-table order.
@@ -393,9 +411,8 @@ When the user turns on Track Changes > Record while agent review is Off, operati
 * **`frame_insert target="search"` whole-body match (anchor 0 or 4):** when a recorded match spans
   an entire text (body, cell, or frame), Accept also removes the frame (`undobj.cxx`:
   `IsSelectFrameAnchoredAtPara` / `IsDestroyFrameAnchoredAtChar`).
-* **Undo then Redo of a review-session edit:** Redo brings the redline back untagged, splits an
-  `Unknown Author` Insert piece, and restores the `wa_review_*` anchor bookmark (`RedlineComment`
-  is not an undoable action, while the bookmark lives inside the edit's undo group).
+* **Undo then Redo of a review-session edit:** Redo brings the redline back untagged and splits an
+  `Unknown Author` Insert piece (`RedlineComment` is not an undoable action).
 
 ## Ways to improve
 

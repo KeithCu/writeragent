@@ -34,7 +34,8 @@ from plugin.framework.doc_type import is_writer
 from plugin.framework.uno_context import execute_dispatch, uno_same
 from plugin.writer.edit_review import get_agent_edit_review_mode
 from plugin.writer.inline_review import agent_self_resolution_block_reason
-from plugin.writer.review_scan import RedlinesShown, is_agent_token, redline_identity_key, redline_is_agent_change
+from plugin.writer.review_authors import AGENT_AUTHORS
+from plugin.writer.review_scan import RedlinesShown, redline_identity_key, redline_is_agent_change
 from plugin.writer.search import LocationLabeler
 from .specialized_base import ToolWriterTrackingBase, enum_param
 
@@ -115,7 +116,7 @@ def _resolve_outcome(index: int, before_keys: list[tuple[Any, ...]], after_keys:
         return "silent"
 
     for k, count in before_counts.items():
-        if is_agent_token(k[4]) and after_counts[k] < count:
+        if k[2] in AGENT_AUTHORS and after_counts[k] < count:
             return "agent"
 
     target_key = before_keys[index]
@@ -427,8 +428,9 @@ class ManageTrackedChanges(ToolWriterTrackingBase, ToolCalcSpecialTracking):  # 
         return self._tool_error(problem + " The resolve was undone.")
 
     def _execute_all(self, ctx: ToolContext, is_accept: bool) -> dict[str, Any]:
-        # Guard: never let the agent bulk-resolve its OWN (wa-review) edits -- those are the human's
-        # to review. Allowed when no agent changes are pending (see agent_self_resolution_block_reason).
+        # Guard: an agent change is any redline authored WriterAgent or WriterAgent (deletions),
+        # tagged or not. Never let the agent bulk-resolve its own edits because they are the
+        # user's to review (see agent_self_resolution_block_reason).
         blocked = agent_self_resolution_block_reason(ctx.doc)
         if blocked:
             return self._tool_error(blocked)
@@ -484,9 +486,9 @@ class ManageTrackedChanges(ToolWriterTrackingBase, ToolCalcSpecialTracking):  # 
 
         target_redline = objs[index]
 
-        # Guard: refuse to resolve the agent's OWN edit (a wa-review change). Those are recorded
-        # for the human to accept/reject in the review UI; the agent must not do it itself.
-        # Fail closed when the change's metadata can't be read.
+        # Guard: an agent change is any redline authored WriterAgent or WriterAgent (deletions),
+        # tagged or not. Refuse to resolve the agent's own edit because they are the user's to
+        # review; fail closed when metadata can't be read.
         is_agent, readable = redline_is_agent_change(target_redline)
         if not readable:
             return self._tool_error(
@@ -518,8 +520,9 @@ class ManageTrackedChanges(ToolWriterTrackingBase, ToolCalcSpecialTracking):  # 
                 shown_keys = _identity_keys(objs) if len(objs) == total else None
                 if shown_keys is None or Counter(shown_keys) != Counter(before_keys):
                     return self._tool_error(
-                        "Couldn't find tracked change %d again after showing deleted text, so nothing was resolved. "
-                        "Call tracking_list again." % index
+                        "Couldn't find tracked change %d again after showing deleted text (the change list "
+                        "differs between hidden and shown markup), so nothing was resolved. Call tracking_list "
+                        "again." % index
                     )
                 target_key = before_keys[index]
                 rank = before_keys[:index].count(target_key)

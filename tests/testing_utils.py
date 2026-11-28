@@ -1818,9 +1818,10 @@ def agent_changes(model: Any) -> list[dict[str, Any]]:
     grouped: dict[str, dict[str, Any]] = {}
 
     def on_item(rl: Any) -> bool:
-        comment_raw = rl.getPropertyValue("RedlineComment")
-        comment_str = _review_scan.normalize_redline_comment(comment_raw)
-        token = comment_str if (comment_str and _review_scan.is_agent_token(comment_str)) else None
+        token = _review_scan.agent_review_token(
+            rl.getPropertyValue("RedlineAuthor"),
+            rl.getPropertyValue("RedlineComment"),
+        )
         if token is None:
             return True
         entry = grouped.setdefault(token, {"token": token, "old": "", "new": ""})

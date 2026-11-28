@@ -136,6 +136,169 @@ def test_writer_accept_all_clears_redlines_uno(ctx, doc):
     assert doc.getRedlines().getCount() == 0
 
 
+def _reset_and_record(doc):
+    from plugin.framework.config import get_config, save
+
+    prev = get_config("doc.agent_edit_review_mode")
+    doc.setPropertyValue("RecordChanges", False)
+    doc.getText().setString("")
+    save({"doc.agent_edit_review_mode": "record"})
+    return prev
+
+
+@native_test
+@with_native_doc("writer")
+def test_model_cannot_resolve_agent_changes_after_docx_reload_uno(ctx, doc):
+    import os
+    import tempfile
+    import uno
+    from plugin.app import get_services
+    from plugin.framework.config import save
+    from plugin.framework.uno_context import create_property_value
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from plugin.writer.tracking import ManageTrackedChanges
+    from tests.writer.doc_builders import reject_all_changes
+
+    prev = _reset_and_record(doc)
+    reloaded = None
+    try:
+        doc.getText().setString("The quick brown fox jumps over the lazy dog.")
+        tctx = TestingFactory.create_context(
+            doc=doc, ctx=ctx, env="native", doc_type="writer", services=get_services()
+        )
+        res = ApplyDocumentContent().execute(tctx, target="search", old_content="quick", content="fast")
+        assert res.get("status") == "ok", res
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            docx_path = os.path.join(tmpdir, "reload.docx")
+            docx_url = uno.systemPathToFileUrl(docx_path)
+            doc.storeToURL(docx_url, (create_property_value("FilterName", "MS Word 2007 XML"),))
+            desktop = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+            reloaded = desktop.loadComponentFromURL(
+                docx_url, "_blank", 0, (create_property_value("Hidden", True),)
+            )
+            r_tctx = TestingFactory.create_context(
+                doc=reloaded, ctx=ctx, env="native", doc_type="writer", services=get_services()
+            )
+            assert ManageTrackedChanges().execute(r_tctx, action="accept_all")["status"] == "error"
+            assert ManageTrackedChanges().execute(r_tctx, action="accept", index=0)["status"] == "error"
+
+            reject_all_changes(reloaded, ctx)
+            reloaded_text = reloaded.getText().getString()
+            assert "quick" in reloaded_text
+            assert "fast" not in reloaded_text
+            assert reloaded.getRedlines().getCount() == 0
+    finally:
+        if reloaded is not None:
+            reloaded.close(True)
+        save({"doc.agent_edit_review_mode": prev})
+
+
+@native_test
+@with_native_doc("writer")
+def test_model_cannot_resolve_untagged_style_redlines_uno(ctx, doc):
+    import uno
+    from plugin.app import get_services
+    from plugin.framework.config import save
+    from plugin.writer.styles import ApplyStyle, StyleFormatText
+    from plugin.writer.tracking import ManageTrackedChanges
+    from tests.writer.doc_builders import body_paragraphs, reject_all_changes
+
+    _para_break = uno.getConstantByName("com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK")
+    prev = _reset_and_record(doc)
+    try:
+        text = doc.getText()
+        cur = text.createTextCursor()
+        text.insertString(cur, "The quick brown fox.", False)
+        text.insertControlCharacter(cur, _para_break, False)
+        text.insertString(cur, "Second paragraph.", False)
+        orig_para_style = body_paragraphs(text)[1].getPropertyValue("ParaStyleName")
+
+        tctx = TestingFactory.create_context(
+            doc=doc, ctx=ctx, env="native", doc_type="writer", services=get_services()
+        )
+        fmt_res = StyleFormatText().execute(
+            tctx, properties={"CharWeight": 150}, target="search", old_content="brown fox", all_matches=False
+        )
+        assert fmt_res.get("status") == "ok", fmt_res
+        sty_res = ApplyStyle().execute(
+            tctx, style="Heading 2", family="ParagraphStyles", target="search", old_content="Second paragraph.", all_matches=False
+        )
+        assert sty_res.get("status") == "ok", sty_res
+
+        assert ManageTrackedChanges().execute(tctx, action="accept_all")["status"] == "error"
+        for idx in range(doc.getRedlines().getCount()):
+            assert ManageTrackedChanges().execute(tctx, action="reject", index=idx)["status"] == "error"
+
+        reject_all_changes(doc, ctx)
+        p0_cur = body_paragraphs(text)[0].createEnumeration().nextElement()
+        assert float(p0_cur.getPropertyValue("CharWeight")) == 100.0
+        assert body_paragraphs(text)[1].getPropertyValue("ParaStyleName") == orig_para_style
+    finally:
+        save({"doc.agent_edit_review_mode": prev})
+
+
+@native_test
+@with_native_doc("writer")
+def test_model_cannot_resolve_table_only_insert_uno(ctx, doc):
+    from plugin.app import get_services
+    from plugin.framework.config import save
+    from plugin.writer.specialized.tables import TableInsert
+    from plugin.writer.tracking import ManageTrackedChanges
+
+    prev = _reset_and_record(doc)
+    try:
+        doc.getCurrentController().getViewCursor().gotoStart(False)
+        tctx = TestingFactory.create_context(
+            doc=doc, ctx=ctx, env="native", doc_type="writer", services=get_services()
+        )
+        res = TableInsert().execute(tctx, rows=2, columns=2)
+        assert res.get("status") == "ok", res
+        assert ManageTrackedChanges().execute(tctx, action="reject_all")["status"] == "error"
+        assert doc.getTextTables().getCount() == 1
+    finally:
+        save({"doc.agent_edit_review_mode": prev})
+
+
+@native_test
+@with_native_doc("writer")
+def test_model_cannot_resolve_delete_stacked_on_user_insert_uno(ctx, doc):
+    from plugin.app import get_services
+    from plugin.framework.config import save
+    from plugin.writer import review_authors
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from plugin.writer.tracking import ManageTrackedChanges
+
+    prev = _reset_and_record(doc)
+    try:
+        text = doc.getText()
+        text.setString("The cat is ")
+        cur = text.createTextCursor()
+        cur.gotoEnd(False)
+        prior = review_authors.begin(ctx)
+        doc.setPropertyValue("RecordChanges", True)
+        try:
+            assert review_authors.set_office_author(ctx, "Alice") is True
+            text.insertString(cur, "very sleepy and slow.", False)
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+            review_authors.end(ctx, prior)
+
+        tctx = TestingFactory.create_context(
+            doc=doc, ctx=ctx, env="native", doc_type="writer", services=get_services()
+        )
+        res = ApplyDocumentContent().execute(tctx, target="search", old_content="sleepy and ", content="")
+        assert res.get("status") == "ok", res
+
+        before_text = text.getString()
+        before_count = doc.getRedlines().getCount()
+        assert ManageTrackedChanges().execute(tctx, action="accept_all")["status"] == "error"
+        assert text.getString() == before_text
+        assert doc.getRedlines().getCount() == before_count
+    finally:
+        save({"doc.agent_edit_review_mode": prev})
+
+
 def _user_replace_and_delete(doc, ctx):
     """A user's replace (quick -> fast) and deletion ("Second "), recorded without agent tokens."""
     from tests.writer.doc_builders import find_first, reset_body

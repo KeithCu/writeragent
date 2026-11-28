@@ -10,6 +10,7 @@ import pytest
 
 from plugin.writer.review_scan import (
     TOKEN_PREFIX,
+    RedlinesShown,
     document_has_tracked_deletions,
     is_agent_token,
     read_redline_comment,
@@ -20,7 +21,7 @@ from plugin.writer.review_scan import (
     session_token_prefix,
     snapshot_redline_ids,
 )
-from plugin.tests.testing_utils import FakeUnoEnum
+from plugin.tests.testing_utils import DisposedException, FakeUnoEnum
 
 
 def test_make_agent_token_and_prefix():
@@ -194,7 +195,10 @@ def test_new_redlines_since_leaves_a_stack_on_a_user_change_untagged():
     stacked = _KeyedRl("1", rtype="Delete", author="WriterAgent (deletions)", stamp=_Later)
     stacked._props["RedlineSuccessorData"] = (_Layer("RedlineAuthor", "Outro"), _Layer("RedlineComment", ""))
     on_agent = _KeyedRl("2", rtype="Delete", author="WriterAgent (deletions)", stamp=_Later)
-    on_agent._props["RedlineSuccessorData"] = (_Layer("RedlineComment", TOKEN_PREFIX + "s:0"),)
+    on_agent._props["RedlineSuccessorData"] = (
+        _Layer("RedlineAuthor", "WriterAgent"),
+        _Layer("RedlineComment", TOKEN_PREFIX + "s:0"),
+    )
     new, ok = new_redlines_since(_KeyedDoc([stacked, on_agent]), before)
     assert ok and new == [on_agent]
 
@@ -265,9 +269,9 @@ def test_agent_change_presence_stop_at_first():
 
         def createEnumeration(self):
             return _Enum([
-                _KeyedRl("1", comment=TOKEN_PREFIX + "s:0"),
-                _KeyedRl("2", comment=TOKEN_PREFIX + "s:1"),
-                _KeyedRl("3", comment=TOKEN_PREFIX + "s:2"),
+                _KeyedRl("1", author="WriterAgent", comment=TOKEN_PREFIX + "s:0"),
+                _KeyedRl("2", author="WriterAgent", comment=TOKEN_PREFIX + "s:1"),
+                _KeyedRl("3", author="WriterAgent", comment=TOKEN_PREFIX + "s:2"),
             ])
 
     class _Doc:
@@ -330,13 +334,97 @@ def test_agent_change_presence_unreadable_comment_after_agent_token():
     class _Doc:
         def getRedlines(self):
             return _KeyedDoc([
-                _KeyedRl("1", comment=TOKEN_PREFIX + "s:0"),
+                _KeyedRl("1", author="WriterAgent", comment=TOKEN_PREFIX + "s:0"),
                 _BadRl("2"),
             ]).getRedlines()
 
     count, reliable = agent_change_presence(_Doc())
     assert reliable is False
     assert count == 1
+
+
+def _now_stamp(offset_seconds: int = 0):
+    import datetime
+
+    dt = datetime.datetime.now() + datetime.timedelta(seconds=offset_seconds)
+
+    class _Now:
+        Year, Month, Day = dt.year, dt.month, dt.day
+        Hours, Minutes, Seconds, NanoSeconds = dt.hour, dt.minute, dt.second, 0
+
+    return _Now
+
+
+def test_new_redlines_since_tags_same_second_untagged_agent_insert():
+    from plugin.writer.review_scan import new_redlines_since
+
+    stamp = _now_stamp()
+    old_untagged = _KeyedRl("1", rtype="Insert", author="WriterAgent", stamp=stamp, comment="")
+    before, ok = snapshot_redline_ids(_KeyedDoc([old_untagged]))
+    assert ok
+    new_insert = _KeyedRl("2", rtype="Insert", author="WriterAgent", stamp=stamp, comment="")
+    new, ok = new_redlines_since(_KeyedDoc([old_untagged, new_insert]), before)
+    assert ok and new == [new_insert]
+
+
+def test_new_redlines_since_skips_old_untagged_agent_split_piece():
+    from plugin.writer.review_scan import new_redlines_since
+
+    old_stamp = _now_stamp(-3600)
+    old_untagged = _KeyedRl("1", rtype="Insert", author="WriterAgent", stamp=old_stamp, comment="")
+    before, ok = snapshot_redline_ids(_KeyedDoc([old_untagged]))
+    assert ok
+    tail_piece = _KeyedRl("2", rtype="Insert", author="WriterAgent", stamp=old_stamp, comment="")
+    new, ok = new_redlines_since(_KeyedDoc([old_untagged, tail_piece]), before)
+    assert ok and new == []
+
+
+def test_new_redlines_since_skips_future_untagged_agent_split_piece():
+    from plugin.writer.review_scan import new_redlines_since
+
+    future_stamp = _now_stamp(+3600)
+    future_untagged = _KeyedRl("1", rtype="Insert", author="WriterAgent", stamp=future_stamp, comment="")
+    before, ok = snapshot_redline_ids(_KeyedDoc([future_untagged]))
+    assert ok
+    tail_piece = _KeyedRl("2", rtype="Insert", author="WriterAgent", stamp=future_stamp, comment="")
+    new, ok = new_redlines_since(_KeyedDoc([future_untagged, tail_piece]), before)
+    assert ok and new == []
+
+
+def test_new_redlines_since_skips_same_second_other_author_split_piece():
+    from plugin.writer.review_scan import new_redlines_since
+
+    stamp = _now_stamp()
+    user_rl = _KeyedRl("1", rtype="Insert", author="Alice", stamp=stamp, comment="")
+    before, ok = snapshot_redline_ids(_KeyedDoc([user_rl]))
+    assert ok
+    tail_piece = _KeyedRl("2", rtype="Insert", author="Alice", stamp=stamp, comment="")
+    new, ok = new_redlines_since(_KeyedDoc([user_rl, tail_piece]), before)
+    assert ok and new == []
+
+
+def test_new_redlines_since_leaves_stack_on_forged_user_token_untagged():
+    from plugin.writer.review_scan import new_redlines_since
+
+    before, ok = snapshot_redline_ids(_KeyedDoc([_KeyedRl("1", author="Alice", comment=TOKEN_PREFIX + "s:0")]))
+    assert ok
+    stacked = _KeyedRl("1", rtype="Delete", author="WriterAgent (deletions)", stamp=_Later)
+    stacked._props["RedlineSuccessorData"] = (
+        _Layer("RedlineAuthor", "Alice"),
+        _Layer("RedlineComment", TOKEN_PREFIX + "s:0"),
+    )
+    new, ok = new_redlines_since(_KeyedDoc([stacked]), before)
+    assert ok and new == []
+
+
+def test_agent_change_presence_author_and_include_untagged():
+    from plugin.writer.review_scan import agent_change_presence
+
+    forged = _KeyedRl("1", author="Alice", comment=TOKEN_PREFIX + "s:0")
+    untagged = _KeyedRl("2", rtype="Delete", author="WriterAgent (deletions)", comment="")
+    doc = _KeyedDoc([forged, untagged])
+    assert agent_change_presence(doc) == (0, True)
+    assert agent_change_presence(doc, include_untagged=True) == (1, True)
 
 
 def test_document_has_tracked_deletions():
@@ -395,3 +483,46 @@ def test_redline_identity_key_uses_given_comment():
     key_default = redline_identity_key(rl)
     assert key_default[4] == "from_prop"
     assert rl.reads["RedlineComment"] == 1
+
+
+class _DisplayDoc:
+    """Document fake holding RedlineDisplayType; *fail_set* raises from the next setPropertyValue."""
+
+    def __init__(self, display_type, fail_set=None):
+        self.display_type = display_type
+        self.fail_set = fail_set
+        self.writes = []
+
+    def getPropertyValue(self, name):
+        assert name == "RedlineDisplayType", name
+        return self.display_type
+
+    def setPropertyValue(self, name, value):
+        assert name == "RedlineDisplayType", name
+        if self.fail_set is not None:
+            raise self.fail_set
+        self.writes.append(value)
+        self.display_type = value
+
+
+def test_redlines_shown_shows_deleted_text_then_restores_hidden_type():
+    doc = _DisplayDoc(1)
+    with RedlinesShown(doc) as shown:
+        assert shown.changed is True
+        assert doc.display_type == 2
+    assert doc.writes == [2, 1]
+
+
+def test_redlines_shown_leaves_shown_type_untouched():
+    doc = _DisplayDoc(2)
+    with RedlinesShown(doc) as shown:
+        assert shown.changed is False
+    assert doc.writes == []
+
+
+def test_redlines_shown_tolerates_closed_document_but_raises_other_errors():
+    with RedlinesShown(_DisplayDoc(1, fail_set=DisposedException("closed"))) as shown:
+        assert shown.changed is False
+    with pytest.raises(ValueError):
+        with RedlinesShown(_DisplayDoc(1, fail_set=ValueError("bad value"))):
+            pass

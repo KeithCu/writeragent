@@ -28,8 +28,10 @@ WriterAgent show/hide writes `2` (`INSERTED_AND_REMOVED` / `IsShowChanges`) and 
 
 On LibreOffice 26.8.1.1, the boolean `ShowChanges` property setter is one-way: from type 1, setting `ShowChanges = True` moves to type 2 and `ShowChanges` reads `True`. Setting `ShowChanges = False` while type is 2 does nothing (stays `True` and type 2). Therefore, WriterAgent sets `RedlineDisplayType` directly.
 
-Types 1 and 3 hide one side of every change in the document model, not only in the layout: a hidden
-Delete has no span and shows one collapsed start portion (`IsCollapsed` true). Reads skip that
+Types 1 and 3 hide one side of every change in the document model, not only in the layout: type 1
+hides deletions, type 3 hides insertions and any Delete stacked on one (`SwRangeRedline::Hide` /
+`ShowOriginal`, `docredln.cxx`). A hidden Delete has no span and shows one collapsed start portion
+(`IsCollapsed` true). Reads skip that
 marker, and every resolve shows deleted text for its duration and restores the type afterwards
 (see [Hidden markup](reviewable-agent-edits.md#hidden-markup-redlinedisplaytype-1-or-3)).
 
