@@ -26,8 +26,6 @@ from plugin.framework.errors import reraise_if_disposed
 
 log = logging.getLogger("writeragent.writer")
 
-# Name prefix of the bookmark EditReviewSession anchors each reviewable change with.
-REVIEW_ANCHOR_PREFIX = "wa_review_"
 # (RedlineType, (text, start, end)) of one tracked change.
 RedlineSpan = tuple[str, tuple[Any, Any, Any]]
 
