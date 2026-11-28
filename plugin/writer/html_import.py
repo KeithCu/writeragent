@@ -2116,10 +2116,12 @@ def _replace_recorded(
                 _advance(tail, len(old_text) - split, True)
             head = text.createTextCursorByRange(target_range.getStart())  # target_range may have grown
             head.gotoRange(added.getStart(), True)
-            with _deletion_author(model, target_range) if author_deletion else contextlib.nullcontext():
-                if len(old_text) > split:
-                    tail.setString("")
-                head.setString("")
+            # Each part decides its own author: the new text may stay a separate redline at the end of
+            # an earlier insertion (PreAppendInsertRedline merges there only with CanCombine), while the
+            # old text left and right of it still lies inside that insertion.
+            for doomed in ((tail, head) if len(old_text) > split else (head,)):
+                with _deletion_author(model, doomed) if author_deletion else contextlib.nullcontext():
+                    doomed.setString("")
         except Exception:
             best_effort(lambda: added.setString(""), "replace_preserving_format: could not take back the insertion")
             raise

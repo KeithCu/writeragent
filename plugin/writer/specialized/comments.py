@@ -43,8 +43,8 @@ from ..specialized_base import ToolWriterCommentBase, enum_param
 log = logging.getLogger("writeragent.writer.comments")
 
 _COMMENT_ON_PENDING_INSERTION_WARNING = (
-    "The commented text is a pending tracked insertion. If that insertion is rejected, the comment "
-    "stays in the document as a comment on an empty point."
+    "The commented text is a pending tracked insertion. If that insertion is rejected while the "
+    "comment is kept, the comment stays in the document as a comment on an empty point."
 )
 # removeTextContent reaches SwTextField::DeleteTextField (sw/source/core/txtnode/atrfld.cxx), whose
 # DeleteAndJoin covers only the comment's field character, so the recorded deletion does not hold the

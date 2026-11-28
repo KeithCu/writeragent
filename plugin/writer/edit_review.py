@@ -46,6 +46,7 @@ returns an empty complete result), and degrades to inert if tracking cannot be e
 from __future__ import annotations
 
 import contextlib
+from collections import Counter
 from dataclasses import dataclass
 import itertools
 import logging
@@ -713,17 +714,19 @@ class EditReviewSession:
         or delete in it (tdf#119019: ``DocumentContentOperationsManager::InsertString`` and
         ``DeleteAndJoinWithRedlineImpl`` call ``AcceptRedlineParagraphFormatting``,
         ``sw/source/core/doc/DocumentContentOperationsManager.cxx``), so after the edit Reject All
-        keeps that style change. A redline counts as gone when no redline with its type, author,
-        date and comment is left (a split piece keeps all four). False when either scan is
-        incomplete or the document was not recording at the first mutation. Main thread only.
+        keeps that style change. Redlines are counted per type, author, date and comment, because
+        one style change over several paragraphs (or a Word ``w:pPrChange`` per paragraph, dated to
+        the second) gives every paragraph's redline the same four values; an accepted one lowers the
+        count. False when either scan is incomplete or the document was not recording at the first
+        mutation. Main thread only.
         """
         if self._first_snapshot is None:
             return False
         before, before_ok = self._first_snapshot
         after, after_ok = self._redline_idents()
 
-        def signatures(keys: set[Any]) -> set[Any]:
-            return {key[1:] for key in keys if key[1] == "ParagraphFormat"}
+        def signatures(keys: set[Any]) -> Counter[Any]:
+            return Counter(key[1:] for key in keys if key[1] == "ParagraphFormat")
 
         return before_ok and after_ok and bool(signatures(before) - signatures(after))
 

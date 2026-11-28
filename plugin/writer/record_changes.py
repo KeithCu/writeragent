@@ -143,8 +143,10 @@ def inside_insertion_by(doc: Any, text_range: Any, author: str) -> bool:
 def overlapping_redline_authors(doc: Any, ranges: list[Any], kind: str) -> set[str]:
     """Authors of the pending *kind* redlines that share at least one character with one of *ranges*.
 
-    A redline in another text object (a footnote or frame next to a body range) cannot be
-    compared with the range and does not count.
+    Range and redline ends are ``SwXTextRange`` objects, which compare document positions
+    across text objects (``SwXTextRange::compareRegionStarts``, ``sw/source/core/unocore/unoobj2.cxx``),
+    so a frame or footnote range never overlaps a body redline. A comparison that fails counts as
+    no overlap for that range only; the other ranges are still compared.
     """
     bounds = [(r.getStart(), r.getEnd()) for r in ranges]
     authors: set[str] = set()
@@ -153,13 +155,13 @@ def overlapping_redline_authors(doc: Any, ranges: list[Any], kind: str) -> set[s
             continue
         text, start, end = redline_bounds(rl)
         # compareRegionStarts(a, b): 1 when a starts before b.
-        if uno_read(
-            lambda: any(
-                text.compareRegionStarts(start, r_end) > 0 and text.compareRegionStarts(r_start, end) > 0
-                for r_start, r_end in bounds
-            ),
-            False,
-            object_type="TextRange",
+        if any(
+            uno_read(
+                lambda: text.compareRegionStarts(start, r_end) > 0 and text.compareRegionStarts(r_start, end) > 0,
+                False,
+                object_type="TextRange",
+            )
+            for r_start, r_end in bounds
         ):
             authors.add(str(rl.getPropertyValue("RedlineAuthor")))
     return authors

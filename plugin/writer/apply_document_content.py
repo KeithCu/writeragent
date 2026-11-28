@@ -42,7 +42,7 @@ from plugin.writer.edit_review import (
 )
 from plugin.writer.target_resolver import request_insert_range
 from plugin.doc.compound_undo import UndoStepOrRollback, UndoUnavailable, commit_or_rollback
-from plugin.writer.record_changes import is_recording_changes, overlapping_redline_authors
+from plugin.writer.record_changes import inside_insertion_by, is_recording_changes, overlapping_redline_authors
 from plugin.writer.review_scan import document_has_tracked_deletions
 from plugin.writer.search import replace_text_in_shape
 from plugin.writer.specialized.tables import delete_leading_tables, record_table_deletions
@@ -100,6 +100,10 @@ _OWN_FORMAT_CHANGE_WARNING = (
     "The replaced text carried the agent's own pending tracked formatting change, which LibreOffice "
     "drops when that text is replaced, so rejecting the changes keeps that formatting. Tell the user."
 )
+_INSIDE_OWN_INSERTION_NOTE = (
+    "The edited text is part of the agent's own earlier pending insertion, so the change is folded "
+    "into that pending tracked change and has no review entry of its own."
+)
 _PARAGRAPH_FORMAT_ACCEPTED_WARNING = (
     "LibreOffice accepted the pending tracked paragraph-style change of the edited paragraph when "
     "the text was changed, so rejecting the changes no longer restores that paragraph's earlier "
@@ -107,24 +111,54 @@ _PARAGRAPH_FORMAT_ACCEPTED_WARNING = (
 )
 
 
-def _format_change_check(doc: Any, ranges: list[Any], recorded: bool) -> tuple[dict[str, Any] | None, bool]:
-    """``(MATCH_CROSSES_FORMAT_CHANGE error or None, own)`` for a replace of *ranges*.
+def _format_change_check(
+    doc: Any, ranges: list[Any], recorded: bool, *, skip_crossing: bool = False
+) -> tuple[list[Any], dict[str, Any] | None, bool]:
+    """``(ranges to edit, MATCH_CROSSES_FORMAT_CHANGE error or None, own)`` for a replace of *ranges*.
 
     A tracked deletion that covers or overlaps a pending Format redline deletes or trims it
     (``DocumentRedlineManager::PreAppendDeleteRedline``, ``case RedlineType::Format``,
     ``sw/source/core/doc/DocumentRedlineManager.cxx``), and the recorded replace inserts its new
     text inside the match first, which splits that redline at the match. Reject All then keeps
-    the formatting. The replace is refused when another author's Format redline overlaps a match;
-    *own* is True when only the agent's own Format redlines do. Unrecorded edits are not checked.
+    the formatting. A range that overlaps another author's Format redline is left out when
+    *skip_crossing* (all_matches) and refuses the edit otherwise; *own* is True when a kept range
+    overlaps only the agent's own Format redlines. Unrecorded edits are not checked.
     """
-    if not recorded:
-        return None, False
+    if not recorded or not ranges:
+        return ranges, None, False
     authors = overlapping_redline_authors(doc, ranges, "Format")
-    if authors - review_authors.AGENT_AUTHORS:
-        return make_tool_error(
+    if not authors - review_authors.AGENT_AUTHORS:
+        return ranges, None, bool(authors)
+    kept: list[tuple[Any, set[str]]] = []
+    if skip_crossing:
+        per_range = [(r, overlapping_redline_authors(doc, [r], "Format")) for r in ranges]
+        kept = [(r, found) for r, found in per_range if not found - review_authors.AGENT_AUTHORS]
+    if not kept:
+        refusal = make_tool_error(
             _FOREIGN_FORMAT_CHANGE_MESSAGE, code="MATCH_CROSSES_FORMAT_CHANGE", top_level={"replaced_count": 0}
-        ), False
-    return None, bool(authors)
+        )
+        return [], refusal, False
+    return [r for r, _found in kept], None, any(found for _r, found in kept)
+
+
+def _inside_own_insertion(doc: Any, ranges: list[Any], review: bool) -> bool:
+    """True when review mode records the edit and every range lies inside one pending agent insertion.
+
+    The edit then folds into that insertion and leaves no redline of its own (see
+    ``review_authors.deletion_author``).
+    """
+    return review and bool(ranges) and all(
+        inside_insertion_by(doc, r, review_authors.INSERT_AUTHOR) for r in ranges
+    )
+
+
+def _flag_replace_result(result: dict[str, Any], own_format: bool, inside_own: bool) -> None:
+    if result.get("status") != "ok":
+        return
+    if own_format:
+        _flag_unrejectable_style(result, _OWN_FORMAT_CHANGE_WARNING)
+    if inside_own:
+        result["message"] = (result.get("message") or "").rstrip() + " " + _INSIDE_OWN_INSERTION_NOTE
 
 
 def _flag_unrejectable_style(result: dict[str, Any], warning: str) -> None:
@@ -1629,13 +1663,13 @@ class ApplyDocumentContent(ToolBase):
             elif (refused := search_mod.crossing_match_error(doc, found, recorded=recorded)) is not None:
                 res = refused
             else:
-                format_refusal, own_format = _format_change_check(doc, [found], recorded)
+                _kept, format_refusal, own_format = _format_change_check(doc, [found], recorded)
                 if format_refusal is not None:
                     res = format_refusal
                 else:
+                    inside_own = _inside_own_insertion(doc, [found], params.track_reviewable)
                     res = self._edit_replace_one(ctx, session, params, found)
-                    if own_format:
-                        _flag_unrejectable_style(res, _OWN_FORMAT_CHANGE_WARNING)
+                    _flag_replace_result(res, own_format, inside_own)
             res.update(mode.result_fields())
             return res
 
@@ -1652,12 +1686,14 @@ class ApplyDocumentContent(ToolBase):
         deletions = TrackedDeletions(doc) if params.position == "replace" and not params.regex and not recorded else None
         first = params.occurrence or 0
         picked = ranges if params.all_matches else ranges[first : first + 1]
-        editable = [r for r in picked if not deletions or not deletions.overlaps(r)]
-        format_refusal, own_format = _format_change_check(
-            doc, editable, recorded and params.position == "replace"
+        uncrossed = [r for r in picked if not deletions or not deletions.overlaps(r)]
+        replacing = params.position == "replace"
+        editable, format_refusal, own_format = _format_change_check(
+            doc, uncrossed, recorded and replacing, skip_crossing=params.all_matches
         )
+        inside_own = _inside_own_insertion(doc, editable, params.track_reviewable and replacing)
         # Empty ranges fall through to the existing miss / drawing-shape path (models often send occurrence=0).
-        if picked and not editable:
+        if picked and not uncrossed:
             res = make_tool_error(
                 search_mod.UNRECORDED_CROSSES_DELETION_MESSAGE,
                 code="MATCH_CROSSES_DELETION",
@@ -1675,11 +1711,18 @@ class ApplyDocumentContent(ToolBase):
                 editable,
                 max_limit_hit=len(ranges) >= search_mod.MAX_SEARCH_REPLACEMENTS,
             )
-            if res.get("status") == "ok" and len(editable) < len(picked):
-                skipped = len(picked) - len(editable)
+            if res.get("status") == "ok" and len(uncrossed) < len(picked):
+                skipped = len(picked) - len(uncrossed)
                 res["message"] = (
                     res["message"].rstrip()
                     + f" {skipped} more match(es) run across a pending tracked deletion and were not changed."
+                )
+            if res.get("status") == "ok" and len(editable) < len(uncrossed):
+                skipped = len(uncrossed) - len(editable)
+                res["message"] = (
+                    res["message"].rstrip()
+                    + f" {skipped} more match(es) carry another author's pending tracked formatting change"
+                    " and were not changed."
                 )
         elif params.occurrence is not None and params.occurrence >= len(ranges):
             res = self._occurrence_oor(params.occurrence, len(ranges))
@@ -1689,8 +1732,7 @@ class ApplyDocumentContent(ToolBase):
                 res = self._edit_insert_next_to_match(ctx, session, params, found)
             else:
                 res = self._edit_replace_one(ctx, session, params, found)
-        if own_format:
-            _flag_unrejectable_style(res, _OWN_FORMAT_CHANGE_WARNING)
+        _flag_replace_result(res, own_format, inside_own)
         res.update(mode.result_fields())
         return res
 

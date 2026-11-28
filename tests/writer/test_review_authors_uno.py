@@ -12,7 +12,7 @@ from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import native_writer_tool_context, with_native_doc
 from plugin.writer import html_import, review_authors
-from plugin.writer.apply_document_content import ApplyDocumentContent
+from plugin.writer.apply_document_content import _INSIDE_OWN_INSERTION_NOTE, ApplyDocumentContent
 from plugin.writer.edit_review import EditReviewSession
 from tests.writer.doc_builders import (
     body_paragraphs,
@@ -77,6 +77,7 @@ def test_edit_inside_own_pending_paragraph_rejects_to_original_styles_uno(ctx: A
         assert first.get("status") == "ok", first
         second = ApplyDocumentContent().execute(tctx, target="search", old_content="clause", content="section")
         assert second.get("status") == "ok", second
+    assert _INSIDE_OWN_INSERTION_NOTE in second["message"]
     assert "Inserted section text." in body_texts(doc.getText())
     assert review_authors.DELETE_AUTHOR not in {r["RedlineAuthor"] for r in list_redlines(doc)}
     reject_all_changes(doc, ctx)
@@ -132,5 +133,25 @@ def test_replace_inside_own_pending_insertion_registers_no_change_uno(ctx: Any, 
         session.cleanup()
     assert session.changes == []
     assert "Beta two inserted AGENT words." in body_texts(doc.getText())
+    reject_all_changes(doc, ctx)
+    assert body_texts(doc.getText()) == ["Beta two."]
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_replace_last_word_of_own_pending_insertion_deletes_it_outright_uno(ctx: Any, doc: Any) -> None:
+    """The new text after the last word of an earlier tagged insertion stays a separate Insert, but
+    the old word still lies inside that insertion, so it is removed outright instead of struck."""
+    reset_body(doc, ctx, "Beta two.")
+    tctx = native_writer_tool_context(doc, ctx)
+    with review_mode("record"):
+        first = ApplyDocumentContent().execute(
+            tctx, target="search", old_content="two", content=" inserted agent words", position="after"
+        )
+        assert first.get("status") == "ok", first
+        second = ApplyDocumentContent().execute(tctx, target="search", old_content="words", content="terms")
+        assert second.get("status") == "ok", second
+    assert review_authors.DELETE_AUTHOR not in {r["RedlineAuthor"] for r in list_redlines(doc)}
+    assert "Beta two inserted agent terms." in body_texts(doc.getText())
     reject_all_changes(doc, ctx)
     assert body_texts(doc.getText()) == ["Beta two."]

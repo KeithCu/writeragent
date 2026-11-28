@@ -2579,3 +2579,58 @@ def test_text_edit_that_accepts_paragraph_style_change_flags_style_unreviewed_un
     assert res.get("status") == "ok", res
     assert res.get("style_unreviewed") is True, res
     assert res.get("warnings"), res
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_all_matches_skips_match_over_foreign_format_change_across_texts_uno(ctx, doc):
+    """all_matches where only the frame match lies under Alice's pending bold: that match is
+    skipped and her Format redline kept, while the body matches are still replaced."""
+    reset_body(doc, ctx, "Alpha Vendor.", "Beta Vendor.")
+    frame = doc.createInstance("com.sun.star.text.TextFrame")
+    doc.getText().insertTextContent(doc.getText().getEnd(), frame, False)
+    frame_text = frame.getText()
+    frame_text.setString("Gamma Vendor.")
+    with recording_as(doc, ctx, "Alice"):
+        bold = frame_text.createTextCursor()
+        bold.gotoEnd(True)
+        bold.setPropertyValue("CharWeight", 150.0)
+    alice = [r for r in list_redlines(doc) if r["RedlineAuthor"] == "Alice"]
+    assert alice, list_redlines(doc)
+    with review_mode("record"):
+        res = ApplyDocumentContent().execute(
+            native_writer_tool_context(doc, ctx), target="search", old_content="Vendor", content="Supplier", all_matches=True
+        )
+    assert res.get("status") == "ok", res
+    assert [r for r in list_redlines(doc) if r["RedlineAuthor"] == "Alice"] == alice
+    assert frame_text.getString() == "Gamma Vendor."
+    assert all("Supplier" in t for t in body_texts(doc.getText())), body_texts(doc.getText())
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_accepted_one_of_two_same_signature_paragraph_style_changes_is_flagged_uno(ctx, doc):
+    """Two paragraphs restyled in one go carry ParagraphFormat redlines with the same author and
+    date; a word edit in one makes LibreOffice accept that one, and the result still says so."""
+    reset_body(doc, ctx, "Alpha one.", "Beta two plain text.", "Gamma three end.")
+    stamp = uno.createUnoStruct("com.sun.star.util.DateTime")
+    stamp.Year, stamp.Month, stamp.Day, stamp.Hours = 2026, 11, 27, 10
+    props = (
+        uno.createUnoStruct("com.sun.star.beans.PropertyValue", "RedlineAuthor", 0, "Counsel", 0),
+        uno.createUnoStruct("com.sun.star.beans.PropertyValue", "RedlineDateTime", 0, stamp, 0),
+    )
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        for needle in ("Beta two plain text.", "Gamma three end."):
+            found = find_first(doc, needle)
+            found.getText().createTextCursorByRange(found).makeRedline("ParagraphFormat", props)
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+    assert list_redline_types(doc).count("ParagraphFormat") == 2
+    with review_mode("record"):
+        res = ApplyDocumentContent().execute(
+            native_writer_tool_context(doc, ctx), target="search", old_content="two", content="2"
+        )
+    assert res.get("status") == "ok", res
+    assert list_redline_types(doc).count("ParagraphFormat") == 1
+    assert res.get("style_unreviewed") is True, res
