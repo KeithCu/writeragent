@@ -440,3 +440,57 @@ def test_apply_document_content_anchor_range_review_record_uno(ctx, doc):
         assert "Replacement Under Review" not in body_restored
     finally:
         save({flag: prev})
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_anchor_range_over_footnote_or_field_refused_unless_recorded_uno(ctx, doc):
+    from plugin.framework.config import get_config, save
+
+    prev = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "off"})
+    try:
+        for kind in ("footnote", "field"):
+            text = doc.getText()
+            text.setString("")
+            cur = text.createTextCursor()
+            text.insertString(cur, "thirty days ", False)
+            if kind == "footnote":
+                note = doc.createInstance("com.sun.star.text.Footnote")
+                text.insertTextContent(cur, note, False)
+                note.setString("note body")
+
+                def count_fn() -> int:
+                    return doc.getFootnotes().getCount()
+            else:
+                fld = doc.createInstance("com.sun.star.text.TextField.PageNumber")
+                text.insertTextContent(cur, fld, False)
+
+                def count_fn() -> int:
+                    return 1 if doc.getTextFields().createEnumeration().hasMoreElements() else 0
+            text.insertString(cur, " and the Buyer", False)
+            assert count_fn() == 1
+
+            tctx = native_writer_tool_context(doc, ctx)
+            tool = ApplyDocumentContent()
+            res = tool.execute(
+                tctx, start_anchor="thirty days", end_anchor="and the Buyer", content="sixty days"
+            )
+            assert res.get("status") == "error", (kind, res)
+            assert res.get("code") == "OBJECT_IN_ANCHOR_RANGE", (kind, res)
+            assert count_fn() == 1
+
+            doc.setPropertyValue("RecordChanges", True)
+            try:
+                rec = tool.execute(
+                    tctx, start_anchor="thirty days", end_anchor="and the Buyer", content="sixty days"
+                )
+                assert rec.get("status") == "ok", (kind, rec)
+            finally:
+                doc.setPropertyValue("RecordChanges", False)
+
+            reject_all_changes(doc, ctx)
+            assert count_fn() == 1
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        save({"doc.agent_edit_review_mode": prev})

@@ -253,7 +253,7 @@ def _apply_pipeline_params(pipeline_options: Any, norm: DoclingPipelineParams) -
 
     if norm.artifacts_path:
         if not Path(norm.artifacts_path).expanduser().is_dir():
-            raise FileNotFoundError(f"artifacts_path {norm.artifacts_path!r} is not a folder.")
+            raise FileNotFoundError(f"artifacts_path '{norm.artifacts_path}' is not a folder.")
         pipeline_options.artifacts_path = norm.artifacts_path
 
     pipeline_options.do_formula_enrichment = norm.do_formula_enrichment

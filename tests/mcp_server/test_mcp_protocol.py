@@ -129,12 +129,15 @@ def test_long_running_precomputes_echo_without_post_execute_doc_access():
 
 
 class _DisposedDoc:
-    """getImplementationName raises DisposedException, so execute_safe reports DOCUMENT_DISPOSED."""
+    """First getURL() succeeds for MCP prep; every later call raises DisposedException."""
+
+    def __init__(self):
+        self._url_calls = 0
 
     def getURL(self):
-        return "file:///gone.odt"
-
-    def getImplementationName(self):
+        self._url_calls += 1
+        if self._url_calls == 1:
+            return "file:///gone.odt"
         raise DisposedException("disposed")
 
     def supportsService(self, service_name):
@@ -325,12 +328,15 @@ def test_tools_call_cannot_skip_disposed_document_check(bypass):
     assert direct["code"] == "DOCUMENT_DISPOSED"
     assert direct["status"] == "error"
 
+    handler.services.document._doc = _DisposedDoc()
     wrapped = handler._mcp_tools_call({"name": "sync_probe", "arguments": dict(args)}, cancel=SendCancellation())
     assert wrapped["isError"] is True
     assert _payload(wrapped)["code"] == "DOCUMENT_DISPOSED"
 
     tool.long_running = False
+    handler.services.document._doc = _DisposedDoc()
     debug = handler._debug_call_tool("sync_probe", dict(args), document_url="file:///gone.odt")
+    handler.services.document._doc = _DisposedDoc()
     backpressure = handler._run_tool("sync_probe", dict(args), document_url="file:///gone.odt", cancel=SendCancellation())
     assert debug["code"] == "DOCUMENT_DISPOSED"
     assert backpressure["code"] == "DOCUMENT_DISPOSED"

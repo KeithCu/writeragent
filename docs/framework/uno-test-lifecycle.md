@@ -14,7 +14,7 @@ Windows CI harness cleanup notes (if present under `docs/archive/`).
 
 | Path | Reuse? | Open | Close |
 |------|--------|------|-------|
-| Calc `@with_native_doc` | Yes (wipe-and-reuse pool) | Factory only on first use / dead pool | Close only if reset fails |
+| Calc `@with_native_doc` | Yes (wipe-and-reuse pool) | Factory only on first use / dead pool | Close only if reset fails; `_reset_calc_doc` also drops pivot tables (`DataPilotTables`) because a pivot left on Sheet1 is written out again over later tests' cells when reloaded, causing `#SPILL!` (`Err:541`) in LibreOffice 26.8 (`ScDPObject::Output`) |
 | Writer `@with_native_doc` | Yes (wipe-and-reuse pool by default across all platforms; pass `reuse=False` for fresh doc; notebook suites `test_notebook_runner_uno` and `test_writer_importer_uno` use a separate `notebook_host` pool on all platforms because `_reset_writer_doc` does not clear `WriterAgentNotebookJson` or form-run listeners) | Factory on first use / dead pool | Close only if reset fails or `reuse=False` (Windows also skips Writer close while leftovers remain) |
 | Draw / Impress | **Never** | Factory each test (`private:factory/sdraw`); Windows **skips** leftover Draw/Impress when leftover_open>2 | Windows leftover_open>0: skip close (`native_doc: teardown skip impress/draw close leftover_open=N`; suite-end recycle). Else `close_draw_family_doc` + `settle_after_draw_family_close` (Windows bare `close(True)`). Math OLE Draw still uses `close_doc` so that skip stays |
 
@@ -1030,6 +1030,10 @@ failures stay visible. Unit tests: `test_exit_after_summary_*` in
 `tests/scripts/test_testing_runner_cli.py`.
 
 A `*_uno.py` module that raises on import or exec (such as `ImportError`, `SyntaxError`, or any other `Exception`) is recorded as one suite with `failed: 1`, and `main()` returns 1. `SKIP_NATIVE_RUN_ALL` is still not a failure. Unit test: `test_uno_module_import_error_fails_the_run`.
+
+## Per-test timeout
+
+Each native test arms `_NativeTestWatchdog` (30 s default, or `@native_test(timeout=...)`, or `WRITERAGENT_UNO_TEST_TIMEOUT`). At the deadline, the watchdog prints `TIMEOUT <qual> after <N>s: stopping soffice`, dumps all thread tracebacks to `sys.__stderr__`, and kills the `soffice` process tree (`kill_process_tree`). Killing the office unblocks a hung URP call with a disposal, which `run_module_suite` turns into `_NativeTestTimeout`: the test FAILs, remaining tests in that module are logged as `NOT RUN after timeout: ...` (not counted as failures), and `_office.request_recycle()` restarts a fresh office before the next suite. A hard `faulthandler.dump_traceback_later(..., exit=True)` fires at `timeout + 30 s` (`_NATIVE_TEST_KILL_GRACE_SEC`) for hangs that killing `soffice` cannot unblock (such as a pure-Python wait).
 
 ## CI shards
 
