@@ -1226,7 +1226,7 @@ class _FieldProxy:
         return _result(call_host_tool("field_insert", field=field, properties=properties, target=target, old_content=old_content, case_sensitive=case_sensitive))
 
     def list(self) -> _Item:
-        """List all text fields in the document. Returns their types and text content, allowing you to identify and inspect fields like page numbers or dates."""
+        """List all text fields in the document. Returns their types and text content, allowing you to identify and inspect fields like page numbers or dates. pending_deletion=true marks a field inside a pending tracked deletion."""
         return _result(call_host_tool("field_list"))
 
     def update_all(self) -> _Item:
@@ -1281,7 +1281,7 @@ class _FootnoteProxy:
         return _result(call_host_tool("footnote_insert", note=note, text=text, label=label, insert_after=insert_after, occurrence=occurrence, case_sensitive=case_sensitive))
 
     def list(self, note: str) -> _Item:
-        """Lists all existing footnotes or endnotes in the document, including their indices, labels (if custom), and text content. Use this index for editing or deleting.
+        """Lists all existing footnotes or endnotes in the document, including their indices, labels (if custom), and text content. Use this index for editing or deleting. pending_deletion=true marks a note whose mark is inside a pending tracked deletion.
 
         Args:
             note (required): Whether to list footnotes or endnotes. One of: footnote, endnote.
@@ -3054,7 +3054,7 @@ class _WriterProxy:
             start_anchor (optional): Literal substring marking the start of a range to replace (target='search'); requires end_anchor. The replaced range includes both anchors and the text between them, so the middle is not copied into the call; it ends at the first end_anchor match that begins at or after the start match in the same text. Multi-line plain text becomes new paragraphs; single-line plain text replaces the span inline and keeps the host paragraph and its style; a renamed heading's links follow it.
             end_anchor (optional): Literal substring marking the end of a range to replace; requires start_anchor, matching the first occurrence that begins at or after the start match in the same text and the middle is not copied.
             all_matches (optional): Replace all occurrences (true) or first only. Only for target='search' with position='replace' and old_content.
-            occurrence (optional): For target='search': 0-based index into replaceable Writer text matches (body/table/frame) or the start_anchor match (not dry_run shape/comment rows). Omit for the existing first-match behavior.
+            occurrence (optional): For target='search': 0-based index into replaceable Writer text matches (body/table/frame) or the start_anchor match (not dry_run shape/comment rows). Index rows (TOC) are not counted, though search lists them; dry_run shows the numbering. Omit for the existing first-match behavior.
             position (optional): For target='search': 'replace' replaces the match; 'before'/'after' INSERT the content next to the match and leave the matched text untouched, so content must not repeat the matched text (result reports inserted=true instead of replaced_count). Inline content (plain text, <b>, <i>, math, ...) goes at the exact match edge; block content (<p>, headings, lists, tables) goes before/after the whole paragraph that holds the match (result reports snapped_to_paragraph=true when that moved it). One of: replace, before, after.
             dry_run (optional): For target='search' with old_content: do NOT edit. Return replaceable matches (each tagged with occurrence) plus shape/comment previews, so you can check before committing.
             regex (optional): For target='search': treat old_content as a regular expression (false = literal). Regex mode is single-paragraph (no cross-paragraph chaining). Patterns use ICU regex syntax (LibreOffice's engine): (?<name>...) for named groups, not (?P<name>...); \\p{Lu} classes are allowed. Floating drawing shapes are matched with Python re instead, so ICU-only syntax does not match inside shapes.

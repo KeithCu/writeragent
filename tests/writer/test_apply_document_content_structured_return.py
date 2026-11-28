@@ -483,7 +483,7 @@ def test_search_occurrence_dry_run_selects_without_editing(monkeypatch):
     monkeypatch.setattr(
         search_mod,
         "describe_match_location",
-        lambda found, doc, label_cache=None:
+        lambda found, doc, label_cache=None, has_indexes=None:
             "first" if found is first else "second",
     )
     monkeypatch.setattr(
@@ -648,7 +648,7 @@ def test_search_occurrence_dry_run_oor_includes_replaceable(monkeypatch):
     monkeypatch.setattr(
         search_mod,
         "describe_match_location",
-        lambda found, doc, label_cache=None:
+        lambda found, doc, label_cache=None, has_indexes=None:
             "first" if found is first else "second",
     )
     monkeypatch.setattr(
@@ -689,7 +689,7 @@ def test_dry_run_splits_replaceable_and_not_replaceable(monkeypatch):
     monkeypatch.setattr(
         search_mod,
         "describe_match_location",
-        lambda found, doc, label_cache=None:
+        lambda found, doc, label_cache=None, has_indexes=None:
             "first_loc" if found is first else "second_loc",
     )
     monkeypatch.setattr(
@@ -765,7 +765,7 @@ def test_dry_run_shared_preview_cap(monkeypatch):
     monkeypatch.setattr(
         search_mod,
         "describe_match_location",
-        lambda found, doc, label_cache=None: "body",
+        lambda found, doc, label_cache=None, has_indexes=None: "body",
     )
     monkeypatch.setattr(
         search_mod,
