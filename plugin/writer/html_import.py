@@ -1003,8 +1003,14 @@ def _without_trailing_break(rng: Any) -> Any:
 
 
 def _content_ends_with_table(content: str) -> bool:
-    """True when *content* ends with a closing ``</table>`` tag (ignoring trailing comments/whitespace)."""
-    return bool(re.search(r"</table>(?:\s|<!--[\s\S]*?-->)*$", content, re.IGNORECASE))
+    """True when *content* ends with ``</table>`` (ignoring wrapper close tags, comments, and whitespace)."""
+    return bool(
+        re.search(
+            r"</table>(?:\s|<!--[\s\S]*?-->|</(?:div|body|html|section|article|main|aside)>)*$",
+            content,
+            re.IGNORECASE,
+        )
+    )
 
 
 def _import_and_drop_leftover(
@@ -1028,12 +1034,12 @@ def _import_and_drop_leftover(
     if report.added_content:
         # Untracked: the leftover break is part of the fresh absorb paragraph, and a tracked
         # delete of it joins paragraphs on Accept. When merge_forward_after_table is True and
-        # content ends with a table, the helper merges the leftover forward into the first deleted
+        # content has a table, the helper merges the leftover forward into the first deleted
         # paragraph, which Accept then empties: the same end state as without recording.
         with record_changes.record_changes(model, False):
             _drop_leftover_paragraph(
                 leftover,
-                merge_forward_after_table=merge_forward_after_table and _content_ends_with_table(content),
+                merge_forward_after_table=merge_forward_after_table and "<table" in content.lower(),
             )
     return report
 
@@ -1155,6 +1161,13 @@ _EXTRA_COPY_STYLE_PARA_PROPS = (
 )
 
 
+_SKIP_DIRECT_CHAR_PROPS = frozenset({
+    "CharAutoStyleName",
+    "CharInteropGrabBag",
+    "CharStyleNames",
+})
+
+
 def _copy_style_extra_names(para: Any) -> tuple[str, ...]:
     info = para.getPropertySetInfo()
     return tuple(n for n in _EXTRA_COPY_STYLE_PARA_PROPS if info.hasPropertyByName(n))
@@ -1184,7 +1197,10 @@ def _paragraph_format(cursor: Any, rng: Any | None = None) -> dict[str, Any]:
                 if state.value == "DIRECT_VALUE":
                     fmt[name] = para.getPropertyValue(name)
     if rng is not None:
-        char_names = tuple(writable_char_names(rng) or ())
+        char_names = tuple(
+            n for n in (writable_char_names(rng) or ())
+            if n not in _SKIP_DIRECT_CHAR_PROPS
+        )
         if char_names:
             for name, state in zip(char_names, rng.getPropertyStates(char_names)):
                 if state.value == "DIRECT_VALUE":
@@ -1365,12 +1381,24 @@ def _replace_whole_paragraphs(
             # paragraph from the predecessor, and CallParser reads GetParaAttr from the import target.
             with record_changes.record_changes(model, False):
                 _restore_paragraph_format(cursor, fmt)
+                # Unlike kept_char (language + uniform font for the import target), lcl_RstAttr
+                # clears every node-level Char* attribute on the struck paragraph.
                 char_items = [(n, v) for n, v in fmt.items() if n.startswith("Char")]
                 if char_items:
                     struck = text_obj.createTextCursorByRange(rng.getStart())
                     struck.gotoRange(end_cur.getStart(), True)
-                    for name, value in char_items:
-                        struck.setPropertyValue(name, value)
+                    names = tuple(n for n, _val in char_items)
+                    values = tuple(v for _name, v in char_items)
+                    try:
+                        struck.setPropertyValues(names, values)
+                    except Exception as exc:
+                        reraise_if_disposed(exc)
+                        for name, value in char_items:
+                            try:
+                                struck.setPropertyValue(name, value)
+                            except Exception as item_exc:
+                                reraise_if_disposed(item_exc)
+                                log.debug("restore char prop %s failed", name, exc_info=True)
             text_obj.insertControlCharacter(end_cur, PARAGRAPH_BREAK, False)
             cursor = end_cur
             with record_changes.record_changes(model, False):

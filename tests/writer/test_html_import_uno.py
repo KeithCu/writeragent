@@ -1576,6 +1576,7 @@ def test_recorded_whole_paragraph_replace_matches_untracked_uno(ctx: Any, doc: A
     contents = [
         ("p", "<p>New</p>", False),
         ("tbl", tbl, True),
+        ("div_tbl", f"<div>{tbl}</div>", True),
         ("p+tbl", f"<p>Lead</p>{tbl}", True),
         ("tbl+p", f"{tbl}<p>Tail</p>", False),
     ]
@@ -4111,6 +4112,7 @@ def test_recorded_whole_paragraph_shapes_and_roundtrip_uno(ctx: Any, doc: Any) -
         ("hyphenation_orphans_predecessor", _seed_hyphenation_orphans_predecessor, "Target", "<p>New</p>", False),
         ("replaced_para_page_break", _seed_replaced_para_page_break, "Clause", "<p>New</p>", False),
         ("heading_plus_direct_font", _seed_heading_plus_direct_font, "Body", "<p>New body</p>", False),
+        ("wrapped_table_middle", _seed_before_heading, "Clause", "<div><table><tr><td>X</td></tr></table></div>", False),
     ]
 
     try:
