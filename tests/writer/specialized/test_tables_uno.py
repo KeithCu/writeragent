@@ -1728,3 +1728,30 @@ def test_table_set_cell_keeps_picture_uno(ctx, doc):
     assert cap_res["status"] == "ok", cap_res
     assert doc.getGraphicObjects().getCount() == 1
     assert cell.getString() == "Caption"
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_table_insert_with_data_is_one_undo_step_with_review_off_uno(ctx, doc):
+    """With review Off, one Undo removes the table and every filled cell, with or without the user's recording."""
+    from plugin.framework.config import get_config, save
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    prev = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "off"})
+    try:
+        for user_records in (False, True):
+            doc.setPropertyValue("RecordChanges", user_records)
+            try:
+                res = TableInsert().execute(tool_ctx, rows=2, columns=2, data=[["a", "b"], ["c", "d"]])
+            finally:
+                doc.setPropertyValue("RecordChanges", False)
+            assert res.get("status") == "ok", res
+            assert doc.getTextTables().getCount() == 1
+
+            doc.getUndoManager().undo()
+
+            assert doc.getTextTables().getCount() == 0, user_records
+            assert doc.getRedlines().getCount() == 0, user_records
+    finally:
+        save({"doc.agent_edit_review_mode": prev})

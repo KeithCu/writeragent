@@ -1314,7 +1314,10 @@ def test_all_matches_outline_update_failure_reports_hyperlink_code():
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks", return_value=snapshot), \
          patch("plugin.writer.html_import.replace_single_range_with_content", return_value=html_import_styles.WriteReport()), \
          patch("plugin.writer.apply_document_content.next_agent_edit_undo_title", return_value="Agent Edit"):
-        ctx.doc.getUndoManager.return_value.getAllUndoActionTitles.side_effect = [(), (), ("Agent Edit",)]
+        um = ctx.doc.getUndoManager.return_value
+        # The stack shows the outer "Agent Edit" group from the moment it is entered; the
+        # per-match groups nest inside it.
+        um.getAllUndoActionTitles.side_effect = lambda: ("Agent Edit",) if um.enterUndoContext.called else ()
         res = ApplyDocumentContent().execute(
             ctx, content="new", target="search", old_content="old", all_matches=True
         )

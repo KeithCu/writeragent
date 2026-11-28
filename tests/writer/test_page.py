@@ -21,6 +21,7 @@ from plugin.writer.page import (
     _region_shapes,
     _scan_region_content,
     copy_page_style,
+    set_header_footer_auto_height,
 )
 
 
@@ -385,7 +386,8 @@ def test_set_header_footer_imports_html_even_when_a_logo_is_present():
     assert res["status"] == "ok"
     replace_html.assert_called_once()
     text_obj.setString.assert_not_called()
-    style.setPropertyValue.assert_any_call("HeaderIsOn", True)
+    # The header is already on: a page-style write would empty the undo stack for nothing.
+    assert all(c.args[0] != "HeaderIsOn" for c in style.setPropertyValue.call_args_list)
 
 
 def test_set_header_footer_reports_unapplied_data_lo_para():
@@ -2365,3 +2367,22 @@ def test_scan_region_content_sees_nested_fields_and_redlines_in_content_control(
     scan = _scan_region_content(doc, text_obj)
     assert scan["fields"] == [{"presentation": "1", "content": "Page"}]
     assert scan["has_struck"] is True
+
+
+@pytest.mark.parametrize(
+    ("current", "expected_writes"),
+    [
+        ({"HeaderIsDynamicHeight": True, "HeaderDynamicSpacing": True}, []),
+        ({"HeaderIsDynamicHeight": False, "HeaderDynamicSpacing": True}, [("HeaderIsDynamicHeight", True)]),
+        ({"HeaderIsDynamicHeight": True, "HeaderDynamicSpacing": False}, [("HeaderDynamicSpacing", True)]),
+    ],
+)
+def test_set_header_footer_auto_height_writes_only_what_differs(current, expected_writes):
+    """Every page-style write empties LibreOffice's undo stack, so unchanged values are not written."""
+    style = MagicMock()
+    style.getPropertyValue.side_effect = current.__getitem__
+
+    wrote = set_header_footer_auto_height(style, "header", True)
+
+    assert [c.args for c in style.setPropertyValue.call_args_list] == expected_writes
+    assert wrote is bool(expected_writes)

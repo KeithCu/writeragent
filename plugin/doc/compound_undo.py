@@ -238,8 +238,10 @@ class UndoStepOrRollback(WriterCompoundUndo):
 
     rolled_back: bool
 
-    def __init__(self, doc: Any, title: str) -> None:
-        super().__init__(doc, title)
+    def __init__(self, doc: Any, title: str, *, warn: bool = True) -> None:
+        # warn=False keeps a missing or locked undo manager out of the log, for callers that
+        # run on every edit and treat a body without a group as normal.
+        super().__init__(doc, title, _warn=warn)
         self.rolled_back = False
 
     def __enter__(self) -> UndoStepOrRollback:

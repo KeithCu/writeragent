@@ -1198,7 +1198,8 @@ def _search_create_undo(locked=False, insert_error=None, undo_error=None):
     entered = {}
 
     def enter(title):
-        entered["title"] = title
+        # While a group is open the stack's top entry is that outermost group; nested groups merge into it.
+        entered.setdefault("title", title)
 
     mgr.enterUndoContext.side_effect = enter
     mgr.getAllUndoActionTitles.side_effect = lambda: (entered.get("title"),)

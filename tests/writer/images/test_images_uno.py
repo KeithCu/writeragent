@@ -474,3 +474,52 @@ def test_image_generate_frame_uses_pinned_selection_uno(ctx, doc):
     para.gotoStartOfParagraph(False)
     para.gotoEndOfParagraph(True)
     assert "First paragraph" in para.getString()
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_image_insert_header_keeps_undo_history_unless_it_turns_the_header_on_uno(ctx, doc):
+    """A header already on with auto height takes no page-style write: earlier edits stay undoable and
+    one Undo removes the picture. Turning the header on empties the undo stack, and the result says so."""
+    import shutil
+    import tempfile
+    from plugin.framework.config import get_config, save
+
+    tctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    text = doc.getText()
+    style = doc.getStyleFamilies().getByName("PageStyles").getByName("Standard")
+    um = doc.getUndoManager()
+    prev = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "off"})
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_logo = os.path.join(tmpdir, "logo.png")
+            shutil.copyfile(logo_32_path(), tmp_logo)
+            style.setPropertyValue("HeaderIsOn", True)
+            style.setPropertyValue("HeaderIsDynamicHeight", True)
+            style.setPropertyValue("HeaderDynamicSpacing", True)
+            um.clear()
+            for word in ("one", "two", "three"):
+                text.insertString(text.getEnd(), " " + word, False)
+            user_steps = len(um.getAllUndoActionTitles())
+
+            res = ImageInsert().execute(
+                tctx, path=tmp_logo, target="header", style="Standard", auto_height=True, width_mm=10, height_mm=10
+            )
+            assert res["status"] == "ok", res
+            assert "warning" not in res, res
+            assert len(um.getAllUndoActionTitles()) == user_steps + 1
+            assert doc.getGraphicObjects().getCount() == 1
+
+            um.undo()
+            assert doc.getGraphicObjects().getCount() == 0
+            assert len(um.getAllUndoActionTitles()) == user_steps
+
+            style.setPropertyValue("HeaderIsOn", False)
+            res_on = ImageInsert().execute(
+                tctx, path=tmp_logo, target="header", style="Standard", auto_height=True, width_mm=10, height_mm=10
+            )
+            assert res_on["status"] == "ok", res_on
+            assert res_on.get("warning"), res_on
+    finally:
+        save({"doc.agent_edit_review_mode": prev})

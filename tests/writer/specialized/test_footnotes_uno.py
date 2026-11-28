@@ -309,3 +309,30 @@ def test_footnote_list_hides_tracked_deletion_uno(ctx, doc):
     res = FootnotesList().execute(native_writer_tool_context(doc, ctx), note="footnote")
     assert res["status"] == "ok", res
     assert res["notes"][0]["text"] == "note nova"
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_footnote_insert_is_one_undo_step_with_review_off_uno(ctx, doc):
+    """With review Off, one Undo removes the footnote and its text, with or without the user's recording."""
+    prev = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "off"})
+    try:
+        for user_records in (False, True):
+            doc.getText().setString("probe text ")
+            doc.getCurrentController().getViewCursor().gotoEnd(False)
+            doc.setPropertyValue("RecordChanges", user_records)
+            try:
+                res = FootnotesInsert().execute(native_writer_tool_context(doc, ctx), note="footnote", text="note body")
+            finally:
+                doc.setPropertyValue("RecordChanges", False)
+            assert res["status"] == "ok", res
+            assert _supplier(doc, "footnote").getCount() == 1
+
+            doc.getUndoManager().undo()
+
+            assert _supplier(doc, "footnote").getCount() == 0, user_records
+            assert _body_text(doc) == "probe text ", user_records
+            assert doc.getRedlines().getCount() == 0, user_records
+    finally:
+        save({"doc.agent_edit_review_mode": prev})

@@ -1598,3 +1598,45 @@ def test_style_format_text_full_document_table_in_leading_section_uno(ctx, doc):
     assert {s for s, _ in portions} >= {"SecLead", "AfterSec"}
     for s, props in portions:
         assert props["CharFontName"] == "Arial", (s, props)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_style_format_text_warns_that_list_level_cannot_be_undone_uno(ctx, doc):
+    """Undo does not restore NumberingLevel, so the result warns in every review mode; other properties do not warn."""
+    from plugin.framework.config import get_config, save
+
+    text = doc.getText()
+    text.setString("")
+    cursor = text.createTextCursor()
+    for i, item in enumerate(("Apple", "Banana", "Cherry")):
+        if i:
+            text.insertControlCharacter(cursor, 0, False)  # PARAGRAPH_BREAK
+        text.insertString(cursor, item, False)
+    whole = text.createTextCursor()
+    whole.gotoStart(False)
+    whole.gotoEnd(True)
+    whole.setPropertyValue("NumberingStyleName", "Numbering 123")
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    prev = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "off"})
+    try:
+        res = StyleFormatText().execute(
+            tool_ctx, properties={"NumberingLevel": 1}, target="search", old_content="Cherry", all_matches=False,
+        )
+        assert res["status"] == "ok", res
+        cherry = body_paragraphs(text)[2]
+        assert cherry.getPropertyValue("NumberingLevel") == 1
+
+        doc.getUndoManager().undo()
+        assert cherry.getPropertyValue("NumberingLevel") == 1, "LibreOffice now undoes NumberingLevel; drop the warning"
+        assert "NumberingLevel" in res.get("warning", ""), res
+
+        res_plain = StyleFormatText().execute(
+            tool_ctx, properties={"CharWeight": 150.0}, target="search", old_content="Apple", all_matches=False,
+        )
+        assert res_plain["status"] == "ok", res_plain
+        assert "warning" not in res_plain, res_plain
+    finally:
+        save({"doc.agent_edit_review_mode": prev})

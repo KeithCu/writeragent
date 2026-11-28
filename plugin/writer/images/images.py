@@ -1421,6 +1421,12 @@ class ImageInsert(ToolWriterImageBase):
                 }
                 if placed["layout_changed"]:
                     flag_style_unreviewed(result, doc)
+                if placed["undo_cleared"]:
+                    result["warning"] = _(
+                        "Turning on the header or footer or its auto height cleared the document's undo history "
+                        "(LibreOffice does that on every page style change), so Ctrl+Z cannot undo this insert "
+                        "or earlier edits. Tell the user."
+                    )
                 if recorded:
                     flag_tracked(result)
                 return result

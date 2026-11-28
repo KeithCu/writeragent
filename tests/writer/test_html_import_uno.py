@@ -3950,3 +3950,57 @@ def test_recorded_partial_block_replace_authors_deletion_separately_uno(ctx: Any
     finally:
         save({flag: prev})
         doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_recorded_inline_replace_across_list_items_undoes_in_one_step_uno(ctx: Any, doc: Any) -> None:
+    """One Undo of a recorded inline replace that spans two list items keeps every item in its list."""
+    from plugin.framework.config import get_config, save
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    text = doc.getText()
+
+    def items() -> list[tuple[str, bool, str]]:
+        return [
+            (p.getString(), bool(p.getPropertyValue("NumberingIsNumber")), str(p.getPropertyValue("ListLabelString")))
+            for p in body_paragraphs(text)
+        ]
+
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    try:
+        for mode, user_records in (("record", False), ("off", True)):
+            doc.setPropertyValue("RecordChanges", False)
+            text.setString("")
+            cursor = text.createTextCursor()
+            for i, item in enumerate(("Apple", "Banana", "Cherry", "Damson")):
+                if i:
+                    text.insertControlCharacter(cursor, 0, False)  # PARAGRAPH_BREAK
+                text.insertString(cursor, item, False)
+            whole = text.createTextCursor()
+            whole.gotoStart(False)
+            whole.gotoEnd(True)
+            whole.setPropertyValue("NumberingStyleName", "Numbering 123")
+            before = items()
+            doc.getUndoManager().clear()
+
+            save({flag: mode})
+            doc.setPropertyValue("RecordChanges", user_records)
+            try:
+                res = ApplyDocumentContent().execute(
+                    native_writer_tool_context(doc, ctx),
+                    target="search", start_anchor="Banana", end_anchor="Cherry", content="<b>Berry mix</b>",
+                )
+            finally:
+                doc.setPropertyValue("RecordChanges", False)
+                save({flag: prev})
+            assert res["status"] == "ok", res
+            assert doc.getRedlines().getCount() > 0
+
+            doc.getUndoManager().undo()
+
+            assert items() == before, mode
+            assert doc.getRedlines().getCount() == 0, mode
+    finally:
+        save({flag: prev})

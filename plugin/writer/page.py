@@ -442,18 +442,28 @@ def header_footer_layout(style: Any, region: str) -> tuple[bool, bool | None]:
     return is_on, auto_height
 
 
-def set_header_footer_auto_height(style: Any, region: str, enabled: bool) -> None:
-    """Let the region grow with its content (or pin it to a fixed height).
+def set_header_footer_auto_height(style: Any, region: str, enabled: bool) -> bool:
+    """Let the region grow with its content (or pin it to a fixed height); True when a property was written.
 
     Without this, a header keeps its fixed height and taller content —
     a letterhead logo, say — overlaps the text and spills into the body.
+    Only properties that differ are written, because every page-style write empties the
+    document's undo stack (``SwXPageStyle::SetPropertyValues_Impl`` calls ``DelAllUndoObj``,
+    sw/source/core/unocore/unostyle.cxx, i64460).
     """
     props = _height_props(region)
-    style.setPropertyValue(props[0], enabled)
-    best_effort(
-        lambda: style.setPropertyValue(props[1], enabled),
-        "set_header_footer_auto_height: %s not on this page style" % props[1],
-    )
+    wrote = False
+    if style.getPropertyValue(props[0]) != enabled:
+        style.setPropertyValue(props[0], enabled)
+        wrote = True
+    spacing = uno_read(lambda: style.getPropertyValue(props[1]), None)
+    if spacing is not None and spacing != enabled:
+        best_effort(
+            lambda: style.setPropertyValue(props[1], enabled),
+            "set_header_footer_auto_height: could not set %s" % props[1],
+        )
+        wrote = True
+    return wrote
 
 
 def resolve_page_style(doc: Any, style_name: str = "Standard") -> Any:
@@ -1009,7 +1019,9 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
         auto_height = kwargs.get("auto_height")
 
         try:
-            style.setPropertyValue(is_on_prop, True)
+            # Write only when off: every page-style write empties the undo stack (set_header_footer_auto_height).
+            if not was_on:
+                style.setPropertyValue(is_on_prop, True)
             if auto_height is not None:
                 set_header_footer_auto_height(style, region, auto_height)
             after = header_footer_layout(style, region)

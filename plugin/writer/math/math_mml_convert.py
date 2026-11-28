@@ -14,8 +14,10 @@ from typing import Any
 from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK  # type: ignore
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 
+from plugin.doc.compound_undo import WriterCompoundUndo
 from plugin.doc.temp_files import with_temp_buffer
 from plugin.framework.errors import best_effort
+from plugin.framework.i18n import _
 from plugin.framework.scratch_writer import close_scratch_document, load_scratch_document
 from plugin.framework.uno_context import get_desktop
 from plugin.writer.record_changes import insert_recorded_content
@@ -175,24 +177,27 @@ def insert_writer_math_formula(model: Any, cursor: Any, starmath: str, *, displa
     # The break below copies this value into the new paragraph; restore it after
     # the second break so the text after the formula keeps its own alignment.
     para_adjust = cursor.getPropertyValue("ParaAdjust") if display_block else None
-    # insertControlCharacter already advances past the display-block paragraph break;
-    # an extra goRight(1) mid-paragraph consumes the next character and splits the
-    # following run ("AAA|BBB" → "AAA" / "B[F]" / "BB" instead of "AAA" / "[F]" / "BBB").
-    if display_block:
-        text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
-        cursor.setPropertyValue("ParaAdjust", PARA_CENTER)
+    # The breaks, alignment writes, object insert and formula write are separate undo actions;
+    # group them so one Ctrl+Z removes the formula in every review mode.
+    with WriterCompoundUndo(model, _("WriterAgent: Insert formula")):
+        # insertControlCharacter already advances past the display-block paragraph break;
+        # an extra goRight(1) mid-paragraph consumes the next character and splits the
+        # following run ("AAA|BBB" → "AAA" / "B[F]" / "BB" instead of "AAA" / "[F]" / "BBB").
+        if display_block:
+            text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
+            cursor.setPropertyValue("ParaAdjust", PARA_CENTER)
 
-    embed = model.createInstance("com.sun.star.text.TextEmbeddedObject")
-    embed.CLSID = MATH_CLSID
-    embed.AnchorType = AS_CHARACTER
-    insert_recorded_content(model, text, cursor, embed)
+        embed = model.createInstance("com.sun.star.text.TextEmbeddedObject")
+        embed.CLSID = MATH_CLSID
+        embed.AnchorType = AS_CHARACTER
+        insert_recorded_content(model, text, cursor, embed)
 
-    inner = embed.getEmbeddedObject()
-    inner.Formula = starmath
+        inner = embed.getEmbeddedObject()
+        inner.Formula = starmath
 
-    if display_block:
-        text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
-        cursor.setPropertyValue("ParaAdjust", para_adjust)
+        if display_block:
+            text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
+            cursor.setPropertyValue("ParaAdjust", para_adjust)
 
 
 def _math_inner(embed: Any) -> Any:

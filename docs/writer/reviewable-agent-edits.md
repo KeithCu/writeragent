@@ -364,6 +364,30 @@ When the user turns on Track Changes > Record while agent review is Off, operati
   * A second style change on the same paragraph reuses the first redline and its author, so Reject undoes both changes.
   * Reject restores the direct paragraph properties listed in `_REVERT_PARA_PROPERTIES` (`styles.py`). Any other hand-set one (for example `DropCapCharStyleName`, `FillBitmapSizeX/Y`) is dropped by `lcl_RejectRedline`'s `ResetAttrs`; the result sets `style_unreviewed: true` and the warning names it. Import metadata (`ParaInteropGrabBag`, `ParRsid`, foreign XML attributes) is dropped without a warning.
 * **Recorded inserts at an empty paragraph:** When recording is on, inserting at a caret in an empty paragraph or at `beginning` when the first paragraph is empty places the imported content after that empty paragraph (so Reject restores the paragraph's style and direct formatting); content ending in a table keeps one extra empty paragraph after the table. The whole insert is one Ctrl+Z step.
+* **One Ctrl+Z per edit in every review mode:** `EditReviewSession.record_mutation` opens one undo
+  group per logical change whether or not a review session is active, so footnote, table, form
+  control, image and Run Python Script inserts are one step with review Off too. When the edit raises,
+  that group is undone while it is still the newest step; a helper's own rollback nested inside it could
+  not run, because `XUndoManager.undo` refuses while a context is open. Writes made outside
+  `record_mutation` group themselves: the Writer `chart_upsert` insert, including the bounded wait for
+  the chart model (Writer can add a "Change style" step for the object while it starts, and a keystroke
+  typed during that wait joins the step too), `clone_heading_block`, `index_update_all`, and the formula insert (`insert_writer_math_formula`, also
+  used by the LaTeX dialog). `comment_add` and `shape_upsert` create still take two steps.
+* **Page-style writes clear the undo history:** every page-style property write empties the document's
+  undo stack (`SwXPageStyle::SetPropertyValues_Impl`, `unostyle.cxx`, i64460). `image_insert` into a
+  header or footer turns the region and its auto height on only when they are off, and its result
+  carries a `warning` when it had to; `page_set_header_footer_text` writes `HeaderIsOn` / `FooterIsOn`
+  only when the region is off, and auto height only when it differs.
+* **List level and number state cannot be undone:** `style_format_text` with `NumberingLevel` or
+  `NumberingIsNumber` warns in every mode that Ctrl+Z will not restore it, because
+  `SwUnoCursorHelper::SetCursorPropertyValue` (`unoobj.cxx`) writes both straight to the text node
+  without an undo action.
+* **Identical `full_document` replace under the user's own recording:** with review Off and the user
+  recording, a `full_document` replace whose text equals the old text leaves a zero-length Insert
+  redline that one Undo does not remove. LibreOffice pairs the same-author Insert and Delete as a
+  tracked move (`SwRedlineTable::isMovedImpl`, `docredln.cxx`; both report `RedlineMovedID`), and the
+  empty paragraph opened for the import keeps its own unmoved Insert. Record mode is not affected,
+  because the deletion has its own author.
 * **Undo of a recorded replace:** While recording, Undo (not Reject) of a `full_document` or whole-paragraph replace loses direct character formatting when whole-paragraph direct formatting is combined with a character style at the paragraph start, because `SwUndoSplitNode::UndoImpl` restores only text hints; the alternatives tried lose other formatting on Undo (a first-word-bold paragraph comes back all bold). Reject restores it.
 * **Extend selection** records only the appended continuation as a single tracked **insertion**
   (the original is never struck); it streams live with tracking off, then collapses to one redline
