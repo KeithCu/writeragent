@@ -450,9 +450,6 @@ def _force_show_changes(doc: Any, who: str) -> None:
         log.debug("%s: could not force ShowChanges", who, exc_info=True)
 
 
-_AGENT_AUTHORS = frozenset({review_authors.INSERT_AUTHOR, review_authors.DELETE_AUTHOR})
-
-
 def _touches(anchor: Any, start: Any, end: Any) -> bool:
     """True when the range *start*..*end* overlaps or touches *anchor* in the same text.
 
@@ -796,7 +793,7 @@ class EditReviewSession:
         spans: list[tuple[Any, Any]] = []
 
         def on_item(rl: Any) -> bool:
-            if str(rl.getPropertyValue("RedlineAuthor")) not in _AGENT_AUTHORS:
+            if str(rl.getPropertyValue("RedlineAuthor")) not in review_authors.AGENT_AUTHORS:
                 return True
             comment = _review_scan.normalize_redline_comment(rl.getPropertyValue("RedlineComment"))
             if not _review_scan.is_agent_token(comment):

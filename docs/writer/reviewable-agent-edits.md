@@ -89,14 +89,20 @@ no document state that needs releasing when an edit raises or completes.
 
 * `record_mutation()` snapshots the document's redline identifiers, runs the edit, and tags every
   **new** redline's `RedlineComment` with a per-change token `wa-review:<session>:<n>`. Only an exact
-  `wa-review:<session>:<n>` comment (no whitespace, no extra colons, numeric `<n>`) counts as an
-  agent token; a user comment that merely starts with `wa-review:` does not. `<n>` is the session's
-  per-attempt counter, not the number of registered changes, so a tag left behind on an unregistered
-  edit cannot be the token of the next registered change.
+  `wa-review:<session>:<n>` comment (no whitespace, no extra colons, numeric `<n>`) on a redline
+  authored by `WriterAgent` or `WriterAgent (deletions)` counts as an agent token; a user comment
+  that merely starts with `wa-review:` or a token-shaped comment on another author's redline does not.
+  `<n>` is the session's per-attempt counter, not the number of registered changes, so a tag left
+  behind on an unregistered edit cannot be the token of the next registered change.
 * Tagging is **fail-closed**: if the pre- or post-edit redline scan is incomplete, the edit still
   applies but its redlines are **not** tagged — they stay untagged (treated as the user's own) so
   Accept/Reject All never touches a misclassified user redline; an unreadable `RedlineDateTime` or
   `RedlineSuccessorData` also makes tagging refuse (fail closed).
+* The **split-piece rule** skips any new-identifier redline whose `(type, author, date, comment)`
+  matches an old redline, because splitting an existing insertion creates a tail piece with a new
+  identifier and the old metadata. Exception: an untagged agent-authored redline dated within the
+  last 10 s belongs to the current edit rather than an older split piece, so a new edit in the same
+  clock second as an untagged agent redline is still tagged completely.
 * Completion is a reliable empty intersection of redline comments with tokens on **registered**
   changes — **not** "zero redlines in the document", and **not** "every `wa-review:<session>:`
   comment is gone". A tag left behind when the change was not registered (tagging failed, or the
@@ -137,6 +143,15 @@ no document state that needs releasing when an edit raises or completes.
   `WriterAgent` (not `WriterAgent (deletions)`). When the user records changes with review off,
   the link redlines are still authored `WriterAgent` so they do not merge with the user's own
   redlines across a paragraph mark.
+
+**Agent identity:** `tracking_manage` refuses any redline authored by `WriterAgent` or
+`WriterAgent (deletions)` in every review mode, tagged or not. This covers DOCX/DOC/RTF reloads
+(which drop the comment on a tracked change), style `Format`/`ParagraphFormat` redlines,
+table-only inserts, a deletion stacked on another author's insertion, and an agent change whose
+comment the user edited. Those untagged redlines are not in the review toolbar, popup, or Reject
+all; resolve them in *Edit ▸ Track Changes ▸ Manage*. A user whose office name is exactly
+`WriterAgent` or `WriterAgent (deletions)` is treated as the agent by `tracking_manage`. RTF
+stores header and footnote change authors as `0`, which loses the identity.
 
 ### Surgical word-level edits
 
@@ -290,14 +305,14 @@ Delete and Insert as two independent rows. WriterAgent adds:
    agent changes exist; hidden when the count drops to zero. Toolbar visibility uses
    `agent_change_presence(model, stop_at_first=True)`: if the scan is unreliable, visibility is left
    unchanged. Menu actions `review_prev` / `review_next` call `goto_adjacent_agent_change`. Counting
-   follows the count-without-previews rule: `agent_change_presence` returns this distinct-comment
-   count without reading text previews with `XTextCursor.getString()`. The toolbar's per-document
+   follows the count-without-previews rule: `agent_change_presence` returns the distinct-token
+   count on agent-authored redlines without reading text previews with `XTextCursor.getString()`. The toolbar's per-document
    modify listener (`review_view_attachment.schedule_toolbar_refresh` → `refresh_review_toolbar`) queues recount per burst with `main.post`, which runs on a later main-loop
    turn so it does not walk redlines inside the modify notification. The listener makes no UNO
    call per keystroke; the queued run looks up the LayoutManager and skips the recount while the
    toolbar is hidden.
 
-It is strictly token-scoped — only `wa-review` changes are listed or resolved.
+The inline review UI lists and resolves only redlines that carry a `wa-review` token and an agent author.
 
 Resolving selects each change to dispatch on it; `resolve_change_at_cursor` and
 `resolve_all_with_feedback` put the user's own selection back afterwards (`KeepViewSelection`, as

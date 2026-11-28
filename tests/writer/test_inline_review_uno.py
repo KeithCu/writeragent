@@ -757,3 +757,21 @@ def test_resolve_all_rejects_ocr_insert_that_deleted_its_image_uno(ctx, doc):
     assert "OCR text" not in doc.getText().getString()
     assert doc.getGraphicObjects().hasByName("OcrPic1")
     assert _redline_count(doc) == 1, "Alice's deletion stays"
+
+
+@native_test
+@with_native_doc("writer")
+def test_token_shaped_user_comment_is_not_an_agent_change_uno(ctx, doc):
+    from tests.writer.doc_builders import list_redlines, strike_substring
+
+    doc.setPropertyValue("RecordChanges", False)
+    doc.getText().setString("First one two three.")
+    strike_substring(doc, doc.getText(), "two", ctx=ctx, author="Alice")
+    doc.getRedlines().getByIndex(0).setPropertyValue("RedlineComment", "wa-review:deadbeef:0")
+
+    assert agent_change_presence(doc) == (0, True)
+    resolved, _msg = resolve_all_with_feedback(doc, ctx, False)
+    assert resolved == 0
+    assert list_redlines(doc) == [
+        {"type": "Delete", "RedlineAuthor": "Alice", "RedlineComment": "wa-review:deadbeef:0"}
+    ]

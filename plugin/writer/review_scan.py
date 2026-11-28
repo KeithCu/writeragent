@@ -2,21 +2,24 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Fail-closed redline enumeration and wa-review token helpers.
+"""Fail-closed redline enumeration and agent identity (token and author) helpers.
 
 ``edit_review`` owns tagging/session wait; ``inline_review`` owns accept/reject/goto.
-This module is the shared scan + token layer only — not tracking.py tools.
+This module is the shared scan + identity layer only — not tracking.py tools.
 """
 
 from __future__ import annotations
 
+import datetime
 import re
 from typing import Any, Callable
 
 from plugin.doc.text_helpers import iter_elements_limited
+from plugin.writer.review_authors import AGENT_AUTHORS
 
 TOKEN_PREFIX = "wa-review:"
 _TOKEN_RE = re.compile(r"\A" + re.escape(TOKEN_PREFIX) + r"[^\s:]+:\d+\Z")
+_SAME_TURN = datetime.timedelta(seconds=10)  # covers one tool call's edits plus slack; untagged agent inserts with text are excluded by _stacked_on_someone_else
 
 
 class RedlineScanAbort(Exception):
@@ -54,6 +57,16 @@ def is_agent_token(comment: str | None) -> bool:
     return norm is not None and _TOKEN_RE.match(norm) is not None
 
 
+def agent_review_token(author: Any, comment: Any) -> str | None:
+    """Normalized exact token when *author* is an agent author, else ``None``.
+
+    A user's comment can be token-shaped, so a token counts only on an agent author's redline.
+    """
+    if author not in AGENT_AUTHORS or not is_agent_token(comment):
+        return None
+    return normalize_redline_comment(comment)
+
+
 def read_redline_comment(redline: Any) -> tuple[str | None, bool]:
     """``(comment or None, readable)``."""
     try:
@@ -64,11 +77,16 @@ def read_redline_comment(redline: Any) -> tuple[str | None, bool]:
 
 
 def redline_is_agent_change(redline: Any) -> tuple[bool, bool]:
-    """``(is wa-review, comment_readable)``. Fail-closed if the comment is unreadable."""
-    comment, readable = read_redline_comment(redline)
-    if not readable:
+    """``(RedlineAuthor in AGENT_AUTHORS, author_readable)``. Fail-closed if unreadable.
+
+    Checks author regardless of token so a DOCX-reloaded change, a style Format/ParagraphFormat
+    redline, a table-only insert, and a deletion stacked on another author's insertion all count.
+    """
+    try:
+        author = redline.getPropertyValue("RedlineAuthor")
+    except Exception:
         return False, False
-    return is_agent_token(comment), True
+    return author in AGENT_AUTHORS, True
 
 
 def scan_redlines(doc: Any, on_item: Callable[[Any], bool]) -> tuple[bool, int, int]:
@@ -126,30 +144,45 @@ def document_has_tracked_deletions(doc: Any) -> bool:
     return found
 
 
-def agent_change_presence(model: Any, *, stop_at_first: bool = False) -> tuple[int, bool]:
+def agent_change_presence(
+    model: Any, *, stop_at_first: bool = False, include_untagged: bool = False
+) -> tuple[int, bool]:
     """Check for agent changes without building a full view. Returns ``(count, reliable)``.
 
-    When ``stop_at_first`` is True, returns ``(1, True)`` on the first agent comment seen
+    The toolbar and menu use the default (tagged agent changes only, skipping the author read
+    when no token is present); the self-resolution guard passes ``include_untagged=True`` to
+    count untagged agent-authored redlines as well.
+    When ``stop_at_first`` is True, returns ``(1, True)`` on the first matching change seen
     without enumerating further. A full walk with no agent changes returns ``(0, True)``.
     Any enumeration or property read error returns ``(count_so_far, False)``.
     """
     tokens: set[str] = set()
+    untagged = 0
 
     def on_item(rl: Any) -> bool:
+        nonlocal untagged
         comment, readable = read_redline_comment(rl)
         if not readable:
             return False
-        if is_agent_token(comment):
-            assert comment is not None
-            tokens.add(comment)
-            if stop_at_first:
-                raise RedlineScanAbort()
+        has_token = is_agent_token(comment)
+        if not include_untagged and not has_token:
+            return True
+        author = rl.getPropertyValue("RedlineAuthor")
+        token = agent_review_token(author, comment)
+        if token is not None:
+            tokens.add(token)
+        elif include_untagged and author in AGENT_AUTHORS:
+            untagged += 1
+        else:
+            return True
+        if stop_at_first:
+            raise RedlineScanAbort()
         return True
 
     reliable, _seen, _total = scan_redlines(model, on_item)
-    if stop_at_first and tokens:
+    if stop_at_first and (tokens or untagged):
         return 1, True
-    return len(tokens), reliable
+    return len(tokens) + untagged, reliable
 
 
 def redline_date_key(dt: Any) -> tuple[Any, ...] | None:
@@ -163,7 +196,7 @@ _UNREAD = object()
 
 
 def redline_identity_key(
-    rl: Any, *, strict_date: bool = False, comment: Any = _UNREAD
+    rl: Any, *, strict_date: bool = False, comment: Any = _UNREAD, author: Any = _UNREAD
 ) -> tuple[Any, ...]:
     """``(RedlineIdentifier, type, author, date, comment)`` of one redline.
 
@@ -173,7 +206,7 @@ def redline_identity_key(
     (no split-piece check without it).
     *comment* is the raw ``RedlineComment`` a caller has already read (``inline_review.scan_redline_view``
     reads it once to classify the row, and re-reading it would double the per-redline UNO reads
-    on every scan). When omitted, it is read here and is None if the read fails.
+    on every scan); likewise *author*. When omitted, each is read here and is None if the read fails.
     tracking_manage uses this whole key, not ``RedlineIdentifier`` alone, because a
     stacked Delete reuses the identifier.
     """
@@ -188,10 +221,11 @@ def redline_identity_key(
             return None
 
     comment_val = prop("RedlineComment") if comment is _UNREAD else comment
+    author_val = prop("RedlineAuthor") if author is _UNREAD else author
     return (
         rid,
         prop("RedlineType"),
-        prop("RedlineAuthor"),
+        author_val,
         redline_date_key(prop("RedlineDateTime")),
         comment_val,
     )
@@ -199,7 +233,7 @@ def redline_identity_key(
 
 def _stacked_on_someone_else(rl: Any) -> bool:
     """True when *rl* sits on top of another author's pending change (``RedlineSuccessorData``
-    is the layer underneath) that is not an agent change.
+    is the layer underneath) that is not a tagged agent change (token and agent author).
 
     Tagging such a stack would mark the user's layer too: the comment reads the top
     layer only, so 'Reject all agent changes' would pop the agent's Delete and then
@@ -212,8 +246,32 @@ def _stacked_on_someone_else(rl: Any) -> bool:
         return True
     if not isinstance(below, (tuple, list)) or not below:
         return False
-    comment = next((p.Value for p in below if p.Name == "RedlineComment"), "")
-    return not is_agent_token(comment)
+    fields = {p.Name: p.Value for p in below}
+    return agent_review_token(fields.get("RedlineAuthor"), fields.get("RedlineComment")) is None
+
+
+def _split_piece(
+    key: tuple[Any, ...],
+    before_sigs: set[tuple[Any, ...]],
+    lo: tuple[int, ...],
+    hi: tuple[int, ...],
+) -> bool:
+    """True when *key* is a tail piece split off an existing redline rather than a new edit.
+
+    Without a date the split-piece test cannot tell a piece from a new redline.
+    Redline dates have whole-second resolution (``SwRedlineData::SwRedlineData``,
+    ``sw/source/core/doc/docredln.cxx``). An untagged agent redline dated within ``[lo, hi]``
+    (a 10 s window up to ``now + 1 s``, bounding both past edits and future DOCX/clock skew)
+    has the same signature as a new redline of this edit, so it is the edit's own. A year-0
+    (undated) old redline compares below ``lo``, so it stays a piece. Another author's redline,
+    a tagged piece, or an older/future untagged agent redline (for example from a reloaded DOCX)
+    keeps the split-piece rule, so its text is never tagged as this change.
+    """
+    if key[3] is None or key[1:] not in before_sigs:
+        return False
+    if key[2] in AGENT_AUTHORS and not is_agent_token(key[4]):
+        return not (lo <= tuple(key[3][:6]) <= hi)
+    return True
 
 
 def snapshot_redline_ids(doc: Any) -> tuple[set[Any], bool]:
@@ -250,11 +308,18 @@ def new_redlines_since(doc: Any, before: set[Any]) -> tuple[list[Any], bool]:
     date, comment) is unchanged, and a new-identifier redline with
     the same type, author, date and comment as an old one is a piece
     split off it, not ours (checked live: the piece keeps all four).
+    The exception is an untagged agent-authored redline dated within
+    the last 10 s (local time, matching ``GetSystemDateTime`` in
+    ``tools/source/datetime/systemdatetime.cxx``), which belongs to
+    the current edit rather than an older split piece.
     An agent change stacked on another author's pending change is
     left untagged (``_stacked_on_someone_else``): fail closed, it
     reads as the user's and is never resolved in bulk.
     """
     before_sigs = {key[1:] for key in before}
+    now = datetime.datetime.now()
+    lo = (now - _SAME_TURN).timetuple()[:6]
+    hi = (now + datetime.timedelta(seconds=1)).timetuple()[:6]
     out: list[Any] = []
 
     def on_item(rl: Any) -> bool:
@@ -262,9 +327,7 @@ def new_redlines_since(doc: Any, before: set[Any]) -> tuple[list[Any], bool]:
             key = redline_identity_key(rl, strict_date=True)
         except Exception:
             return False
-        # Without a date the split-piece test cannot tell a piece from a new redline.
-        split_piece = key[3] is not None and key[1:] in before_sigs
-        if key not in before and not split_piece and not _stacked_on_someone_else(rl):
+        if key not in before and not _split_piece(key, before_sigs, lo, hi) and not _stacked_on_someone_else(rl):
             out.append(rl)
         return True
 
