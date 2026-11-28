@@ -948,20 +948,45 @@ def table_is_all_deleted(doc: Any, table: Any) -> bool:
     return cells_all_tracked_deleted([table.getCellByName(n) for n in names], doc)
 
 
+def row_is_tracked(table: Any, idx: int) -> bool:
+    """True when row *idx* of *table* was inserted or deleted as a tracked change.
+
+    LibreOffice sets the row's ``HasTextChangesOnly`` false then, records one redline per
+    cell, and on Accept or Reject keeps or removes the row by those redlines: an Insert
+    that is the row's oldest redline makes it an insertion, struck text with nothing live
+    left makes it a deletion (``SwTableLine::UpdateTextChangesOnly``,
+    sw/source/core/table/swtable.cxx). The property is void on rows never tracked.
+    """
+    return table.getRows().getByIndex(idx).getPropertyValue("HasTextChangesOnly") is False
+
+
+def tracked_row_of(text_range: Any) -> tuple[Any, int] | None:
+    """(table, row index) when *text_range* starts in a cell of a tracked row (``row_is_tracked``).
+
+    None outside a table, and for a range that is a table itself (no ``TextTable`` property).
+    """
+    table = uno_read(lambda: text_range.getPropertyValue("TextTable"), None)
+    cell = uno_read(lambda: text_range.getPropertyValue("Cell"), None)
+    if table is None or cell is None:
+        return None
+    pos = writer_cell_position(cell.CellName)
+    if pos is None or not row_is_tracked(table, pos[1]):
+        return None
+    return table, pos[1]
+
+
 def table_is_struck(doc: Any, table: Any, state: DeletionState) -> bool:
     """True when accepting the pending tracked changes removes *table*.
 
-    Either the deletion open at the table (*state*) spans it, or every row has
-    ``HasTextChangesOnly`` false and ``table_is_all_deleted`` holds
-    (``SwTableLine::UpdateTextChangesOnly``, sw/source/core/table/swtable.cxx). The text
-    check is on the whole table rather than row by row, which is enough for Delete Table
-    because ``SwDoc::SetRowNotTracked`` puts a struck dummy character in each empty row.
-    A table with only its cell texts struck keeps ``HasTextChangesOnly`` true and survives Accept.
+    Either the deletion open at the table (*state*) spans it, or every row is tracked
+    (``row_is_tracked``) and ``table_is_all_deleted`` holds. The text check is on the whole
+    table rather than row by row, which is enough for Delete Table because
+    ``SwDoc::SetRowNotTracked`` puts a struck dummy character in each empty row. A table
+    with only its cell texts struck keeps its rows untracked and survives Accept.
     """
     if state.in_delete:
         return True
-    rows = table.getRows()
-    if any(rows.getByIndex(i).getPropertyValue("HasTextChangesOnly") is not False for i in range(rows.getCount())):
+    if not all(row_is_tracked(table, i) for i in range(table.getRows().getCount())):
         return False
     return table_is_all_deleted(doc, table)
 

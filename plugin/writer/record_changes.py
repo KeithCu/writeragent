@@ -139,17 +139,18 @@ def redline_kinds_covering(spans: list[RedlineSpan], text_range: Any) -> set[str
 def overlaps_foreign_insertion(doc: Any, ranges: list[Any], author: str) -> bool:
     """True when a tracked insertion by someone other than *author* overlaps one of *ranges*.
 
-    compareRegionStarts compares document positions, so insertions in cells and frames work
-    too; one that cannot be compared (a table insertion) counts as overlapping.
+    compareRegionStarts compares document positions when both arguments are text ranges
+    (``SwXText::compareRegionStarts``, sw/source/core/unocore/unotext.cxx), so insertions in
+    cells and frames work too. ``redline_bounds`` maps an insertion that starts at a table node
+    to the table's anchor; a single insertion that still cannot be read or compared is skipped,
+    so it cannot make every range in the document look overlapped.
     """
     bounds = [(r.getStart(), r.getEnd()) for r in ranges]
     for rl in _iter_redlines(doc):
         if rl.getPropertyValue("RedlineType") != "Insert" or rl.getPropertyValue("RedlineAuthor") == author:
             continue
         try:
-            start = rl.getPropertyValue("RedlineStart")
-            end = rl.getPropertyValue("RedlineEnd")
-            text = start.getText()
+            text, start, end = redline_bounds(rl)
             # compareRegionStarts(a, b): 1 when a starts before b.
             if any(
                 text.compareRegionStarts(start, r_end) > 0 and text.compareRegionStarts(r_start, end) > 0
@@ -158,7 +159,7 @@ def overlaps_foreign_insertion(doc: Any, ranges: list[Any], author: str) -> bool
                 return True
         except Exception as exc:
             reraise_if_disposed(exc)
-            return True
+            log.debug("overlaps_foreign_insertion: skipped an unreadable insertion", exc_info=True)
     return False
 
 

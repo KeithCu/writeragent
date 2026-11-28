@@ -1421,3 +1421,46 @@ def test_indexes_refuse_crossing_deletion_uno(ctx, doc):
     assert visible_range_text(doc, entry_para) == "New Title"
     reject_all_changes(doc, ctx)
     assert entry_para.getString() == "Heading 1\t1"
+
+
+def _headings_doc(ctx, doc, *titles):
+    text = doc.getText()
+    doc.setPropertyValue("RecordChanges", False)
+    text.setString("")
+    for i, title in enumerate(titles):
+        _add_heading(text, title, i == 0)
+    return text, native_writer_tool_context(doc, ctx)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_list_toc_entries_leaves_out_struck_entry_uno(ctx, doc):
+    """A TOC entry struck as a pending deletion is not listed, as the edit tools cannot address it."""
+    from plugin.writer.record_changes import record_changes
+    from tests.writer.doc_builders import list_redline_types
+
+    _text, tctx = _headings_doc(ctx, doc, "Alpha title", "Beta title", "Gamma title")
+    assert IndexesCreate().execute(tctx, kind="toc", target="beginning", create_from_outline=True)["status"] == "ok"
+    with record_changes(doc, True):
+        assert IndexesDeleteTocEntry().execute(tctx, old_content="Beta title")["status"] == "ok"
+    assert list_redline_types(doc) == ["Delete"]
+
+    listed = IndexesListTocEntries().execute(tctx, include_links=False)
+    assert [row["text"].split("\t")[0] for row in listed["entries"]] == ["Alpha title", "Gamma title"], listed
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_index_built_over_pending_heading_changes_warns_uno(ctx, doc):
+    """index_create and index_update_all warn when the headings hold pending tracked changes."""
+    from tests.writer.doc_builders import strike_substring
+
+    text, tctx = _headings_doc(ctx, doc, "Heading A", "Heading B")
+    clean = IndexesCreate().execute(tctx, kind="toc", target="end", create_from_outline=True)
+    assert clean["status"] == "ok" and "warning" not in clean, clean
+
+    strike_substring(doc, text, "Heading B", ctx=ctx, author="Alice")
+    created = IndexesCreate().execute(tctx, kind="toc", target="beginning", create_from_outline=True)
+    assert created["status"] == "ok" and created.get("warning"), created
+    updated = IndexesUpdateAll().execute(tctx)
+    assert updated["status"] == "ok" and updated.get("warning"), updated

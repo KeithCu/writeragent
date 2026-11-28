@@ -371,3 +371,27 @@ def _redlines(doc):
     while enum_has_more(e):
         out.append(e.nextElement())
     return out
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_single_resolve_of_one_cell_of_a_tracked_row_refused_uno(ctx, doc):
+    """tracking_manage by index refuses one cell of another author's row deletion and leaves the row."""
+    from plugin.framework.uno_context import execute_dispatch
+    from plugin.writer.tracking import ManageTrackedChanges
+    from tests.writer.doc_builders import insert_named_table, list_redlines, recording_as
+
+    table = insert_named_table(doc, "T1", 3, 3, {n: n.lower() for n in ("A1", "B1", "C1", "A2", "B2", "C2", "A3", "B3", "C3")})
+    controller = doc.getCurrentController()
+    with recording_as(doc, ctx):
+        controller.select(table.getCellByName("A2").getEnd())
+        controller.getSelection()
+        execute_dispatch(ctx, controller, ".uno:DeleteRows")
+    before = list_redlines(doc)
+    assert len(before) == 3, before
+    tctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native", doc_type="writer")
+    for action in ("accept", "reject"):
+        res = ManageTrackedChanges().execute_safe(tctx, action=action, index=0)
+        assert res["status"] == "error", res
+    assert list_redlines(doc) == before
+    assert table.getRows().getByIndex(1).getPropertyValue("HasTextChangesOnly") is False

@@ -190,3 +190,26 @@ def test_page_count_in_print_preview_uno(ctx):
             raise AssertionError("Expected UnoObjectError for get_page_for_paragraph in Print Preview")
     finally:
         best_effort(lambda: doc.close(True), "close preview writer doc")
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_chat_context_objects_leave_out_struck_text_uno(ctx, doc):
+    """The chat-context object lines show a frame's text and an anchor excerpt without pending deletions."""
+    from com.sun.star.text.TextContentAnchorType import AT_PARAGRAPH
+    from plugin.doc.document_helpers import get_document_context_for_chat
+    from tests.writer.doc_builders import reset_body, strike_substring
+
+    reset_body(doc, ctx, "Intro keeps DELINLINE word here.")
+    text = doc.getText()
+    frame = doc.createInstance("com.sun.star.text.TextFrame")
+    frame.setPropertyValue("AnchorType", AT_PARAGRAPH)
+    text.insertTextContent(text.getStart(), frame, False)
+    frame.setName("Fr1")
+    frame.getText().setString("Frame keeps FRAMEDEL word.")
+    strike_substring(doc, frame.getText(), "FRAMEDEL ", ctx=ctx, author="Alice")
+    strike_substring(doc, text, "DELINLINE ", ctx=ctx, author="Alice")
+
+    objects = get_document_context_for_chat(doc, ctx=ctx).split("Objects (index, kind, name, anchor):", 1)[1]
+    assert 'text: "Frame keeps word."' in objects, objects
+    assert 'in "Intro keeps word here."' in objects, objects

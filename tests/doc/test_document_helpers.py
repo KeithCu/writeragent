@@ -1035,7 +1035,7 @@ def test_writer_anchor_note_reports_at_page_number():
         anchor_type="AT_PAGE",
         anchor_page=3,
     )
-    assert "page 2" in _writer_anchor_note(shape)
+    assert "page 2" in _writer_anchor_note(shape, MagicMock())
 
 
 def test_watch_open_doc_types_reports_now_and_after_document_events(monkeypatch):

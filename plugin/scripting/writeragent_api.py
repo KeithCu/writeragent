@@ -1226,7 +1226,7 @@ class _FieldProxy:
         return _result(call_host_tool("field_insert", field=field, properties=properties, target=target, old_content=old_content, case_sensitive=case_sensitive))
 
     def list(self) -> _Item:
-        """List all text fields in the document. Returns their types and text content, allowing you to identify and inspect fields like page numbers or dates."""
+        """List all text fields in the document. Returns their types and text content, allowing you to identify and inspect fields like page numbers or dates. pending_deletion=true marks a field inside a pending tracked deletion."""
         return _result(call_host_tool("field_list"))
 
     def update_all(self) -> _Item:
@@ -1281,7 +1281,7 @@ class _FootnoteProxy:
         return _result(call_host_tool("footnote_insert", note=note, text=text, label=label, insert_after=insert_after, occurrence=occurrence, case_sensitive=case_sensitive))
 
     def list(self, note: str) -> _Item:
-        """Lists all existing footnotes or endnotes in the document, including their indices, labels (if custom), and text content. Use this index for editing or deleting.
+        """Lists all existing footnotes or endnotes in the document, including their indices, labels (if custom), and text content. Use this index for editing or deleting. pending_deletion=true marks a note whose mark is inside a pending tracked deletion.
 
         Args:
             note (required): Whether to list footnotes or endnotes. One of: footnote, endnote.
@@ -2877,7 +2877,7 @@ class _TableProxy:
     """Proxy for table tools."""
 
     def delete(self, *, name: str | None = None, page: int | None = None, index: int | None = None) -> _Item:
-        """Delete a table by name. Writer: removes a top-level or nested TextTable from its containing XText. Nested children of the deleted table are removed with it — this is the intentional remove (do not use table_set_cell, which refuses host cells). Refuses a table that has, or is nested in, a protected cell. Draw/Impress: removes the TableShape from the page.
+        """Delete a table by name. Writer: removes a top-level or nested TextTable from its containing XText. Nested children of the deleted table are removed with it — this is the intentional remove (do not use table_set_cell, which refuses host cells). Refuses a table that has, or is nested in, a protected cell, and, while changes are recorded, a table that is itself a pending tracked insertion (TABLE_DELETE_NOT_TRACKABLE). Draw/Impress: removes the TableShape from the page.
 
         Args:
             name (optional): Table name from table_list.
@@ -2887,7 +2887,7 @@ class _TableProxy:
         return _result(call_host_tool("table_delete", name=name, page=page, index=index))
 
     def get_cells(self, *, name: str | None = None, cell: str | None = None, page: int | None = None, index: int | None = None) -> _Item:
-        """Return Writer cell text as cells (name map) and Draw/Impress as matrix (row-major by position). Empty string is an empty cell; a missing name is not a cell. A failed Draw/Impress cell read is an error, not an empty string. Writer: rows and cols can be smaller than the real grid when cells are merged — follow cells. Draw/Impress: read matrix; when cell is set, matrix is that one cell only. Optional cell reads one address (Writer via getCellNames, Draw via A1). Writer host cells that contain nested tables return only the host cell's own paragraphs; nested_in_cells names those cells. table_set_cell on a host cell updates that host text and leaves nested tables.
+        """Return Writer cell text as cells (name map) and Draw/Impress as matrix (row-major by position). Empty string is an empty cell; a missing name is not a cell. Writer: deleted_rows (0-based) lists rows pending deletion as a tracked change; their cells read empty, and table_set_cell refuses to write into them. A failed Draw/Impress cell read is an error, not an empty string. Writer: rows and cols can be smaller than the real grid when cells are merged — follow cells. Draw/Impress: read matrix; when cell is set, matrix is that one cell only. Optional cell reads one address (Writer via getCellNames, Draw via A1). Writer host cells that contain nested tables return only the host cell's own paragraphs; nested_in_cells names those cells. table_set_cell on a host cell updates that host text and leaves nested tables.
 
         Args:
             name (optional): Table name from table_list.
@@ -2915,11 +2915,11 @@ class _TableProxy:
         return _result(call_host_tool("table_insert", rows=rows, columns=columns, data=data, parent=parent, cell=cell, page=page, x=x, y=y, width=width, height=height))
 
     def list(self) -> _Item:
-        """List tables with name, rows, cols, and cell_count. Writer: if cell_count is not rows times cols the table is not a rectangle — use table_get_cells cells. Each row includes nesting (direct parent table/cell) and nested_in_cells (host cells that contain nested tables — table_set_cell keeps those tables; do not delete the host row/column). Draw/Impress: also page and shape index; cell_count is rows times cols."""
+        """List tables with name, rows, cols, and cell_count. Writer: if cell_count is not rows times cols the table is not a rectangle — use table_get_cells cells. Each row includes nesting (direct parent table/cell) and nested_in_cells (host cells that contain nested tables — table_set_cell keeps those tables; do not delete the host row/column). Writer: deleted_rows (0-based) lists rows pending deletion as a tracked change; their cells read empty. Draw/Impress: also page and shape index; cell_count is rows times cols."""
         return _result(call_host_tool("table_list"))
 
     def manage_structure(self, action: str, axis: str, index: int, *, name: str | None = None, page: int | None = None, shape_index: int | None = None) -> _Item:
-        """Insert or delete one table row or column. index is 0-based (for insert, equal to the current count appends at the end). Cannot delete the last remaining row or column. A Writer column index counts the cells of the first row. An insert shifts later indexes at once, also while changes are recorded; a tracked delete shifts nothing until the user accepts it. Writer: refuses delete if the row/column hosts a nested table (that would destroy it); refuses to delete a row or column that holds a protected cell; refuses to delete a row in which a non-empty cell spanning several rows starts (as a tracked change, also an empty one that is first or last in the row); refuses to delete a column that a wider (merged) cell covers together with other columns; when Track Changes or review mode is on, delete is recorded as a tracked change.
+        """Insert or delete one table row or column. index is 0-based (for insert, equal to the current count appends at the end). Cannot delete the last remaining row or column. A Writer column index counts the cells of the first row. An insert shifts later indexes at once, also while changes are recorded; a tracked delete shifts nothing until the user accepts it. Writer: refuses delete if the row/column hosts a nested table (that would destroy it); refuses to delete a row or column that holds a protected cell; refuses to delete a row in which a non-empty cell spanning several rows starts (as a tracked change, also an empty one that is first or last in the row); refuses to delete a column that a wider (merged) cell covers together with other columns; while changes are recorded, refuses to delete from a table, or delete a row, that is itself a pending tracked insertion (TABLE_DELETE_NOT_TRACKABLE); when Track Changes or review mode is on, delete is recorded as a tracked change.
 
         Args:
             action (required): insert or delete one band member. One of: insert, delete.
@@ -2941,7 +2941,7 @@ class _TableProxy:
         return _result(call_host_tool("table_merge_cells", name=name, cell_range=cell_range))
 
     def set_cell(self, cell: str, text: str, *, name: str | None = None, page: int | None = None, index: int | None = None) -> _Item:
-        """Set the plain-text content of ONE table cell, addressed A1-style (e.g. 'B2'). Writer: the new text keeps the character formatting of the text it replaces, writing the cell's current text changes nothing, and the write is recorded as a tracked change while Track Changes or review mode is on. A cell holding a formula or a number value becomes plain text (the formula is removed). A cell that hosts a nested table keeps that table and rewrites only the host paragraphs; edit the nested table by its own name. Refuses a protected cell (CELLS_PROTECTED) and, while Track Changes is off, a cell holding a pending tracked deletion (MATCH_CROSSES_DELETION).
+        """Set the plain-text content of ONE table cell, addressed A1-style (e.g. 'B2'). Writer: the new text keeps the character formatting of the text it replaces, writing the cell's current text changes nothing, and the write is recorded as a tracked change while Track Changes or review mode is on. A cell holding a formula or a number value becomes plain text (the formula is removed); while changes are recorded such a cell is refused (CELL_VALUE_NOT_TRACKABLE), because rejecting would not bring the formula back. A cell that hosts a nested table keeps that table and rewrites only the host paragraphs; edit the nested table by its own name. Refuses a protected cell (CELLS_PROTECTED), a cell in a row pending deletion (MATCH_CROSSES_DELETION), while changes are recorded a cell holding another author's pending insertion of its table or row (CELL_IN_PENDING_INSERTION) and, while Track Changes is off, a cell holding a pending tracked deletion (MATCH_CROSSES_DELETION).
 
         Args:
             cell (required): A1-style cell address, e.g. 'B2'.
@@ -2995,7 +2995,7 @@ class _TrackingProxy:
         return _result(call_host_tool("tracking_list", start_index=start_index, max_changes=max_changes))
 
     def manage(self, action: str, *, index: int | None = None) -> _Item:
-        """Accept or reject tracked changes. action=accept/reject requires index (from tracking_list). That index is stale after any resolve; call tracking_list again before the next accept or reject. action=accept_all/reject_all resolves every change.
+        """Accept or reject tracked changes. action=accept/reject requires index (from tracking_list). That index is stale after any resolve; call tracking_list again before the next accept or reject. Writer refuses accept/reject of one cell of a tracked row insertion or deletion whose other cells have their own changes. action=accept_all/reject_all resolves every change.
 
         Args:
             action (required): accept/reject one change by index, or accept_all/reject_all. One of: accept, reject, accept_all, reject_all.
@@ -3054,7 +3054,7 @@ class _WriterProxy:
             start_anchor (optional): Literal substring marking the start of a range to replace (target='search'); requires end_anchor. The replaced range includes both anchors and the text between them, so the middle is not copied into the call; it ends at the first end_anchor match that begins at or after the start match in the same text. Multi-line plain text becomes new paragraphs; single-line plain text replaces the span inline and keeps the host paragraph and its style; a renamed heading's links follow it.
             end_anchor (optional): Literal substring marking the end of a range to replace; requires start_anchor, matching the first occurrence that begins at or after the start match in the same text and the middle is not copied.
             all_matches (optional): Replace all occurrences (true) or first only. Only for target='search' with position='replace' and old_content.
-            occurrence (optional): For target='search': 0-based index into replaceable Writer text matches (body/table/frame) or the start_anchor match (not dry_run shape/comment rows). Omit for the existing first-match behavior.
+            occurrence (optional): For target='search': 0-based index into replaceable Writer text matches (body/table/frame) or the start_anchor match (not dry_run shape/comment rows). Index rows (TOC) are not counted, though search lists them; dry_run shows the numbering. Omit for the existing first-match behavior.
             position (optional): For target='search': 'replace' replaces the match; 'before'/'after' INSERT the content next to the match and leave the matched text untouched, so content must not repeat the matched text (result reports inserted=true instead of replaced_count). Inline content (plain text, <b>, <i>, math, ...) goes at the exact match edge; block content (<p>, headings, lists, tables) goes before/after the whole paragraph that holds the match (result reports snapped_to_paragraph=true when that moved it). One of: replace, before, after.
             dry_run (optional): For target='search' with old_content: do NOT edit. Return replaceable matches (each tagged with occurrence) plus shape/comment previews, so you can check before committing.
             regex (optional): For target='search': treat old_content as a regular expression (false = literal). Regex mode is single-paragraph (no cross-paragraph chaining). Patterns use ICU regex syntax (LibreOffice's engine): (?<name>...) for named groups, not (?P<name>...); \\p{Lu} classes are allowed. Floating drawing shapes are matched with Python re instead, so ICU-only syntax does not match inside shapes.

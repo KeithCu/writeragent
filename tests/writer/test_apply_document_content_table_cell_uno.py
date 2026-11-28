@@ -448,3 +448,54 @@ def test_emptying_a_table_with_a_protected_cell_is_refused_uno(ctx, doc):
             assert table.getCellByName("A1").getString() == "ONLY_FEE"
     finally:
         table.getCellByName("B1").setPropertyValue("IsProtected", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_refused_table_into_cell_keeps_view_cursor_uno(ctx, doc):
+    """A table that cannot replace a match inside a cell is refused and the user's caret stays put."""
+    text = doc.getText()
+    text.setString("Before.")
+    insert_named_table(doc, "T1", 2, 2, {"A1": "a1", "B1": "b1", "A2": "a2", "B2": "ee4"})
+    text.insertString(text.getEnd(), "After.", False)
+    vc = doc.getCurrentController().getViewCursor()
+    vc.gotoEnd(False)
+    caret = text.createTextCursorByRange(vc.getStart())
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    res = ApplyDocumentContent().execute_safe(
+        tool_ctx,
+        target="search",
+        old_content="ee4",
+        content=["<table><tr><th>H1</th><th>H2</th></tr><tr><td>v1</td><td>v2</td></tr></table>"],
+    )
+    assert res["status"] == "error" and res["code"] == "TABLE_INSERT_FAILED", res
+    assert vc.TextTable is None
+    assert text.compareRegionStarts(caret, vc.getStart()) == 0
+
+
+@native_test
+def test_recorded_replace_refuses_word_inserted_row_text_uno(ctx):
+    """apply_content over a Word row insertion's text (row_changes.docx) is refused; Reject All still removes the row."""
+    import tempfile
+    from pathlib import Path
+
+    from plugin.framework.config import get_config, save
+    from tests.writer.corpus_fixture import ROW_CHANGES
+
+    prev = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "record"})
+    try:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
+            path = Path(folder) / "row_changes.docx"
+            ROW_CHANGES.write(path)
+            for all_matches in (False, True):
+                with TestingFactory.native_doc(ctx, doc_type=uno.systemPathToFileUrl(str(path)), reuse=False) as d:
+                    tool_ctx = TestingFactory.create_context(doc=d, ctx=ctx, env="native")
+                    res = ApplyDocumentContent().execute_safe(
+                        tool_ctx, target="search", old_content="New", content=["Newer"], all_matches=all_matches
+                    )
+                    assert res["status"] == "error" and res["code"] == "CELL_IN_PENDING_INSERTION", res
+                    reject_all_changes(d, ctx)
+                    assert d.getTextTables().getByIndex(0).getRows().getCount() == 3
+    finally:
+        save({"doc.agent_edit_review_mode": prev})
