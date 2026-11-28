@@ -246,9 +246,12 @@ After review (or timeout) each change reports one of:
 | `accepted` | The anchored text now matches the proposed form. |
 | `rejected` | The anchored text now matches the original form. |
 | `modified` | The user edited the area during review — the agent must not assume either text survived. |
-| `pending` | Still unresolved at timeout (`complete: false`), or the pending scan was unreliable. |
+| `pending` | Still unresolved at timeout (`complete: false`), or the pending scan was unreliable. A change whose token is gone while an agent-authored Insert or Delete redline with no `wa-review` token touches its anchor (Undo then Redo, or an edited change comment) is still `pending`, and the wait keeps going until the user resolves it (`_pending_without_token`). Another author's redline, and the untagged Format or ParagraphFormat redlines the style tools leave, never count. An untagged part of the same edit (a deletion stacked on another author's insertion) keeps the change `pending` until the user resolves that part in Edit > Track Changes > Manage. |
 
-Each change entry also includes `final_text` (preview of the anchored region after review).
+Each change entry also includes `final_text` (preview of the anchored region after review). It is
+the anchored span, not the word the user sees. Text typed right after a pending change joins the
+span; after Undo then Redo, Redo puts the inserted text back next to the span rather than in it,
+so that change can report `modified` once resolved.
 
 A tracked change disappears on **both** accept and reject, so the outcome is derived by comparing
 the anchored region against the pre-computed accept-form and reject-form, not by reading the
@@ -278,6 +281,13 @@ returns this schema:
 
 On timeout: `"complete": false, "timed_out": true`, pending entries report `outcome: "pending"`,
 and the tool message asks the agent to have the user finish reviewing before continuing.
+
+When the document's tracked changes are password-protected (Edit > Track Changes > Protect,
+`RedlineProtectionKey`), LibreOffice disables every Accept and Reject (`SwView::GetState`,
+`sw/source/uibase/uiview/viewstat.cxx`), so `wait_for_review` returns at once with
+`"complete": false, "timed_out": false, "changes_protected": true` and every change `pending`, and
+the tool message asks the user to remove the protection. It checks on every poll, so protecting the
+document during a wait ends the wait the same way.
 
 Outside a blocking wait, `flag_tracked` / `flag_untracked` in
 [`plugin/writer/edit_review.py`](../../plugin/writer/edit_review.py) are the single reporting owner for
@@ -336,6 +346,10 @@ Delete and Insert as two independent rows. WriterAgent adds:
 
 The inline review UI lists and resolves only redlines that carry a `wa-review` token and an agent author.
 
+Resolving selects each change to dispatch on it; `resolve_change_at_cursor` and
+`resolve_all_with_feedback` put the user's own selection back afterwards (`KeepViewSelection`, as
+`tracking_manage` does), so the next keystroke does not replace the resolved text.
+
 ### Exact-bounds resolve (modern LibreOffice)
 
 On LibreOffice **≥ 25.04**, selecting a change's **exact** Delete+Insert bounds and dispatching
@@ -361,7 +375,7 @@ dispatch repeats over what is left of the group while each pass makes progress; 
 only when exactly the group is gone. Multi-dispatch resolves (overlapping groups and mixed resolve-all
 loops) are wrapped in a compound undo context so undo restores all resolved edits together in one step.
 
-In bulk resolve (`resolve_all_agent_changes`), changes are attempted paragraph-wide first so clean paragraphs clear sibling agent changes in one dispatch. When a user redline in the paragraph triggers `REFUSED_FOREIGN`, bulk resolve retries with exact bounds. Overlapping user redlines -- including any user redline with only whitespace between it and the agent span -- still refuse; a gap containing any other character still resolves on the exact retry. If an exact dispatch proves to be a no-op, further exact retries are disabled for the remainder of that run.
+In bulk resolve (`resolve_all_agent_changes`), changes are attempted paragraph-wide first so clean paragraphs clear sibling agent changes in one dispatch. The paragraph check compares only the user's redlines against each span (`_classify_span_conflicts` skips other agent changes when the caller does not ask about them), so one pass costs the number of user redlines, not the number of agent changes. When a user redline in the paragraph triggers `REFUSED_FOREIGN`, bulk resolve retries with exact bounds. Overlapping user redlines -- including any user redline with only whitespace between it and the agent span -- still refuse; a gap containing any other character still resolves on the exact retry. If an exact dispatch proves to be a no-op, further exact retries are disabled for the remainder of that run.
 
 On older builds where exact-bounds dispatch is a no-op, inline resolve falls back to a
 paragraph-wide selection (which resolves every redline in range) and refuses when foreign or
@@ -440,7 +454,15 @@ When the user turns on Track Changes > Record while agent review is Off, operati
   an entire text (body, cell, or frame), Accept also removes the frame (`undobj.cxx`:
   `IsSelectFrameAnchoredAtPara` / `IsDestroyFrameAnchoredAtChar`).
 * **Undo then Redo of a review-session edit:** Redo brings the redline back untagged and splits an
-  `Unknown Author` Insert piece (`RedlineComment` is not an undoable action).
+  `Unknown Author` Insert piece (`RedlineComment` is not an undoable action). A wait still reports
+  the change `pending` (see the outcome table), but inline review and the toolbar no longer see it
+  as an agent change.
+* **`document_undo` and the user's review:** the tool refuses with `UNDO_USER_REVIEW` when the next
+  undo step is an Accept or Reject of a tracked change, because undoing a Reject would put the
+  agent's change back as pending. `tracking_manage` dispatches the same native command, so the
+  refusal also covers a resolve the agent made through it. It matches WriterAgent's own `Resolve agent changes` step and LibreOffice's
+  English `Accept change: ` / `Reject change: ` titles (`STR_ACCEPT_REDLINE`, `STR_REJECT_REDLINE`,
+  `sw/inc/strings.hrc`); in another UI language a native Accept or Reject is not recognised.
 
 ## Ways to improve
 

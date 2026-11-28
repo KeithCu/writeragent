@@ -10,7 +10,7 @@
 # ShowChanges forced on.
 import unittest
 
-import uno  # noqa: F401
+import uno
 from com.sun.star.beans import UnknownPropertyException
 
 from plugin.framework.uno_context import execute_dispatch
@@ -512,6 +512,70 @@ def test_cross_paragraph_change_reports_accepted_and_rejected_uno(ctx, doc):
 
 @native_test
 @with_native_doc("writer")
+def test_untagged_pending_change_is_not_reported_resolved_uno(ctx, doc):
+    # Undo then Redo brings the change back without its token, and editing the change comment
+    # replaces the token; in both the change is still pending.
+    def undo_redo():
+        doc.getUndoManager().undo()
+        doc.getUndoManager().redo()
+
+    def edit_comment():
+        redlines = doc.getRedlines()
+        for rl in [redlines.getByIndex(i) for i in range(redlines.getCount())]:
+            rl.setPropertyValue("RedlineComment", "ask Bob")
+
+    for user_action in (undo_redo, edit_comment):
+        reset_body(doc, ctx, "Alpha two three.")
+        with EditReviewSession(doc, ctx, enabled=True) as session:
+            session.record_mutation(_replace_fn(doc, "two", "NEWWORD"))
+        user_action()
+        assert {r["type"] for r in list_redlines(doc)} == {"Delete", "Insert"}, user_action.__name__
+        result = session.wait_for_review(timeout=0.3, poll=0.05)
+        assert result["complete"] is False and result["timed_out"] is True, (user_action.__name__, result)
+        assert result["changes"][0]["outcome"] == "pending", (user_action.__name__, result)
+        accept_all_changes(doc, ctx)
+        result = session.wait_for_review(timeout=2, poll=0.05)
+        assert result["complete"] is True, (user_action.__name__, result)
+        assert result["changes"][0]["outcome"] != "pending", (user_action.__name__, result)
+
+    # A style tool's untagged WriterAgent format redline right after the change is not the change
+    # come back: once the user accepts the change, the wait completes.
+    from com.sun.star.awt.FontWeight import BOLD  # type: ignore
+    from plugin.writer import review_authors
+
+    reset_body(doc, ctx, "Alpha two three.")
+    with EditReviewSession(doc, ctx, enabled=True) as session:
+        session.record_mutation(_replace_fn(doc, "two", "NEWWORD"))
+    prior = review_authors.begin(ctx)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        find_first(doc, " three.").setPropertyValue("CharWeight", BOLD)
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        review_authors.end(ctx, prior)
+    controller = doc.getCurrentController()
+    controller.select(find_first(doc, "NEWWORDtwo"))
+    execute_dispatch(ctx, controller, ".uno:AcceptTrackedChange")
+    assert [(r["type"], r["RedlineAuthor"]) for r in list_redlines(doc)] == [("Format", "WriterAgent")]
+    result = session.wait_for_review(timeout=2, poll=0.05)
+    assert result["complete"] is True, result
+    assert result["changes"][0]["outcome"] == "accepted", result
+    doc.setPropertyValue("RecordChanges", False)
+    reject_all_changes(doc, ctx)
+
+    # Undo of a pure deletion puts the text back: rejected, and the wait completes.
+    reset_body(doc, ctx, "Alpha two three.")
+    with EditReviewSession(doc, ctx, enabled=True) as session:
+        session.record_mutation(_replace_fn(doc, "two ", ""))
+    doc.getUndoManager().undo()
+    result = session.wait_for_review(timeout=2, poll=0.05)
+    assert doc.getText().getString() == "Alpha two three."
+    assert result["complete"] is True, result
+    assert result["changes"][0]["outcome"] == "rejected", result
+
+
+@native_test
+@with_native_doc("writer")
 def test_edited_context_leaves_out_pending_deletions_uno(ctx, doc):
     """edited_context reads as after Accept: neither the replaced text nor another author's deletion shows."""
     from plugin.tests.testing_utils import native_writer_tool_context
@@ -628,6 +692,28 @@ def test_streamed_rewrite_multi_paragraph_reject_restores_uno(ctx, doc):
     assert s_acc.finish() is None
     accept_all_changes(doc, ctx)
     assert doc.getText().getString() == twin_text
+
+
+@native_test
+@with_native_doc("writer")
+def test_wait_returns_at_once_when_changes_are_protected_uno(ctx, doc):
+    def protect(on):
+        key = uno.ByteSequence(b"\x01\x02\x03\x04" if on else b"")
+        uno.invoke(doc, "setPropertyValue", ("RedlineProtectionKey", uno.Any("[]byte", key)))
+
+    reset_body(doc, ctx, "Alpha two three.")
+    with EditReviewSession(doc, ctx, enabled=True) as session:
+        session.record_mutation(_replace_fn(doc, "two", "2"))
+    protect(True)
+    try:
+        result = session.wait_for_review(timeout=3, poll=0.05)
+        assert result.get("changes_protected") is True, result
+        assert result["complete"] is False and result["timed_out"] is False, result
+        assert result["changes"][0]["outcome"] == "pending", result
+    finally:
+        protect(False)
+        doc.setPropertyValue("RecordChanges", False)
+        reject_all_changes(doc, ctx)
 
 
 @native_test

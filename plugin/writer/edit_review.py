@@ -56,7 +56,15 @@ from typing import Any, Callable, ClassVar, TypeVar
 from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK  # type: ignore
 
 from plugin.doc.compound_undo import UndoLock, UndoOutcome, UndoUnavailable, WriterCompoundUndo, commit_or_rollback
-from plugin.doc.text_helpers import FAILED, TrackedDeletions, go_right, is_text_table, iter_elements, iter_portions
+from plugin.doc.text_helpers import (
+    FAILED,
+    TrackedDeletions,
+    go_right,
+    is_text_table,
+    iter_elements,
+    iter_portions,
+    starts_at_or_after,
+)
 # Module-qualified on purpose: plugin/testing_runner.py replaces config.get_config while native
 # suites run (review mode reads "off" unless a test sets it); a from-import would keep the original.
 from plugin.framework import config
@@ -121,6 +129,18 @@ def review_recording_enabled() -> bool:
     raw config key.
     """
     return get_agent_edit_review_mode() in ("record", "wait")
+
+
+def changes_protected(doc: Any) -> bool:
+    """True when *doc*'s tracked changes are password-protected (Edit > Track Changes > Protect).
+
+    LibreOffice then disables every Accept and Reject command: the single-change ones in
+    ``SwView::GetState`` (``sw/source/uibase/uiview/viewstat.cxx``) and Accept All / Reject All
+    in ``SwDocShell::GetState`` (``sw/source/uibase/app/docsh.cxx``), both through
+    ``SwDocShell::HasChangeRecordProtection``. Nobody can resolve a pending agent change until
+    the protection is removed.
+    """
+    return len(doc.getPropertyValue("RedlineProtectionKey")) > 0
 
 
 def edit_is_recorded(doc: Any) -> bool:
@@ -459,6 +479,38 @@ def _force_show_changes(doc: Any, who: str) -> None:
         log.debug("%s: could not force ShowChanges", who, exc_info=True)
 
 
+# A Format or ParagraphFormat redline is never an agent text change come back: style tools
+# author them WriterAgent without a token (styles.py), so counting them would keep a resolved
+# change pending for the whole timeout.
+_UNTAGGED_PENDING_TYPES = frozenset({"Insert", "Delete"})
+
+
+def _pending_without_token(records: list[ChangeRecord], spans: list[tuple[Any, Any]]) -> set[str]:
+    """Tokens of *records* still pending although their token is on no redline.
+
+    Undo then Redo brings an agent change back without its token, and editing the change
+    comment (Edit > Track Changes > Manage) replaces the token; the change is still pending
+    either way. *spans* are the agent-authored Insert and Delete redlines with no ``wa-review``
+    token; one that touches a record's anchor keeps that record pending. Touching is enough
+    because Redo puts the text back next to the anchor cursor rather than inside it. A part of
+    the same edit that was never tagged (a deletion stacked on another author's insertion) also
+    keeps it pending until the user resolves that part in Edit > Track Changes > Manage.
+    """
+    pending: set[str] = set()
+    if not spans:
+        return pending
+    for record in records:
+        # A cursor whose table cell or frame was deleted cannot be read; that change is not pending.
+        text = uno_read(record.anchor.getText, None)
+        if text is None:
+            continue
+        if any(starts_at_or_after(text, record.anchor.getEnd(), start)
+               and starts_at_or_after(text, end, record.anchor.getStart())
+               for start, end in spans):
+            pending.add(record.token)
+    return pending
+
+
 @dataclass(frozen=True)
 class ChangeRecord:
     """One reviewable change: its token, anchor, and the two expected end states."""
@@ -756,6 +808,7 @@ class EditReviewSession:
         prefix = _review_scan.session_token_prefix(self.session_id)
         registered = {record.token for record in self.changes}
         seen: set[str] = set()
+        untagged_spans: list[tuple[Any, Any]] = []
 
         def on_item(rl: Any) -> bool:
             try:
@@ -764,12 +817,18 @@ class EditReviewSession:
                 return False
             if comment.startswith(prefix):
                 seen.add(comment)
+            elif (not _review_scan.is_agent_token(comment)
+                  and rl.getPropertyValue("RedlineAuthor") in review_authors.AGENT_AUTHORS
+                  and rl.getPropertyValue("RedlineType") in _UNTAGGED_PENDING_TYPES):
+                untagged_spans.append((rl.getPropertyValue("RedlineStart"), rl.getPropertyValue("RedlineEnd")))
             return True
 
         reliable = _review_scan.scan_redlines(self.doc, on_item)[0]
+        pending = seen & registered
+        pending |= _pending_without_token([r for r in self.changes if r.token not in pending], untagged_spans)
         if not reliable:
             log.debug("EditReviewSession: pending check enumeration incomplete")
-        return seen & registered, reliable
+        return pending, reliable
 
     def _change_text_at_anchor(self, record: ChangeRecord) -> str | None:
         """Current text of the CHANGE's own region (its anchor cursor span), or None when the
@@ -864,6 +923,8 @@ class EditReviewSession:
         the still-open entries report ``"pending"`` and ``complete`` is False -- the agent must
         not assume the text's state. *cancel* and *still_reviewing* let the caller abort early
         (e.g. Stop or the review feature toggled off mid-wait); that also returns ``complete=False``.
+        A document whose tracked changes are protected returns at once the same way, with
+        ``changes_protected: True``.
 
         Thread placement: poll from a background/HTTP thread so the main thread stays free for
         the user's accept/reject clicks. UNO is not thread-safe, so callers off the main thread
@@ -888,6 +949,13 @@ class EditReviewSession:
             # have missed an unresolved registered change (fail closed).
             if reliable and not pending:
                 break
+            if run(lambda: not document_is_disposed(self.doc) and changes_protected(self.doc)):
+                # Nobody can accept or reject while the changes are protected, so waiting would
+                # only run out the timeout. A document closed since the scan is left to the next
+                # poll, because reading a property of a closed model throws DisposedException.
+                payload = run(lambda: self._review_payload(complete=False, timed_out=False))
+                payload["changes_protected"] = True
+                return payload
             # Only explicit False ends the wait (review mode off); other falsy returns keep waiting.
             if is_cancelled(cancel) or (still_reviewing is not None and still_reviewing() is False):
                 return run(lambda: self._review_payload(complete=False, timed_out=False))

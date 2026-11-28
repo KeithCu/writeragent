@@ -1133,7 +1133,13 @@ class ApplyDocumentContent(ToolBase):
         )
         result = dict(result)
         result["review"] = review
-        if not review.get("complete"):
+        if review.get("changes_protected"):
+            result["message"] = (result.get("message") or "") + (
+                " The document's tracked changes are password-protected (Edit > Track Changes >"
+                " Protect), so the user must remove that protection before they can accept or"
+                " reject these changes."
+            )
+        elif not review.get("complete"):
             result["message"] = (result.get("message") or "") + (
                 " The user has not finished reviewing these tracked changes; ask them to"
                 " accept or reject the changes in the document, then continue."

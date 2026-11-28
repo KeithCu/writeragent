@@ -537,7 +537,8 @@ class TestWriterImageCursorConversion:
             )
 
         assert res is graphic_mock
-        view_cursor.gotoRange.assert_any_call(saved_start, False)
+        # select() leaves the new picture's selection; the view cursor refuses gotoRange then.
+        model.CurrentController.select.assert_called_once_with(saved_start)
 
     def test_insert_writer_graphic_embeds_when_view_cursor_move_fails(self):
         ctx = MagicMock()
