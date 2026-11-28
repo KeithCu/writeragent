@@ -419,6 +419,22 @@ def test_expand_tracked_deletions_no_deletions_or_single_block():
     assert expand_tracked_deletions(single) is None
 
 
+def test_expand_tracked_deletions_ignores_change_comment():
+    from plugin.writer.xhtml_style_postprocess import expand_tracked_deletions
+
+    # A tracked deletion with a comment, as WriterAgent's review edits write it.
+    commented = (
+        '<office:body><office:text><text:tracked-changes>'
+        '<text:changed-region text:id="ct1"><text:deletion><office:change-info>'
+        '<dc:creator>WriterAgent</dc:creator><dc:date>2026-11-27T10:00:00</dc:date>'
+        '<text:p>wa-review:s1:0</text:p></office:change-info>'
+        '<text:p>one two</text:p></text:deletion></text:changed-region>'
+        '</text:tracked-changes>'
+        '<text:p>Alpha <text:change text:change-id="ct1"/>uno dos three.</text:p></office:text></office:body>'
+    )
+    assert expand_tracked_deletions(commented) is None
+
+
 @pytest.mark.parametrize("nested_xml", [
     '<office:annotation><text:p>comment</text:p></office:annotation>',
     '<text:note text:note-class="footnote"><text:note-body><text:p>fn</text:p></text:note-body></text:note>',

@@ -1233,6 +1233,8 @@ class ImageDownload(ToolWriterImageBase):
     """Download an image from URL to local cache."""
 
     name: str | None = "image_download"
+    # Only fills the local image cache, so MCP does not hold the document gate or refuse it on a read-only target.
+    is_mutation: bool | None = False
     description: str = "Download an image from URL to local cache. Returns local path for image_insert/image_replace."
     parameters: dict[str, Any] | None = {
         "type": "object",

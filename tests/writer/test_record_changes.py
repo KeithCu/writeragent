@@ -70,6 +70,25 @@ def test_record_changes_preserves_initial_state_on_exception():
     assert doc.recording is True
 
 
+class _UnoLikeError(Exception):
+    """Refuses attribute writes, as a pyuno exception does for ``__traceback__``."""
+
+    def __setattr__(self, name, value):
+        raise AttributeError("'traceback' object has no attribute 'getTypes'")
+
+
+def test_record_changes_propagates_an_exception_that_refuses_attribute_writes():
+    doc = _FakeDoc(recording=False)
+    err = _UnoLikeError("text interface and cursor not related")
+
+    with pytest.raises(_UnoLikeError) as caught:
+        with record_changes(doc, True):
+            raise err
+
+    assert caught.value is err
+    assert doc.recording is False
+
+
 def test_record_changes_no_op_when_already_in_desired_state():
     doc = _FakeDoc(recording=True)
     with record_changes(doc, True) as was_recording:

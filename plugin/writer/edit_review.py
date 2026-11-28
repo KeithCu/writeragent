@@ -45,14 +45,13 @@ returns an empty complete result), and degrades to inert if tracking cannot be e
 
 from __future__ import annotations
 
-import contextlib
 from dataclasses import dataclass, field
 import itertools
 import logging
 import re
 import time
 import uuid
-from typing import Any, Callable, ClassVar, Generator, TypeVar
+from typing import Any, Callable, ClassVar, TypeVar
 
 from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK  # type: ignore
 
@@ -148,17 +147,34 @@ def _agent_authors_format(doc: Any, ranges: list[Any]) -> bool:
     )
 
 
-@contextlib.contextmanager
-def agent_format_author(doc: Any, ctx: Any, ranges: list[Any]) -> Generator[None, None, None]:
-    """Author redlines recorded on *ranges* in this block as WriterAgent when ``_agent_authors_format`` says so."""
-    if not _agent_authors_format(doc, ranges):
-        yield
-        return
-    prior = review_authors.begin(ctx)
-    try:
-        yield
-    finally:
-        review_authors.end(ctx, prior)
+class agent_format_author:  # Named like a function: callers write ``with agent_format_author(...):``.
+    """Author redlines recorded on *ranges* in this block as WriterAgent when ``_agent_authors_format`` says so.
+
+    A class, not a generator context manager, so a UNO exception
+    from the block reaches the caller unchanged (see
+    ``plugin.doc.compound_undo.UndoStepOrRollback``).
+    """
+
+    _doc: Any
+    _ctx: Any
+    _ranges: list[Any]
+    _begun: bool
+    _prior: tuple[str, str] | None
+
+    def __init__(self, doc: Any, ctx: Any, ranges: list[Any]) -> None:
+        self._doc = doc
+        self._ctx = ctx
+        self._ranges = ranges
+        self._begun = False
+        self._prior = None
+
+    def __enter__(self) -> None:
+        self._begun = _agent_authors_format(self._doc, self._ranges)
+        self._prior = review_authors.begin(self._ctx) if self._begun else None
+
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: Any) -> None:
+        if self._begun:
+            review_authors.end(self._ctx, self._prior)
 
 
 def format_overlaps_foreign_insertion(doc: Any, ctx: Any, ranges: list[Any]) -> bool:
