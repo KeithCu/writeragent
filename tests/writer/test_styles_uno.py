@@ -1635,6 +1635,7 @@ def test_style_format_text_flags_link_retarget_and_foreign_insertion_uno(ctx, do
     assert foreign.get("style_unreviewed") is True and "another author" in foreign.get("warning", ""), foreign
 
 
+@native_test
 @with_native_doc("writer", reuse=False)
 def test_selection_format_refuses_recorded_format_over_deletion_uno(ctx, doc):
     from plugin.framework.config import get_config, save

@@ -2540,6 +2540,7 @@ def test_recorded_whole_block_replace_does_not_claim_formatting_preserved_uno(ct
     assert "gone after Accept" in res["message"], res
 
 
+@native_test
 @with_native_doc("writer", reuse=False)
 def test_apply_content_regex_refuses_crossing_deletion_unless_recorded_uno(ctx, doc):
     from plugin.framework.config import get_config, save
