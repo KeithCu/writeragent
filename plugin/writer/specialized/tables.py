@@ -32,7 +32,7 @@ from plugin.framework.errors import ToolExecutionError, format_error_payload, is
 from plugin.framework.i18n import _
 from plugin.framework.tool_schema import page_index_param
 from plugin.framework.uno_context import enum_has_more, execute_dispatch, resolve_uno_context, supports_service, uno_same
-from plugin.writer.edit_review import flag_tracked, record_write
+from plugin.writer.edit_review import edit_is_recorded, flag_tracked, flag_untracked, record_write
 from plugin.writer.html_import import non_text_portion_type, replace_preserving_format
 from plugin.writer import review_authors
 from plugin.writer.record_changes import (
@@ -336,6 +336,35 @@ def _deletion_recorded(doc: Any, before: int, cells: list[Any]) -> bool:
     if after > before:
         return True
     return cells_all_tracked_deleted(cells, doc)
+
+
+def _struck_delete_count(doc: Any, cells: list[Any]) -> int | None:
+    """Delete-redline count before a delete that will be recorded, when *cells* are all struck already; else None."""
+    if not edit_is_recorded(doc) or not cells_all_tracked_deleted(cells, doc):
+        return None
+    return _delete_redline_count(doc)
+
+
+def _nothing_new_struck(doc: Any, struck_before: int | None) -> bool:
+    """True when a recorded delete of cells that were all struck added no Delete redline.
+
+    ``_deletion_recorded`` counts such a delete as recorded, because a pending deletion it
+    merges with also leaves the count level.
+    """
+    if struck_before is None:
+        return False
+    after = _delete_redline_count(doc)
+    return after is not None and after <= struck_before
+
+
+def _already_struck_result(result: dict[str, Any], what: str) -> dict[str, Any]:
+    """Result for deleting something a pending tracked deletion already strikes: nothing new to review."""
+    result["message"] = (
+        "%s was already marked for deletion by a pending tracked change, so nothing new was recorded. "
+        "It stays until the user accepts or rejects that change; do not accept or reject it yourself." % what
+    )
+    result["pending_review"] = True
+    return result
 
 
 def _place_caret_in_cell(controller: Any, table: Any, name: str, cell_name: str) -> bool:
@@ -931,6 +960,26 @@ def _protected_with_hosts(doc: Any, table: Any, names: list[str], nesting: dict[
     return cells
 
 
+def protected_cell_error(doc: Any, text_range: Any) -> dict[str, Any] | None:
+    """``CELLS_PROTECTED`` error when a text edit at *text_range* would change a protected cell, else None.
+
+    The range's own cell counts, and so does every cell hosting its table, as in ``table_set_cell``.
+    """
+    cursor = text_range.getText().createTextCursorByRange(text_range.getStart())
+    table = cursor.getPropertyValue("TextTable")
+    if table is None:
+        return None
+    name = table.getName()
+    cell_name = cursor.getPropertyValue("Cell").getPropertyValue("CellName")
+    protected = _protected_with_hosts(doc, table, [cell_name], _nesting_for(doc, table, name))
+    if not protected:
+        return None
+    return make_tool_error(
+        _protected_refusal("change", "text in cell %s of table '%s'" % (cell_name, name), protected),
+        code="CELLS_PROTECTED",
+    )
+
+
 def _require_no_protected_cells(doc: Any, table: Any, name: str, nesting: dict[str, Any]) -> None:
     """Refuse to delete a table that has, or sits inside, a protected cell.
 
@@ -1300,7 +1349,16 @@ class TableSetCell(ToolWriterTableBase):
                     wrote = replace_preserving_format(
                         ctx.doc, span, new, in_undo_context=True, split_author=False
                     )
-                    recorded = wrote and recording
+                    # The visible text differs (checked above), so an unwritten replace means the
+                    # new text equals the cell's raw text, struck deletions included.
+                    if not wrote:
+                        raise ToolExecutionError(
+                            "Cell %s of table '%s' already holds this text as a pending tracked deletion, "
+                            "so nothing was written. To bring it back the user rejects that deletion; "
+                            "do not accept or reject it yourself." % (cell_name, name),
+                            code="CELL_TEXT_IS_PENDING_DELETION",
+                        )
+                    recorded = recording
 
             _mutate_or_rollback(ctx.doc, uno_ctx, _("WriterAgent: Set table cell"), _apply)
             if recorded:
@@ -1326,7 +1384,7 @@ class ManageTableStructure(ToolWriterTableBase):
         "refuses to delete a column that a wider (merged) cell covers together with other columns; "
         "while changes are recorded, refuses to delete from a table, or delete a row, that is itself a "
         "pending tracked insertion (TABLE_DELETE_NOT_TRACKABLE); "
-        "when Track Changes or review mode is on, delete is recorded as a tracked change."
+        "when Track Changes or review mode is on, insert and delete are recorded as tracked changes."
     )
     is_mutation: bool | None = True
     parameters: dict[str, Any] | None = {
@@ -1381,7 +1439,9 @@ class ManageTableStructure(ToolWriterTableBase):
                         % (axis_arg, ", ".join(nested), axis_arg, axis_arg)
                     )
                 # SwDoc::DeleteRow / DeleteCol (ndtbl.cxx) skip protected cells silently.
-                protected = _protected_cells(table, _band_cell_names(table, axis_arg, idx))
+                protected = _protected_with_hosts(
+                    ctx.doc, table, _band_cell_names(table, axis_arg, idx), _nesting_for(ctx.doc, table, name)
+                )
                 if protected:
                     return self._tool_error(
                         _protected_refusal("delete", "this %s" % axis_arg, protected),
@@ -1402,11 +1462,16 @@ class ManageTableStructure(ToolWriterTableBase):
                 refusal = _column_refusal(table, idx)
                 if refusal is not None:
                     return self._tool_error(refusal, code="COLUMN_HAS_SPANNING_CELL")
+            uno_ctx = resolve_uno_context(ctx)
+            struck_before: int | None = None
             if insert:
-                edit_table_band(band, action, idx, axis_arg)
-                tracked = False
+                # While recording, SwTable::InsertRow_ (sw/source/core/doc/tblrwcl.cxx) and NewInsertCol
+                # (sw/source/core/table/swnewtable.cxx) record the new band as a tracked insertion,
+                # with a U+200D dummy character in its cells.
+                _unused, tracked = record_write(ctx.doc, uno_ctx, lambda: edit_table_band(band, action, idx, axis_arg))
             else:
-                uno_ctx = resolve_uno_context(ctx)
+                band_cells = [table.getCellByName(n) for n in _band_cell_names(table, axis_arg, idx)]
+                struck_before = _struck_delete_count(ctx.doc, band_cells)
 
                 def _apply() -> bool:
                     if uno_read(lambda: is_recording_changes(ctx.doc), False):
@@ -1428,8 +1493,12 @@ class ManageTableStructure(ToolWriterTableBase):
                 tracked = _mutate_or_rollback(ctx.doc, uno_ctx, "WriterAgent: Delete %s" % axis_arg, _apply)
             rows, cols = table_dims(table)
             result: dict[str, Any] = {"status": "ok", "table_name": name, "rows": rows, "cols": cols}
-            if tracked:
-                label = "Row" if axis_arg == "row" else "Column"
+            label = "Row" if axis_arg == "row" else "Column"
+            if tracked and _nothing_new_struck(ctx.doc, struck_before):
+                return _already_struck_result(result, label)
+            if tracked and insert:
+                flag_tracked(result)
+            elif tracked:
                 result["message"] = (
                     "%s marked for deletion as a tracked change: it stays in the table, "
                     "so later indexes do not shift, until the user accepts. Do not accept or reject it yourself."
@@ -1494,7 +1563,14 @@ class TableMergeCells(ToolWriterTableBase):
                 % (first, last, name)
             )
         # After mergeRange the cursor sits on the merged box, so getRangeName() is its name.
-        return _writer_grid_ok(table, name, merged_cell=str(cursor.getRangeName()))
+        result = _writer_grid_ok(table, name, merged_cell=str(cursor.getRangeName()))
+        flag_untracked(
+            result,
+            ctx.doc,
+            _("LibreOffice cannot record merging table cells as a tracked change, so the cells were merged directly "
+              "and rejecting changes does not split them again (Ctrl+Z undoes it). Tell the user."),
+        )
+        return result
 
 
 class TableSplitCell(ToolWriterTableBase):
@@ -1507,8 +1583,8 @@ class TableSplitCell(ToolWriterTableBase):
         "Split one Writer table cell into 2-20 parts, as rows or as columns. The cell's text and "
         "any nested table stay in the first part; the new parts are empty. Splitting a merged cell "
         "into as many parts as it spans undoes the merge. Cell names are renumbered afterwards, so "
-        "use the returned cell_names. Ctrl+Z undoes it in one step. Not a tracked change even when "
-        "review mode is on."
+        "use the returned cell_names. Ctrl+Z undoes it in one step. While changes are recorded, a split "
+        "into rows is a tracked change; a split into columns never is."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -1545,14 +1621,31 @@ class TableSplitCell(ToolWriterTableBase):
         cursor = table.createCursorByCellName(cell_name)
         # Count is the number of new cells, and Horizontal=True adds horizontal dividing lines
         # (more rows): SwXTextTableCursor::splitRange passes !Horizontal as bVert to SwDoc::SplitTable.
-        # SwDoc::SplitTable records no redline, so it is not wrapped in record_write.
-        if not cursor.splitRange(parts - 1, direction == "rows"):
+        # While recording, a split into rows of a new-model table goes through SwTable::NewSplitRow ->
+        # InsertSpannedRow -> InsertRow_ (sw/source/core/table/swnewtable.cxx, doc/tblrwcl.cxx), which
+        # records the new rows and Reject All removes them; SwTable::SplitCol (tblrwcl.cxx) records
+        # nothing. A legacy old-model table splits rows through OldSplitRow (tblrwcl.cxx), which also
+        # records nothing, but UNO does not expose the table model, so such a split is reported tracked.
+        split, recorded = record_write(
+            ctx.doc, resolve_uno_context(ctx), lambda: cursor.splitRange(parts - 1, direction == "rows")
+        )
+        if not split:
             return self._tool_error(
                 "LibreOffice could not split cell %s in table '%s'. "
                 "Leave the cells as they are and edit their text with table_set_cell."
                 % (cell_name, name)
             )
-        return _writer_grid_ok(table, name, cell=cell_name, direction=direction, parts=parts)
+        result = _writer_grid_ok(table, name, cell=cell_name, direction=direction, parts=parts)
+        if recorded and direction == "rows":
+            flag_tracked(result)
+        else:
+            flag_untracked(
+                result,
+                ctx.doc,
+                _("LibreOffice records splitting a table cell into rows but not into columns, so this split "
+                  "was made directly and rejecting changes does not undo it (Ctrl+Z does). Tell the user."),
+            )
+        return result
 
 
 class TableInsert(ToolWriterTableBase):
@@ -1716,6 +1809,7 @@ class TableDelete(ToolWriterTableBase):
             table = _require_table(ctx.doc, name)
             nesting = _nesting_for(ctx.doc, table, name)
             uno_ctx = resolve_uno_context(ctx)
+            struck_before = _struck_delete_count(ctx.doc, [table.getCellByName(n) for n in _writer_named_cells(table)])
 
             def _apply() -> bool:
                 # In review mode the wrapper below has just turned change tracking on; a user
@@ -1730,6 +1824,8 @@ class TableDelete(ToolWriterTableBase):
                 "table_name": name,
                 "nesting": nesting,
             }
+            if tracked and _nothing_new_struck(ctx.doc, struck_before):
+                return _already_struck_result(result, "Table '%s'" % name)
             if tracked:
                 result["message"] = (
                     "Table marked for deletion as a tracked change: it stays in the document, "

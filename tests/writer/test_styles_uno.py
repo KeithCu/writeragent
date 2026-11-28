@@ -21,6 +21,7 @@ import uno
 
 from plugin.framework.uno_context import create_property_value, enum_has_more
 from plugin.testing_runner import native_test
+from plugin.writer import review_authors
 from plugin.writer.styles import ApplyStyle, StyleClone, StyleCreate, StyleFormatText, StyleGetInfo, StyleImport, StyleList, StyleUpdate
 from plugin.tests.testing_utils import TestingFactory, with_native_doc
 from tests.writer.doc_builders import accept_all_changes, body_paragraphs, reject_all_changes
@@ -1598,6 +1599,40 @@ def test_style_format_text_full_document_table_in_leading_section_uno(ctx, doc):
     assert {s for s, _ in portions} >= {"SecLead", "AfterSec"}
     for s, props in portions:
         assert props["CharFontName"] == "Arial", (s, props)
+
+
+@native_test
+@with_native_doc("writer")
+def test_style_format_text_flags_link_retarget_and_foreign_insertion_uno(ctx, doc):
+    """While recording, a new target for an existing link and a format over Alice's insertion are flagged unreviewed."""
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    text = doc.getText()
+    text.setString("Beta two plain text.")
+    sd = doc.createSearchDescriptor()
+    sd.setSearchString("two")
+    doc.findFirst(sd).setPropertyValue("HyperLinkURL", "http://old.example/")
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        relinked = StyleFormatText().execute(
+            tool_ctx, properties={"HyperLinkURL": "http://changed.example/"}, target="search", old_content="two",
+        )
+        prior = review_authors.begin(ctx)
+        try:
+            assert review_authors.set_office_author(ctx, "Alice") is True
+            text.insertString(text.getEnd(), " ALICE", False)
+        finally:
+            review_authors.end(ctx, prior)
+        foreign = StyleFormatText().execute(
+            tool_ctx, properties={"CharWeight": 150.0}, target="search", old_content="text. ALICE",
+        )
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    assert relinked["status"] == "ok", relinked
+    assert relinked.get("style_unreviewed") is True and "HyperLinkURL" in relinked.get("warning", ""), relinked
+    assert foreign["status"] == "ok", foreign
+    assert foreign.get("style_unreviewed") is True and "another author" in foreign.get("warning", ""), foreign
 
 
 @native_test

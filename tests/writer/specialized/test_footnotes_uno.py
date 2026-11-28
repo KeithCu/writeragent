@@ -229,6 +229,7 @@ def test_footnote_insert_in_record_mode_rejects_to_no_note_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_footnote_edit_text_and_label_in_record_mode_uno(ctx, doc):
+    """The text change is tracked, so the label warning must not turn the result into tracked: false."""
     doc.getText().setString("probe text ")
     note = _insert_note(doc, "footnote", "old body")
 
@@ -246,9 +247,9 @@ def test_footnote_edit_text_and_label_in_record_mode_uno(ctx, doc):
         save({"doc.agent_edit_review_mode": prev})
 
     assert res["status"] == "ok", res
-    assert res.get("tracked") is False
+    assert res.get("tracked") is True
     assert res.get("pending_review") is True
-    assert "warning" in res
+    assert "custom mark" in res.get("warning", "")
 
     reject_all_changes(doc, ctx)
     assert note.getString() == "old body"

@@ -43,9 +43,11 @@ from plugin.writer.edit_review import (
     collapsed_anchor,
     edit_is_recorded,
     flag_tracked,
+    flag_tracked_delete,
     flag_untracked,
     next_agent_edit_undo_title,
     range_has_redline,
+    record_write,
 )
 from plugin.writer.html_import import content_has_markup, replace_preserving_format
 from plugin.writer.hyperlink_fixup import (
@@ -476,6 +478,7 @@ def _locate_toc_entry(
 
 def _commit_toc_mutation(
     doc: Any,
+    uno_ctx: Any,
     idx: Any,
     mutate: Callable[[], dict[str, Any] | None],
     preview: dict[str, Any],
@@ -483,6 +486,7 @@ def _commit_toc_mutation(
     *,
     failure_message: str,
     failure_code: str = "TOOL_EXECUTION_ERROR",
+    deletes: bool = False,
 ) -> dict[str, Any]:
     """Unprotect one TOC, run *mutate* in one undo context, then protect again.
 
@@ -490,7 +494,10 @@ def _commit_toc_mutation(
     ``update()`` (that rebuilds every row and drops direct formatting). Clearing
     ``IsProtected`` only for the edit, then restoring it, keeps the flag the
     document had. On failure the undo title is undone so neighbors stay put.
-    *mutate* returns an error payload to roll back, or None on success.
+    *mutate* returns an error payload to roll back, or None on success. It runs
+    through ``record_write``, so in Record/Wait and while the user records the
+    entry text change is a tracked change and the result says so; *deletes*
+    words that result as an entry left in place, struck.
     """
     if dry_run:
         preview["status"] = "ok"
@@ -499,13 +506,15 @@ def _commit_toc_mutation(
 
     # A failed read raises before anything is edited and execute_safe reports it.
     was_protected = bool(idx.getPropertyValue("IsProtected"))
+    recorded = False
 
     def _wrapped_mutate() -> dict[str, Any] | None:
+        nonlocal recorded
         if was_protected:
             idx.setPropertyValue("IsProtected", False)
         restore_err: dict[str, Any] | None = None
         try:
-            res = mutate()
+            res, recorded = record_write(doc, uno_ctx, mutate)
         finally:
             if was_protected:
                 try:
@@ -535,6 +544,10 @@ def _commit_toc_mutation(
         return error
     preview["status"] = "ok"
     preview["dry_run"] = False
+    if recorded and deletes:
+        flag_tracked_delete(preview, "The entry is")
+    elif recorded:
+        flag_tracked(preview)
     return preview
 
 
@@ -948,6 +961,7 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
 
         return _commit_toc_mutation(
             doc,
+            ctx.ctx,
             idx,
             mutate,
             preview,
@@ -1010,11 +1024,13 @@ class IndexesDeleteTocEntry(ToolWriterIndexBase):
 
         return _commit_toc_mutation(
             doc,
+            ctx.ctx,
             idx,
             mutate,
             preview,
             bool(kwargs.get("dry_run")),
             failure_message="TOC entry delete failed; the change was rolled back",
+            deletes=True,
         )
 
 
@@ -1188,6 +1204,7 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
 
         return _commit_toc_mutation(
             doc,
+            ctx.ctx,
             idx,
             mutate,
             preview,

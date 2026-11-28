@@ -1211,7 +1211,7 @@ class ImageCropAndHighlight(ToolWriterImageBase):
         )
         if err is not None:
             return err
-        return {
+        result: dict[str, Any] = {
             "status": "ok",
             "image_name": image_name,
             "width_px": region_w,
@@ -1220,6 +1220,8 @@ class ImageCropAndHighlight(ToolWriterImageBase):
             "height_mm": height_100mm / 100.0,
             "highlights": len(marks),
         }
+        _flag_untracked_replace(result, ctx.doc)
+        return result
 
 
 # ------------------------------------------------------------------

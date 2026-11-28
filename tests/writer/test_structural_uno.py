@@ -10,11 +10,14 @@ import unittest
 import uno  # noqa: F401
 from typing import Any
 
+from plugin.framework.config import get_config, save
 from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import TestingFactory, with_native_doc, writer_services_tool_context
 from plugin.writer.images.image_tools import graphic_from_bytes
+from plugin.writer.specialized.bookmarks import BookmarkService
 from plugin.writer.structural import GetPageObjects, CloneHeadingBlock
+from plugin.writer.tree import TreeService
 
 
 @native_test
@@ -467,3 +470,28 @@ def test_get_page_objects_print_preview_returns_tool_error_uno(ctx):
             assert "Cannot resolve view cursor page:" in res.get("message", ""), res
     finally:
         doc.close(True)
+
+
+@native_test
+@with_native_doc("writer")
+def test_clone_heading_block_in_record_mode_says_it_is_not_tracked_uno(ctx, doc):
+    """The clone runs outside a review session, so in Record mode the result must say it cannot be rejected."""
+    text = doc.getText()
+    cursor = text.createTextCursor()
+    cursor.setPropertyValue("ParaStyleName", "Heading 1")
+    text.insertString(cursor, "My Heading", False)
+    text.insertControlCharacter(cursor, 0, False)
+    cursor.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cursor, "Body text.", False)
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    tool_ctx.services.register("writer_bookmarks", BookmarkService(tool_ctx.services))
+    tool_ctx.services.register("writer_tree", TreeService(tool_ctx.services))
+    prev = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "record"})
+    try:
+        res = CloneHeadingBlock().execute(tool_ctx, paragraph_index=0)
+    finally:
+        save({"doc.agent_edit_review_mode": prev})
+    assert res["status"] == "ok", res
+    assert res.get("tracked") is False and res.get("warning"), res

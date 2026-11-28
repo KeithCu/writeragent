@@ -79,13 +79,17 @@ def insert_image_payload_for_doc(
         raise ToolExecutionError(_("Unsupported document type for plot insertion."), code="VIZ_ERROR")
     # host only: not in the compute bundle
     from plugin.framework.uno_context import product_display_name
+    from plugin.writer.html_import import run_writer_mutation_with_optional_review
     from plugin.writer.images.image_tools import insert_image, insert_image_at_locator
 
     path = write_image_payload_to_temp(payload)
     description = f"{product_display_name(ctx)} plot"
     try:
         if writer:
-            insert_image_at_locator(ctx, doc, path, title=title, description=description)
+            # One reviewable change in Record/Wait, as python_runner's text results are.
+            run_writer_mutation_with_optional_review(
+                doc, ctx, lambda: insert_image_at_locator(ctx, doc, path, title=title, description=description)
+            )
         else:
             insert_image(ctx, doc, path, *_DRAW_PLOT_SIZE, title=title, description=description, add_to_gallery=False)
     finally:

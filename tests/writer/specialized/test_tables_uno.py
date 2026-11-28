@@ -9,7 +9,7 @@ import uno  # noqa: F401
 
 from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import pinned_writer_tool_context, TestingFactory, with_native_doc
+from plugin.tests.testing_utils import native_writer_tool_context, pinned_writer_tool_context, TestingFactory, with_native_doc
 from plugin.writer.specialized.tables import (
     ManageTableStructure,
     TableDelete,
@@ -20,12 +20,14 @@ from plugin.writer.specialized.tables import (
     TableSetCell,
     TableSplitCell,
 )
+from plugin.writer.apply_document_content import ApplyDocumentContent
 from tests.writer.doc_builders import (
     accept_all_changes,
     insert_named_table,
     list_redlines,
     recording_as,
     reject_all_changes,
+    strike_substring,
 )
 
 
@@ -492,7 +494,9 @@ def test_manage_table_structure_delete_tracked_variants_uno(ctx, doc):
         re_del = ManageTableStructure().execute(
             tool_ctx, action="delete", axis="row", name="TwoParaTbl", index=0
         )
-        assert re_del["status"] == "ok" and re_del["tracked"] is True
+        assert re_del["status"] == "ok", re_del
+        assert "tracked" not in re_del and re_del["pending_review"] is True, re_del
+        assert "already marked for deletion" in re_del["message"], re_del
         accept_all_changes(doc, ctx)
         assert two_para_tbl.getRows().getCount() == 1
     finally:
@@ -1990,3 +1994,120 @@ def test_own_table_stays_writable_beside_foreign_table_inserted_at_document_star
         assert ins["status"] == "ok", ins
         res = TableSetCell().execute_safe(tool_ctx, name=ins["table_name"], cell="B1", text="x2")
     assert res["status"] == "ok" and res["tracked"] is True, res
+
+
+def _grid(table):
+    return [(name, table.getCellByName(name).getString()) for name in table.getCellNames()]
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_row_insert_in_record_mode_is_tracked_and_merge_is_flagged_uno(ctx, doc):
+    """Record mode: a row insert is recorded and Reject All removes it; a merge says it is not tracked."""
+    table = insert_named_table(doc, "RecBand", 2, 2, {"A1": "a1", "B1": "b1", "A2": "a2", "B2": "b2"})
+    before = _grid(table)
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    with _review_mode(doc, "record"):
+        inserted = ManageTableStructure().execute(tool_ctx, action="insert", axis="row", name="RecBand", index=1)
+        merged = TableMergeCells().execute(tool_ctx, name="RecBand", cell_range="A1:B1")
+    assert inserted["status"] == "ok", inserted
+    assert inserted.get("tracked") is True and inserted.get("pending_review") is True, inserted
+    assert merged["status"] == "ok", merged
+    assert merged.get("tracked") is False and merged.get("warning"), merged
+    assert doc.getPropertyValue("RecordChanges") is False
+
+    doc.getUndoManager().undo()  # the merge, which Reject cannot take back
+    reject_all_changes(doc, ctx)
+    assert _grid(doc.getTextTables().getByName("RecBand")) == before
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_set_cell_to_its_struck_text_is_refused_uno(ctx, doc):
+    """A cell whose text is a pending deletion cannot be "set" back to that text: nothing would be written."""
+    table = insert_named_table(doc, "StruckSet", 1, 2, {"A1": "keep", "B1": "ee4"})
+    strike_substring(doc, table.getCellByName("B1"), "ee4", ctx=ctx, author="Alice")
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    with _review_mode(doc, "record"):
+        res = TableSetCell().execute_safe(tool_ctx, name="StruckSet", cell="B1", text="ee4")
+    assert res["status"] == "error", res
+    assert res.get("code") == "CELL_TEXT_IS_PENDING_DELETION", res
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_deleting_an_already_struck_table_reports_nothing_new_uno(ctx, doc):
+    """Deleting a table that is already a pending tracked deletion is not reported as a new tracked change."""
+    table = insert_named_table(doc, "AliceGone", 1, 2, {"A1": "one", "B1": "two"})
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        first = TableDelete().execute(tool_ctx, name="AliceGone")
+        assert first.get("tracked") is True, first
+        second = TableDelete().execute(tool_ctx, name="AliceGone")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+    assert second["status"] == "ok", second
+    assert "tracked" not in second and second.get("pending_review") is True, second
+    assert "already marked for deletion" in second["message"], second
+    assert doc.getTextTables().hasByName("AliceGone") and table.getCellByName("A1").getString() == "one"
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_band_delete_refuses_a_table_nested_in_a_protected_cell_uno(ctx, doc):
+    """A row of a table nested in a protected host cell is protected too, as for table_set_cell."""
+    outer = insert_named_table(doc, "ProtHostOuter", 1, 1)
+    host = outer.getCellByName("A1")
+    inner = doc.createInstance("com.sun.star.text.TextTable")
+    inner.initialize(2, 1)
+    host.insertTextContent(host.getStart(), inner, False)
+    inner.setName("ProtHostInner")
+    inner.getCellByName("A1").setString("Inner 1")
+    inner.getCellByName("A2").setString("Inner 2")
+    host.setPropertyValue("IsProtected", True)
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    res = ManageTableStructure().execute(tool_ctx, action="delete", axis="row", name="ProtHostInner", index=0)
+    assert res["status"] == "error" and res.get("code") == "CELLS_PROTECTED", res
+    assert inner.getRows().getCount() == 2
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_apply_content_refuses_a_match_in_a_protected_cell_uno(ctx, doc):
+    """apply_content refuses to change text in a protected cell, as table_set_cell does."""
+    table = insert_named_table(doc, "ProtApply", 1, 2, {"A1": "open text", "B1": "locked ee4"})
+    table.getCellByName("B1").setPropertyValue("IsProtected", True)
+    tool_ctx = native_writer_tool_context(doc, ctx)
+    res = ApplyDocumentContent().execute(tool_ctx, target="search", old_content="ee4", content=["ee5"])
+    assert res["status"] == "error" and res.get("code") == "CELLS_PROTECTED", res
+    assert table.getCellByName("B1").getString() == "locked ee4"
+    ok = ApplyDocumentContent().execute(tool_ctx, target="search", old_content="open", content=["free"])
+    assert ok["status"] == "ok", ok
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_split_and_column_insert_in_record_mode_report_what_was_recorded_uno(ctx, doc):
+    """Record mode: a split into rows and a column insert are tracked and Reject All removes them;
+    a split into columns is not recorded and says so."""
+    rows_table = insert_named_table(doc, "RecSplitRows", 2, 2, {"A1": "a1", "B1": "b1", "A2": "a2", "B2": "b2"})
+    insert_named_table(doc, "RecSplitCols", 1, 2, {"A1": "x1", "B1": "y1"})
+    rows_before = _grid(rows_table)
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    with _review_mode(doc, "record"):
+        split_rows = TableSplitCell().execute(tool_ctx, name="RecSplitRows", cell="B2", direction="rows", parts=2)
+        col_insert = ManageTableStructure().execute(tool_ctx, action="insert", axis="column", name="RecSplitRows", index=1)
+        split_cols = TableSplitCell().execute(tool_ctx, name="RecSplitCols", cell="B1", direction="columns", parts=2)
+    assert split_rows["status"] == "ok", split_rows
+    assert split_rows.get("tracked") is True and split_rows.get("pending_review") is True, split_rows
+    assert col_insert["status"] == "ok", col_insert
+    assert col_insert.get("tracked") is True and col_insert.get("pending_review") is True, col_insert
+    assert split_cols["status"] == "ok", split_cols
+    assert split_cols.get("tracked") is False and "not into columns" in split_cols.get("warning", ""), split_cols
+    assert doc.getPropertyValue("RecordChanges") is False
+
+    reject_all_changes(doc, ctx)
+    assert _grid(doc.getTextTables().getByName("RecSplitRows")) == rows_before
+    assert len(doc.getTextTables().getByName("RecSplitCols").getCellNames()) == 3

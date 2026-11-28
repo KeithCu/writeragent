@@ -775,7 +775,9 @@ class WriteReport:
     outline hyperlinks updated after a heading rename, and ``stale_links`` maps
     each ``|outline`` URL still naming an old title to its reason. ``tables_added``
     is internal (not reported): tables the import added, or None when not measured.
-    all_matches merges one report per match with ``extend``.
+    ``flattened_formatting`` is True when a recorded plain replace gave the new text one
+    run's formatting over a range of several runs; the result message then does not claim
+    the formatting was preserved. all_matches merges one report per match with ``extend``.
     """
 
     unapplied_para: list[str] = field(default_factory=list)
@@ -787,6 +789,7 @@ class WriteReport:
     links_retargeted: int = 0
     stale_links: dict[str, StaleReason] = field(default_factory=dict)
     tables_added: int | None = None
+    flattened_formatting: bool = False
 
     def extend(self, other: WriteReport) -> None:
         self.unapplied_para.extend(other.unapplied_para)
@@ -794,6 +797,7 @@ class WriteReport:
         self.style_tokens = list(dict.fromkeys(self.style_tokens + other.style_tokens))
         self.math.extend(other.math)
         self.snapped_to_paragraph = self.snapped_to_paragraph or other.snapped_to_paragraph
+        self.flattened_formatting = self.flattened_formatting or other.flattened_formatting
 
 
 def attach_write_report(

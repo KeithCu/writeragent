@@ -2514,6 +2514,33 @@ def test_user_recording_with_review_off_reports_tracked_uno(ctx):
 
 
 @native_test
+@with_native_doc("writer")
+def test_recorded_whole_block_replace_does_not_claim_formatting_preserved_uno(ctx, doc):
+    """A recorded whole-paragraph plain replace over bold and plain runs gives the new text one run's look; say so."""
+    text = doc.getText()
+    text.setString("The Supplier shall deliver the Goods within thirty days.")
+    for word in ("Supplier", "Goods"):
+        sd = doc.createSearchDescriptor()
+        sd.setSearchString(word)
+        doc.findFirst(sd).setPropertyValue("CharWeight", 150.0)
+    tool_ctx = native_writer_tool_context(doc, ctx)
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = ApplyDocumentContent().execute(
+            tool_ctx,
+            target="search",
+            old_content="The Supplier shall deliver the Goods within thirty days.",
+            content=["The Supplier shall deliver the Goods within forty days."],
+        )
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+    assert res["status"] == "ok", res
+    assert "(formatting preserved)" not in res["message"], res
+    assert "gone after Accept" in res["message"], res
+
+
+@native_test
 @with_native_doc("writer", reuse=False)
 def test_search_edit_skips_table_of_contents_entries_uno(ctx, doc):
     """Renaming a heading by old_content edits the heading, not its TOC entry, which comes first."""

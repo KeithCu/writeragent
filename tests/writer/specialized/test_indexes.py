@@ -1245,7 +1245,13 @@ def test_indexes_create_search_rollback_failure_keeps_the_cause():
     assert "insert failed" in res["message"]
 
 
-def test_commit_toc_mutation_mutate_exception_propagates_even_if_restore_protect_fails():
+def _direct_write(_doc, _ctx, apply_fn):
+    """record_write with review Off and no recording: the edit runs as is."""
+    return apply_fn(), False
+
+
+@patch("plugin.writer.specialized.indexes.record_write", side_effect=_direct_write)
+def test_commit_toc_mutation_mutate_exception_propagates_even_if_restore_protect_fails(_record_write):
     doc = MagicMock()
     mgr = MagicMock()
     mgr.isLocked.return_value = False
@@ -1265,6 +1271,7 @@ def test_commit_toc_mutation_mutate_exception_propagates_even_if_restore_protect
 
     res = _commit_toc_mutation(
         doc,
+        MagicMock(),
         idx,
         bad_mutate,
         {},
@@ -1278,7 +1285,8 @@ def test_commit_toc_mutation_mutate_exception_propagates_even_if_restore_protect
     assert "mutation crash" in res["message"]
 
 
-def test_commit_toc_mutation_restore_protect_failure_returns_error():
+@patch("plugin.writer.specialized.indexes.record_write", side_effect=_direct_write)
+def test_commit_toc_mutation_restore_protect_failure_returns_error(_record_write):
     doc = MagicMock()
     mgr = MagicMock()
     mgr.isLocked.return_value = False
@@ -1298,6 +1306,7 @@ def test_commit_toc_mutation_restore_protect_failure_returns_error():
 
     res = _commit_toc_mutation(
         doc,
+        MagicMock(),
         idx,
         good_mutate,
         {},
@@ -1309,7 +1318,8 @@ def test_commit_toc_mutation_restore_protect_failure_returns_error():
     assert "Could not restore table-of-contents protection" in res["message"]
 
 
-def test_commit_toc_mutation_success():
+@patch("plugin.writer.specialized.indexes.record_write", side_effect=_direct_write)
+def test_commit_toc_mutation_success(_record_write):
     doc = MagicMock()
     mgr = MagicMock()
     mgr.isLocked.return_value = False
@@ -1323,6 +1333,7 @@ def test_commit_toc_mutation_success():
 
     res = _commit_toc_mutation(
         doc,
+        MagicMock(),
         idx,
         good_mutate,
         {},
