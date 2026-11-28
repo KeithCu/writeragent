@@ -35,7 +35,7 @@ What is implemented today (not every Writer mutation tool):
 | Extend / edit selection (menu + sidebar) | Yes | No | No |
 | Vision / `python_runner` / units / text-analytics / symbolic-math Writer insert | Yes | No | No |
 | `table_delete`, `table_manage_structure` (row/column delete) | Yes (single-cell and multi-cell deletes are anchored as one agent change; both tracked and untracked `table_delete` and row/column deletes refuse with `CELLS_PROTECTED` when the table or band has, or the deleted table is nested in, a protected cell; row deletes refuse a row where a non-empty cell spanning multiple rows starts, both tracked and untracked; a tracked row delete also refuses when an empty spanning cell is the row's first or last cell, because LibreOffice would strike the rows it spans; column deletes refuse any column covered by a wider merged cell, both tracked and untracked; tracked `table_delete` returns `tracked: true` and `pending_review: true`) | No | No |
-| `table_set_cell` | Yes while the document is recording and in Record/Wait (`tracked: true` and `pending_review: true` when Writer recorded it, with `review_mode` only in Record/Wait; refuses `CELLS_PROTECTED`, and `MATCH_CROSSES_DELETION` while Track Changes is off) | No | No |
+| `table_set_cell` | Yes while the document is recording and in Record/Wait (`tracked: true` and `pending_review: true` when Writer recorded it, with `review_mode` only in Record/Wait; refuses `CELLS_PROTECTED`, `MATCH_CROSSES_DELETION` for a cell in a row pending deletion and, while Track Changes is off, for a cell holding a pending deletion, and `CELL_VALUE_NOT_TRACKABLE` for a formula or number cell while recording) | No | No |
 | `style_format_text` | Yes for `properties` and recordable `reset` (`Char*` via Format redline on non-collapsed targets, `Para*` / `NumberingStyleName` via `ParagraphFormat` redline; `Char*` at a caret, headings, list items, empty paragraphs, `BreakType`, `WritingMode`, `PageDescName`, `NumberingLevel`, `CharAutoStyleName`, `CharInteropGrabBag`, and `Char*` border complex-colour resets are not tracked and report `style_unreviewed`; with review Off while the user records, a tracked result carries `tracked: true` and `pending_review: true` without `review_mode`; refuses `MATCH_CROSSES_DELETION` when `target="search"` or a non-collapsed `target="selection"` overlaps a pending deletion while recording) | No | No |
 | `apply_style` (paragraphs) | Yes while the document is recording and in Record/Wait (`ParagraphFormat` redline via `makeRedline`, authored `WriterAgent` in Record/Wait or office user when Off; with review Off while the user records, a tracked result carries `tracked: true` and `pending_review: true` without `review_mode`) | No | No |
 | `apply_style` (character) | Yes in Record/Wait or while the document is recording (Format redline on non-collapsed targets; a caret target is not tracked and reports `style_unreviewed`; with review Off while the user records, a tracked result carries `tracked: true` and `pending_review: true` without `review_mode`; refuses `MATCH_CROSSES_DELETION` when `target="search"` or a non-collapsed `target="selection"` overlaps a pending deletion while recording) | No | No |
@@ -61,12 +61,40 @@ places the caret in a non-nested
 cell, confirms via the view cursor that it landed in the target table (refusing with
 `TABLE_DELETE_NOT_TRACKABLE` if the table is hidden so it cannot strike another table), and
 dispatches `.uno:DeleteTable`, which Writer records as a tracked deletion inside an
-`UndoStepOrRollback` guard. If LibreOffice records nothing — pending insertion, protected section —
-it also refuses with `TABLE_DELETE_NOT_TRACKABLE`. `EditReviewSession.record_mutation` anchors multi-cell `table_delete` and row/column deletes in the
+`UndoStepOrRollback` guard. A table, or a row, that is itself a pending tracked insertion — by any
+author, the agent's own `table_insert` included — is refused with `TABLE_DELETE_NOT_TRACKABLE` before
+anything is dispatched: a table counts when an Insert redline starts at it or covers its anchor, a row
+when its `HasTextChangesOnly` is false and one of its cells holds an Insert redline. The same holds for a
+row or column delete inside such a table. Deleting it anyway loses the insertion: for the same author
+LibreOffice takes the text back and the rollback's Undo returns it as per-cell insertions, and for
+another author the deletions stack on the cell text while the table or row insertion itself is dropped,
+so either way Reject All leaves an empty table or row. If LibreOffice records nothing for another
+reason (protected section) it also refuses with `TABLE_DELETE_NOT_TRACKABLE`. `EditReviewSession.record_mutation` anchors multi-cell `table_delete` and row/column deletes in the
 first cell that changes, and `inline_review` resolves them one cell at a time in a single compound
 undo step. Writer anchors each **empty** row with a U+200D but records no redline for it, so the
 tool deletes those anchors with tracking on — without that, Accept All left the empty rows behind as
 a table. Rejecting keeps the anchor in the empty cell, as LibreOffice's own Delete Table does.
+Tracked rows: `table_get_cells` and `table_list` report `deleted_rows` (0-based) for rows pending
+deletion (`HasTextChangesOnly` false and every cell's text struck), whose cells read empty, and
+`table_set_cell` refuses to write into them in every recording state, because any live text keeps the
+row on Accept All (`SwTableLine::UpdateTextChangesOnly`, `sw/source/core/table/swtable.cxx`). A
+recorded `table_set_cell` in the first cell of a tracked inserted row keeps the row's U+200D, whose
+Insert redline is what lets Reject All remove the row, and reads leave a leading U+200D out of the cell
+text. A recorded `table_set_cell` or `apply_content` replace (one match or `all_matches`) over another
+author's text in a table or row that is a pending insertion is refused with `CELL_IN_PENDING_INSERTION`
+before anything is written (`refuse_edit_over_pending_insertion`): the deletion stacks on that insertion
+and splits it, so Reject All would keep an empty table or row (also for Word row insertions, `w:ins` in
+`w:trPr`). An empty cell, the text after the kept U+200D, and the agent's own freshly inserted table
+stay writable; another author's insertion that starts at a table node is read through
+`redline_bounds`, so it does not make the agent's own table look foreign. A recorded plain-text replace
+(`replace_preserving_format`, so `table_set_cell` and plain `apply_content` alike) strikes the text
+runs one by one around an as-character picture, frame or shape, and inserts at the start when the range
+holds no text, so Accept All keeps the object. Formula and number cells are refused while recording:
+`SwXCell::setString` (`sw_setString`, `unotbl.cxx`) clears the formula and value with no redline and
+no undo action, so Reject All would bring back only the text. `tracking_manage accept|reject index=N`
+refuses one cell of a tracked row insertion or deletion whose other cells hold their own redlines:
+resolving one cell resets the row's `HasTextChangesOnly` and leaves the rest of the row as plain text
+changes; the user resolves the row in Manage.
 A tracked row insertion also leaves the anchor in the new row's first cell, and it stays after
 Accept. `table_get_cells` (and `table_set_cell`'s `old_text`) read a cell that holds only the
 anchor as empty; `get_content` still exports it as the cell's text. So `table_set_cell` with

@@ -48,6 +48,8 @@ def _no_libreoffice(monkeypatch):
     monkeypatch.setattr(search_mod, "normalize_search_string_for_find", lambda s: s)
     monkeypatch.setattr(format_mod, "replace_preserving_format", lambda *a, **k: None)
     monkeypatch.setattr(format_mod, "replace_single_range_with_content", lambda *a, **k: html_import_styles.WriteReport())
+    # MockRange has no table cell or redlines to check.
+    monkeypatch.setattr("plugin.writer.apply_document_content.refuse_edit_over_pending_insertion", lambda *a, **k: None)
     monkeypatch.setattr(search_mod, "drawing_shape_object_containing", lambda *a, **k: None)
 
 

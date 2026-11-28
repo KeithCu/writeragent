@@ -42,10 +42,15 @@ from plugin.writer.edit_review import (
 )
 from plugin.writer.target_resolver import request_insert_range
 from plugin.doc.compound_undo import UndoStepOrRollback, UndoUnavailable, commit_or_rollback
-from plugin.writer.record_changes import is_recording_changes
+from plugin.writer import review_authors
+from plugin.writer.record_changes import is_recording_changes, redline_spans
 from plugin.writer.review_scan import document_has_tracked_deletions
 from plugin.writer.search import replace_text_in_shape
-from plugin.writer.specialized.tables import delete_leading_tables, record_table_deletions
+from plugin.writer.specialized.tables import (
+    delete_leading_tables,
+    record_table_deletions,
+    refuse_edit_over_pending_insertion,
+)
 from plugin.writer.table_nesting import cell_hosted_table_names
 from plugin.writer.specialized_base import INSERT_TARGETS, enum_param
 from plugin.framework.errors import (
@@ -174,6 +179,21 @@ def _table_deletion_result(names: list[str], tracked: bool) -> dict[str, Any]:
         "message": message,
         "table_deleted": names[0] if len(names) == 1 else names,
     }
+
+
+def _refuse_edits_over_pending_insertions(ctx: ToolContext, params: EditParams, ranges: list[Any]) -> None:
+    """Refuse recorded replaces of cell matches over another author's pending table or row insertion.
+
+    Runs before the review session opens, so a refusal leaves no undo step and no author switch
+    behind; the recording author is therefore decided here the way the session will: WriterAgent
+    in Record/Wait, the user's own name while the user records.
+    """
+    if not (params.track_reviewable or is_recording_changes(ctx.doc)):
+        return
+    author = review_authors.INSERT_AUTHOR if params.track_reviewable else review_authors.office_author(ctx.ctx)
+    spans = redline_spans(ctx.doc)
+    for found in ranges:
+        refuse_edit_over_pending_insertion(ctx.doc, found, author, spans)
 
 
 def _table_and_name(found: Any) -> tuple[Any, str | None]:
@@ -1449,6 +1469,9 @@ class ApplyDocumentContent(ToolBase):
             anchor = collapsed_anchor(anchor_range) if anchor_range is not None else None
         else:
             anchor = collapsed_anchor(ranges[0])
+        _refuse_edits_over_pending_insertions(
+            ctx, params, [item for item in ranges if _table_and_name(item)[1] not in doomed_names]
+        )
         count = 0
         report = html_import_styles.WriteReport()
         link_reports: list[dict[str, Any]] = []
@@ -1782,14 +1805,18 @@ class ApplyDocumentContent(ToolBase):
             with UndoStepOrRollback(doc, next_agent_edit_undo_title()), session:
                 tracked_delete = record_table_deletions(session, doc, ctx, doomed)
             return _table_deletion_result([name for _table, name in doomed], tracked_delete)
+        _refuse_edits_over_pending_insertions(ctx, params, [found])
         report = html_import_styles.WriteReport()
-        reports = self._replace_found(
-            session, doc, found, use_preserve=params.use_preserve,
-            content=params.content, ctx=ctx,
-            track_reviewable=params.track_reviewable, override=params.override, batch=False,
-            plain=params.plain, report=report,
-            fix_outline=params.anchor is None,
-            has_table=params.has_table)
+        # A refused import (a table into a cell) is rolled back by Undo, which leaves the view
+        # cursor at the match; put the user's selection back, as the insert paths do.
+        with KeepViewSelection(uno_read(lambda: doc.getCurrentController(), None)):
+            reports = self._replace_found(
+                session, doc, found, use_preserve=params.use_preserve,
+                content=params.content, ctx=ctx,
+                track_reviewable=params.track_reviewable, override=params.override, batch=False,
+                plain=params.plain, report=report,
+                fix_outline=params.anchor is None,
+                has_table=params.has_table)
         if params.anchor is not None:
             resp = build_search_replace_response(
                 1,
