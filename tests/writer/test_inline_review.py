@@ -25,6 +25,13 @@ from plugin.writer.inline_review import (
 _DUMMY = object()
 
 
+def _shown_model():
+    """A document mock whose deleted text is already shown (RedlineDisplayType 2)."""
+    model = MagicMock()
+    model.getPropertyValue.return_value = 2
+    return model
+
+
 def _run_loop(tokens, blocked):
     """Drive resolve_all_agent_changes through the mixed-redlines loop path with a fake document
     whose agent change TOKENS are *tokens*; tokens in *blocked* refuse to resolve (user redline).
@@ -48,7 +55,7 @@ def _run_loop(tokens, blocked):
     with patch("plugin.writer.inline_review.scan_redline_view", side_effect=fake_view), \
          patch("plugin.writer.inline_review.resolve_agent_change", side_effect=fake_resolve), \
          patch("plugin.writer.inline_review._is_all_redlines_agent", return_value=False):
-        n = _resolve_all_agent_changes(MagicMock(), MagicMock(), True).resolved
+        n = _resolve_all_agent_changes(_shown_model(), MagicMock(), True).resolved
     return n, state["tokens"]
 
 
@@ -78,22 +85,22 @@ def test_loop_handles_many_changes_without_cap():
 def test_feedback_message_partial_vs_all_vs_none():
     with patch("plugin.writer.inline_review._resolve_all_agent_changes",
                return_value=ResolveAllResult(ResolveStatus.RESOLVED, 2, 2)):
-        n, msg = resolve_all_with_feedback(MagicMock(), MagicMock(), True)
+        n, msg = resolve_all_with_feedback(_shown_model(), MagicMock(), True)
         assert n == 2 and msg == ""           # everything resolved -> no message
     with patch("plugin.writer.inline_review._resolve_all_agent_changes",
                return_value=ResolveAllResult(ResolveStatus.REFUSED_FOREIGN, 1, 2)):
-        n, msg = resolve_all_with_feedback(MagicMock(), MagicMock(), True)
+        n, msg = resolve_all_with_feedback(_shown_model(), MagicMock(), True)
         assert n == 1 and "Resolved 1 of 2" in msg
     with patch("plugin.writer.inline_review._resolve_all_agent_changes",
                return_value=ResolveAllResult(ResolveStatus.REFUSED_FOREIGN, 0, 1)):
-        n, msg = resolve_all_with_feedback(MagicMock(), MagicMock(), True)
+        n, msg = resolve_all_with_feedback(_shown_model(), MagicMock(), True)
         assert n == 0 and "None could be resolved" in msg
 
 
 def test_resolve_all_aborts_when_before_snapshot_unreliable():
     with patch("plugin.writer.inline_review.scan_redline_view",
                return_value=RedlineView(reliable=False, total=0, rows=())):
-        res = _resolve_all_agent_changes(MagicMock(), MagicMock(), True)
+        res = _resolve_all_agent_changes(_shown_model(), MagicMock(), True)
     assert res.status == ResolveStatus.UNRELIABLE
     assert res.resolved == 0
 
@@ -107,7 +114,7 @@ def test_resolve_all_aborts_when_snapshot_unreliable_mid_loop():
          patch("plugin.writer.inline_review.resolve_agent_change",
                return_value=(ResolveResult(ResolveStatus.REFUSED_FOREIGN), unreliable_view)), \
          patch("plugin.writer.inline_review._is_all_redlines_agent", return_value=False):
-        res = _resolve_all_agent_changes(MagicMock(), MagicMock(), True)
+        res = _resolve_all_agent_changes(_shown_model(), MagicMock(), True)
     assert res.status == ResolveStatus.UNRELIABLE
     assert res.resolved == 0
 
@@ -115,7 +122,7 @@ def test_resolve_all_aborts_when_snapshot_unreliable_mid_loop():
 def test_feedback_unreliable_snapshot_reports_try_again():
     with patch("plugin.writer.inline_review._resolve_all_agent_changes",
                return_value=ResolveAllResult(ResolveStatus.UNRELIABLE, 0, 0)):
-        n, msg = resolve_all_with_feedback(MagicMock(), MagicMock(), True)
+        n, msg = resolve_all_with_feedback(_shown_model(), MagicMock(), True)
     assert n == 0 and "try again" in msg.lower()
 
 
@@ -136,7 +143,7 @@ def test_resolve_all_global_unconfirmed_after_dispatch():
 
     with patch("plugin.writer.inline_review.scan_redline_view", side_effect=next_view), \
          patch("plugin.writer.inline_review.execute_dispatch"):
-        res = _resolve_all_agent_changes(MagicMock(), MagicMock(), True)
+        res = _resolve_all_agent_changes(_shown_model(), MagicMock(), True)
     assert res.status == ResolveStatus.PARTIAL
     assert res.resolved == 0
 
@@ -154,7 +161,7 @@ def test_resolve_all_unconfirmed_when_unreliable_after_a_resolve():
          patch("plugin.writer.inline_review.resolve_agent_change",
                return_value=(ResolveResult(ResolveStatus.RESOLVED, 1), RedlineView(reliable=False, total=1, rows=()))), \
          patch("plugin.writer.inline_review._is_all_redlines_agent", return_value=False):
-        res = _resolve_all_agent_changes(MagicMock(), MagicMock(), True)
+        res = _resolve_all_agent_changes(_shown_model(), MagicMock(), True)
     assert res.status == ResolveStatus.PARTIAL
     assert res.resolved == 0
 
@@ -162,7 +169,7 @@ def test_resolve_all_unconfirmed_when_unreliable_after_a_resolve():
 def test_feedback_unconfirmed_reports_partial_not_nothing():
     with patch("plugin.writer.inline_review._resolve_all_agent_changes",
                return_value=ResolveAllResult(ResolveStatus.PARTIAL, 0, 2)):
-        n, msg = resolve_all_with_feedback(MagicMock(), MagicMock(), True)
+        n, msg = resolve_all_with_feedback(_shown_model(), MagicMock(), True)
     assert n == 0
     assert "nothing was changed" not in msg.lower()
     assert "couldn't confirm" in msg.lower() and "review" in msg.lower()
@@ -176,10 +183,10 @@ def test_fast_path_noop_message_no_user_tracked_changes():
     view = RedlineView(reliable=True, total=2, rows=rows)
     with patch("plugin.writer.inline_review.scan_redline_view", return_value=view), \
          patch("plugin.writer.inline_review.execute_dispatch"):
-        res = _resolve_all_agent_changes(MagicMock(), MagicMock(), True)
+        res = _resolve_all_agent_changes(_shown_model(), MagicMock(), True)
         assert res.status == ResolveStatus.NO_OP
         assert res.resolved == 0
-        n, msg = resolve_all_with_feedback(MagicMock(), MagicMock(), True)
+        n, msg = resolve_all_with_feedback(_shown_model(), MagicMock(), True)
         assert n == 0
         assert "your own tracked changes" not in msg
         assert "Nothing was changed" in msg
@@ -206,11 +213,11 @@ def test_fast_path_partial_clear_message_no_user_tracked_changes():
 
     with patch("plugin.writer.inline_review.scan_redline_view", side_effect=next_view), \
          patch("plugin.writer.inline_review.execute_dispatch"):
-        res = _resolve_all_agent_changes(MagicMock(), MagicMock(), True)
+        res = _resolve_all_agent_changes(_shown_model(), MagicMock(), True)
         assert res.status == ResolveStatus.PARTIAL
         assert res.resolved == 1
         calls["n"] = 0
-        n, msg = resolve_all_with_feedback(MagicMock(), MagicMock(), True)
+        n, msg = resolve_all_with_feedback(_shown_model(), MagicMock(), True)
         assert n == 1
         assert "your own tracked changes" not in msg
         assert "Started resolving changes" in msg
@@ -231,9 +238,9 @@ def test_resolve_all_mixed_foreign_and_predispatch_failure_summary_not_shares_pa
     with patch("plugin.writer.inline_review.scan_redline_view", return_value=view), \
          patch("plugin.writer.inline_review.resolve_agent_change", side_effect=fake_resolve), \
          patch("plugin.writer.inline_review._is_all_redlines_agent", return_value=False):
-        res = _resolve_all_agent_changes(MagicMock(), MagicMock(), True)
+        res = _resolve_all_agent_changes(_shown_model(), MagicMock(), True)
         assert res.status == ResolveStatus.PARTIAL
-        n, msg = resolve_all_with_feedback(MagicMock(), MagicMock(), True)
+        n, msg = resolve_all_with_feedback(_shown_model(), MagicMock(), True)
         assert n == 0
         assert "shares a paragraph with" not in msg
         assert "Started resolving changes" in msg
@@ -260,7 +267,7 @@ def test_resolve_all_exact_retry_and_noop_suppression():
     with patch("plugin.writer.inline_review.scan_redline_view", return_value=view), \
          patch("plugin.writer.inline_review.resolve_agent_change", side_effect=fake_resolve), \
          patch("plugin.writer.inline_review._is_all_redlines_agent", return_value=False):
-        res = _resolve_all_agent_changes(MagicMock(), MagicMock(), True)
+        res = _resolve_all_agent_changes(_shown_model(), MagicMock(), True)
 
     assert res.status == ResolveStatus.REFUSED_FOREIGN
     assert res.resolved == 0
@@ -270,7 +277,7 @@ def test_resolve_all_exact_retry_and_noop_suppression():
         ("B", ResolvePolicy.PARAGRAPH_ONLY),
     ]
     with patch("plugin.writer.inline_review._resolve_all_agent_changes", return_value=res):
-        n, msg = resolve_all_with_feedback(MagicMock(), MagicMock(), True)
+        n, msg = resolve_all_with_feedback(_shown_model(), MagicMock(), True)
     assert n == 0
     assert "None could be resolved here -- each overlaps with one of your own tracked changes" in msg
 
@@ -291,7 +298,7 @@ def test_resolve_all_exact_retry_removes_strict_sibling_included_in_bulk_count()
     with patch("plugin.writer.inline_review.scan_redline_view", return_value=view_before), \
          patch("plugin.writer.inline_review.resolve_agent_change", side_effect=fake_resolve), \
          patch("plugin.writer.inline_review._is_all_redlines_agent", return_value=False):
-        res = _resolve_all_agent_changes(MagicMock(), MagicMock(), True)
+        res = _resolve_all_agent_changes(_shown_model(), MagicMock(), True)
 
     assert res.status == ResolveStatus.RESOLVED
     assert res.resolved == 2
@@ -313,7 +320,7 @@ def test_resolve_all_exact_retry_removed_outside_set_stays_partial():
     with patch("plugin.writer.inline_review.scan_redline_view", return_value=view_before), \
          patch("plugin.writer.inline_review.resolve_agent_change", side_effect=fake_resolve), \
          patch("plugin.writer.inline_review._is_all_redlines_agent", return_value=False):
-        res = _resolve_all_agent_changes(MagicMock(), MagicMock(), True)
+        res = _resolve_all_agent_changes(_shown_model(), MagicMock(), True)
 
     assert res.status == ResolveStatus.PARTIAL
     assert res.resolved == 1

@@ -40,6 +40,7 @@ from types import SimpleNamespace
 from typing import Any, Callable, Dict, List, Sequence
 
 from plugin.framework.managed_subprocess import kill_process_tree
+from plugin.framework.worker_pool import run_in_background
 
 log = logging.getLogger(__name__)
 
@@ -237,9 +238,22 @@ def _progress_verbose(msg: str) -> None:
         _progress(msg)
 
 
-# Every native test aborts after this many seconds (override with
-# WRITERAGENT_UNO_TEST_TIMEOUT). Silent — do not print arm/disarm lines.
+# Every native test fails the test, stops soffice and recycles it after this many
+# seconds (override with WRITERAGENT_UNO_TEST_TIMEOUT). Silent — do not print
+# arm/disarm lines.
 _NATIVE_TEST_TIMEOUT_SEC = 30
+# Hard-exit grace after stopping soffice: pure-Python hangs are not unblocked by killing it.
+_NATIVE_TEST_KILL_GRACE_SEC = 30
+
+
+class _NativeTestTimeout(Exception):
+    """Raised when the per-test watchdog stopped soffice (or expired) on a hung test."""
+
+    killed: bool
+
+    def __init__(self, message: str, *, killed: bool) -> None:
+        super().__init__(message)
+        self.killed = killed
 
 
 def _native_test_timeout_sec(min_timeout_sec: int | None = None) -> int:
@@ -255,27 +269,95 @@ def _native_test_timeout_sec(min_timeout_sec: int | None = None) -> int:
     return base
 
 
-def _arm_native_test_watchdog(min_timeout_sec: int | None = None) -> None:
-    """Abort if a native test never returns. No stderr on arm or disarm."""
-    seconds = _native_test_timeout_sec(min_timeout_sec)
-    try:
-        import faulthandler
+class _NativeTestWatchdog:
+    """Per-test deadline that stops soffice on expiry so the runner can recycle and continue."""
 
-        faulthandler.enable(file=sys.stderr, all_threads=True)
-        faulthandler.dump_traceback_later(
-            seconds,
-            repeat=False,
-            exit=True,
-            file=sys.stderr,
-        )
-    except Exception:
-        log.debug("native test watchdog arm failed", exc_info=True)
+    _qual: str
+    seconds: float
+    _lock: threading.Lock
+    _done: threading.Event
+    _fired: bool
+    _disarmed: bool
+    _killed: bool
+    _job: Any
+
+    def __init__(self, qual: str, seconds: float) -> None:
+        self._qual = qual
+        self.seconds = seconds
+        self._lock = threading.Lock()
+        self._done = threading.Event()
+        self._fired = False
+        self._disarmed = False
+        self._killed = False
+        try:
+            import faulthandler
+
+            faulthandler.enable(file=sys.stderr, all_threads=True)
+            faulthandler.dump_traceback_later(
+                seconds + _NATIVE_TEST_KILL_GRACE_SEC,
+                repeat=False,
+                exit=True,
+                file=sys.stderr,
+            )
+        except Exception:
+            log.debug("native test watchdog arm failed", exc_info=True)
+        self._job = run_in_background(self._watch, name="native-test-watchdog", dedicated=True)
+
+    def _watch(self) -> None:
+        if self._done.wait(self.seconds):
+            return
+        with self._lock:
+            if self._disarmed:
+                return
+            self._fired = True
+        proc = _office.soffice_proc
+        if proc is not None:
+            _progress("TIMEOUT %s after %ss: stopping soffice" % (self._qual, self.seconds))
+        else:
+            _progress(
+                "TIMEOUT %s after %ss: soffice not managed by this runner; no kill"
+                % (self._qual, self.seconds)
+            )
+        try:
+            import faulthandler
+
+            err_file = sys.__stderr__
+            if err_file is not None:
+                faulthandler.dump_traceback(file=err_file, all_threads=True)
+        except Exception:
+            log.debug("native test watchdog traceback dump failed", exc_info=True)
+        if proc is not None:
+            self._killed = True
+            kill_process_tree(proc)
+
+    @property
+    def killed(self) -> bool:
+        return self._killed
+
+    def timeout_message(self) -> str:
+        if self._killed:
+            return f"Timeout ({self.seconds}s): soffice stopped; office recycled"
+        return f"Timeout ({self.seconds}s): soffice not managed by this runner; no kill"
+
+    def disarm(self) -> bool:
+        """Stop the watchdog and return True when it fired (test timed out)."""
+        with self._lock:
+            self._disarmed = True
+            fired = self._fired
+        self._done.set()
+        self._job.join()
+        try:
+            import faulthandler
+
+            faulthandler.cancel_dump_traceback_later()
+        except Exception:
+            log.debug("native test watchdog cancel failed", exc_info=True)
+        return fired
 
 
-def _disarm_native_test_watchdog() -> None:
-    import faulthandler
-
-    faulthandler.cancel_dump_traceback_later()
+def _arm_native_test_watchdog(qual: str, min_timeout_sec: int | None = None) -> _NativeTestWatchdog:
+    """Arm a per-test watchdog that stops soffice on expiry."""
+    return _NativeTestWatchdog(qual, _native_test_timeout_sec(min_timeout_sec))
 
 
 def _soffice_pids_win32() -> str:
@@ -1019,8 +1101,6 @@ def _spawn_soffice(cmd: list[str], env: dict[str, str]) -> Any:
         bufsize=1,
     )
     _office.soffice_proc = proc
-    from plugin.framework.worker_pool import run_in_background
-
     run_in_background(
         _drain_soffice_stderr, proc.stderr, name="soffice-stderr-drain", dedicated=True
     )
@@ -1448,7 +1528,7 @@ def run_module_suite(
                 set_windows_notebook_host(False)
                 return 0, 0, suite_log
 
-        for test_func in selected:
+        for idx, test_func in enumerate(selected):
             test_line = f"Running test: {test_func.__name__}"
             qual = f"{name}.{test_func.__name__}"
             record_test_start(qual, ctx)
@@ -1456,50 +1536,56 @@ def run_module_suite(
                 "TEST start %s soffice=%s bridge=%s"
                 % (qual, _office.lc.current_start_pids, _office.lc.current_bridge or "-")
             )
-            # Per-test faulthandler abort (30s default, or @native_test(timeout=...)).
-            _arm_native_test_watchdog(getattr(test_func, "_timeout_sec", None))
+            watchdog = _arm_native_test_watchdog(qual, getattr(test_func, "_timeout_sec", None))
             try:
-                # SalAbort can print after the previous TEST end OK. Fail-closed
-                # here so we do not open another Draw factory on a dying office.
-                gap_death = collect_post_test_death(ctx)
-                if gap_death:
-                    dead_exc = RuntimeError(gap_death)
-                    msg = (
-                        "LIFECYCLE office death before TEST call %s soffice_exit=%s %s"
-                        % (qual, _office.soffice_exit_code(), format_lifecycle_breadcrumb())
-                    )
-                    _fail_dead_office(qual, test_line, dead_exc, msg)
-                    break
-                # GHA 33703959362: execute-done then 20min silence, no TEST end.
-                # call vs returned splits body hang from post-return bookkeeping.
-                _progress(f"TEST call {qual}")
-                # In-process SalAbort text hits Python stderr; soffice PIPE drain
-                # catches the same marker from the child.
-                old_err = sys.stderr
-                sys.stderr = _StderrMarkerTee(old_err)
                 try:
-                    _call_with_ctx(test_func, ctx)
-                finally:
-                    sys.stderr = old_err
-                _progress(f"TEST returned {qual}")
-                # Harness attribution (not a product fix): body + @with_native_doc
-                # teardown returned, but SalAbort already printed, soffice exited,
-                # or getServiceManager is disposed. Name *this* test as the killer.
-                death = collect_post_test_death(ctx)
-                if death:
-                    dead_exc = RuntimeError(death)
-                    if _APPLICATION_ERROR_MARKER in death:
+                    # SalAbort can print after the previous TEST end OK. Fail-closed
+                    # here so we do not open another Draw factory on a dying office.
+                    gap_death = collect_post_test_death(ctx)
+                    if gap_death:
+                        dead_exc = RuntimeError(gap_death)
                         msg = (
-                            "LIFECYCLE application error after TEST returned %s soffice_exit=%s %s"
+                            "LIFECYCLE office death before TEST call %s soffice_exit=%s %s"
                             % (qual, _office.soffice_exit_code(), format_lifecycle_breadcrumb())
                         )
-                    else:
-                        msg = (
-                            "LIFECYCLE office dead after TEST returned %s %s"
-                            % (qual, format_lifecycle_breadcrumb())
+                        _fail_dead_office(qual, test_line, dead_exc, msg)
+                        break
+                    # GHA 33703959362: execute-done then 20min silence, no TEST end.
+                    # call vs returned splits body hang from post-return bookkeeping.
+                    _progress(f"TEST call {qual}")
+                    # In-process SalAbort text hits Python stderr; soffice PIPE drain
+                    # catches the same marker from the child.
+                    old_err = sys.stderr
+                    sys.stderr = _StderrMarkerTee(old_err)
+                    try:
+                        _call_with_ctx(test_func, ctx)
+                    finally:
+                        sys.stderr = old_err
+                    _progress(f"TEST returned {qual}")
+                    # Harness attribution (not a product fix): body + @with_native_doc
+                    # teardown returned, but SalAbort already printed, soffice exited,
+                    # or getServiceManager is disposed. Name *this* test as the killer.
+                    death = collect_post_test_death(ctx)
+                    if death:
+                        dead_exc = RuntimeError(death)
+                        if _APPLICATION_ERROR_MARKER in death:
+                            msg = (
+                                "LIFECYCLE application error after TEST returned %s soffice_exit=%s %s"
+                                % (qual, _office.soffice_exit_code(), format_lifecycle_breadcrumb())
+                            )
+                        else:
+                            msg = (
+                                "LIFECYCLE office dead after TEST returned %s %s"
+                                % (qual, format_lifecycle_breadcrumb())
+                            )
+                        _fail_dead_office(qual, test_line, dead_exc, msg)
+                        break
+                finally:
+                    if watchdog.disarm():
+                        raise _NativeTestTimeout(
+                            watchdog.timeout_message(),
+                            killed=watchdog.killed,
                         )
-                    _fail_dead_office(qual, test_line, dead_exc, msg)
-                    break
                 total_passed += 1
                 suite_log.append(f"{test_line} — OK")
                 record_test_end(qual, "OK")
@@ -1509,6 +1595,19 @@ def run_module_suite(
                     "TEST end detail %s soffice=%s exit=%s"
                     % (qual, _office.lc.last_end_pids, "-" if exit_code is None else exit_code)
                 )
+            except _NativeTestTimeout as e:
+                total_failed += 1
+                crumb = format_lifecycle_breadcrumb()
+                suite_log.append(f"{test_line} — FAIL ({e})")
+                suite_log.append(f"LIFECYCLE {crumb}")
+                remaining = [tf.__name__ for tf in selected[idx + 1 :]]
+                if remaining:
+                    suite_log.append(f"NOT RUN after timeout: {', '.join(remaining)}")
+                _progress(f"TEST end {qual} FAIL {e}")
+                record_test_end(qual, "FAIL")
+                if e.killed:
+                    _office.request_recycle()
+                break
             except unittest.SkipTest as e:
                 total_passed += 1
                 suite_log.append(f"{test_line} — OK (skipped) ({e})")
@@ -1527,7 +1626,7 @@ def run_module_suite(
                     _mark_urp_dead(e, qual)
                     break
             finally:
-                _disarm_native_test_watchdog()
+                watchdog.disarm()
 
     except Exception as e:
         total_failed += 1

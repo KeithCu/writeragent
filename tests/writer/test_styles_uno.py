@@ -1598,3 +1598,68 @@ def test_style_format_text_full_document_table_in_leading_section_uno(ctx, doc):
     assert {s for s, _ in portions} >= {"SecLead", "AfterSec"}
     for s, props in portions:
         assert props["CharFontName"] == "Arial", (s, props)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_selection_format_refuses_recorded_format_over_deletion_uno(ctx, doc):
+    from plugin.framework.config import get_config, save
+    from plugin.writer import review_authors
+    from tests.writer.doc_builders import list_redlines
+
+    prev_mode = get_config("doc.agent_edit_review_mode")
+    prev_author = review_authors.begin(ctx)
+    save({"doc.agent_edit_review_mode": "off"})
+    try:
+        review_authors.set_office_author(ctx, "Alice")
+        text = doc.getText()
+        text.setString("Beta two plain text.")
+
+        doc.setPropertyValue("RecordChanges", True)
+        try:
+            del_cur = text.createTextCursor()
+            del_cur.gotoStart(False)
+            del_cur.goRight(len("Beta two "), False)
+            del_cur.goRight(len("plain "), True)
+            del_cur.setString("")
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+
+        sel_cur = text.createTextCursor()
+        sel_cur.gotoStart(False)
+        sel_cur.goRight(len("Beta "), False)
+        sel_cur.goRight(len("two plain text"), True)
+        doc.getCurrentController().select(sel_cur)
+
+        tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+        doc.setPropertyValue("RecordChanges", True)
+        try:
+            fmt_refused = StyleFormatText().execute(
+                tool_ctx, target="selection", properties={"CharPosture": 2}
+            )
+            assert fmt_refused.get("status") == "error", fmt_refused
+            assert fmt_refused.get("code") == "MATCH_CROSSES_DELETION", fmt_refused
+
+            style_refused = ApplyStyle().execute(
+                tool_ctx, family="CharacterStyles", style="Emphasis", target="selection"
+            )
+            assert style_refused.get("status") == "error", style_refused
+            assert style_refused.get("code") == "MATCH_CROSSES_DELETION", style_refused
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+
+        assert [(r["type"], r["RedlineAuthor"]) for r in list_redlines(doc)] == [("Delete", "Alice")]
+
+        # With RecordChanges off, formatting does not add a Format redline over the deletion.
+        unrec_ok = StyleFormatText().execute(
+            tool_ctx, target="selection", properties={"CharPosture": 2}
+        )
+        assert unrec_ok.get("status") == "ok", unrec_ok
+        assert [(r["type"], r["RedlineAuthor"]) for r in list_redlines(doc)] == [("Delete", "Alice")]
+
+        accept_all_changes(doc, ctx)
+        assert text.getString() == "Beta two text."
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        review_authors.end(ctx, prev_author)
+        save({"doc.agent_edit_review_mode": prev_mode})

@@ -20,6 +20,10 @@ authors just guarantee two distinct colors. Inert (no swaps) unless ``begin()`` 
 Before swapping, ``begin()`` saves the user's real name to ``writeragent_office_author.json``
 in the user config directory. At startup, ``restore_author_after_crash()`` writes that saved
 name back if the profile still holds one of the two agent author names.
+
+These two names are also the agent's identity for ``tracking_manage`` and for tagging
+(``review_scan``), because a redline's author is read-only and survives DOCX/DOC/RTF,
+which drop the comment.
 """
 
 from __future__ import annotations

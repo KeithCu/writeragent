@@ -3872,6 +3872,17 @@ def test_raise_if_pending_changes_untracked_scope_uno(ctx: Any, doc: Any) -> Non
         doc.setPropertyValue("RecordChanges", False)
         raise_if_pending_changes_untracked(doc)
 
+        # Region scope: header insertion refuses on header_text, passes on a clean footer.
+        page_style.setPropertyValue("FooterIsOn", True)
+        footer_text = page_style.getPropertyValue("FooterText")
+        raise_if_pending_changes_untracked(doc, footer_text, rewrite="x", advice="")
+        try:
+            raise_if_pending_changes_untracked(doc, header_text, rewrite="x", advice="")
+        except ToolExecutionError as exc:
+            assert exc.code == "PENDING_TRACKED_CHANGES"
+        else:
+            raise AssertionError("Expected PENDING_TRACKED_CHANGES for header_text")
+
         # Body table-cell insertion by Bob: recording on passes, recording off refuses.
         table = doc.createInstance("com.sun.star.text.TextTable")
         table.initialize(1, 1)

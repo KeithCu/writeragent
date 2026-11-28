@@ -577,13 +577,18 @@ class AgentParsingError(WriterAgentException):
 
 
 def document_is_disposed(doc: Any) -> bool:
-    """Safely check if a UNO document or component is disposed or invalid."""
+    """Safely check if a UNO document or component is disposed or invalid.
+
+    ``getURL()`` goes through ``SfxModelGuard`` (``SfxBaseModel::getURL``,
+    ``sfx2/source/doc/sfxbasemodel.cxx``), which throws ``DisposedException`` on a
+    closed model, whereas ``getImplementationName()`` is a constant on the Writer,
+    Calc and Draw models. The probe takes the SolarMutex, so callers must be on
+    the main thread.
+    """
     if doc is None:
         return True
     try:
-        impl_fn = getattr(doc, "getImplementationName", None)
-        if callable(impl_fn):
-            impl_fn()
+        doc.getURL()
         return False
     except Exception as exc:
         return is_disposal(exc)

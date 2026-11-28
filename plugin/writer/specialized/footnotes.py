@@ -23,9 +23,10 @@ from plugin.writer.specialized_base import (
     enum_param,
     index_error,
 )
-from plugin.framework.errors import make_tool_error
+from plugin.framework.errors import ToolExecutionError, make_tool_error
 from plugin.framework.i18n import _
 from plugin.writer.edit_review import flag_tracked, flag_untracked, record_write
+from plugin.writer.html_import import raise_if_pending_changes_untracked
 from plugin.writer.search import (
     LADDER_CASE_SENSITIVE_DESCRIPTION,
     explicit_case_sensitive,
@@ -192,11 +193,20 @@ class FootnotesEdit(ToolWriterFootnoteBase):
 
         def _edit() -> None:
             if "text" in kwargs:
+                raise_if_pending_changes_untracked(
+                    ctx.doc,
+                    note,
+                    rewrite="rewriting the note",
+                    advice="To rewrite it, ask the user to turn on Track Changes or the record/wait review mode first, or to resolve those changes.",
+                )
                 note.setString(kwargs["text"])
             if "label" in kwargs:
                 note.setLabel(kwargs["label"])
 
-        _unused, recording = record_write(ctx.doc, ctx.ctx, _edit)
+        try:
+            _unused, recording = record_write(ctx.doc, ctx.ctx, _edit)
+        except ToolExecutionError as e:
+            return self._tool_error(str(e), code=e.code)
 
         result: dict[str, Any] = {"status": "ok", "message": f"Successfully edited {note_type} at index {index}."}
         if recording and "text" in kwargs:
