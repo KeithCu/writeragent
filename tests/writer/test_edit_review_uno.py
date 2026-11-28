@@ -130,6 +130,48 @@ def test_user_redlines_do_not_block_completion_uno(ctx, doc):
 
 
 @native_test
+@with_native_doc("writer", reuse=False)
+def test_uno_error_inside_review_session_keeps_its_cause_uno(ctx, doc):
+    """A UNO exception raised by a recorded edit reaches the caller as itself, with recording and author restored."""
+    reset_body(doc, ctx, "Before.")
+    author = review_authors.office_author(ctx)
+    session = EditReviewSession(doc, ctx, enabled=True)
+    try:
+        with session:
+            session.record_mutation(lambda: doc.getPropertyValue("NoSuchProperty"))
+        raise AssertionError("the UNO exception did not propagate")
+    except Exception as exc:
+        assert isinstance(exc, UnknownPropertyException), repr(exc)
+    finally:
+        session.cleanup()
+    assert doc.getPropertyValue("RecordChanges") is False
+    assert review_authors.office_author(ctx) == author
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_uno_error_inside_agent_format_author_keeps_its_cause_uno(ctx, doc):
+    """A UNO exception from a format edit authored as WriterAgent reaches the caller as itself, with the author restored."""
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    author = review_authors.office_author(ctx)
+    save({flag: "record"})
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        try:
+            with agent_format_author(doc, ctx, []):
+                assert review_authors.office_author(ctx) == review_authors.INSERT_AUTHOR
+                doc.getPropertyValue("NoSuchProperty")
+            raise AssertionError("the UNO exception did not propagate")
+        except UnknownPropertyException:
+            pass
+        assert review_authors.office_author(ctx) == author
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
 @with_native_doc("writer")
 def test_outcomes_accept_and_reject_per_change_uno(ctx, doc):
     reset_body(doc, ctx, "First clause here.", "Second clause here.")
@@ -424,45 +466,3 @@ def test_cross_paragraph_change_reports_accepted_and_rejected_uno(ctx, doc):
         assert payload["changes"][0]["outcome"] == expected_outcome, payload
         expected_text = change.accepted_text if accept else change.rejected_text
         assert expected_text == normalize_linebreaks(text.getString())
-
-
-@native_test
-@with_native_doc("writer", reuse=False)
-def test_uno_error_inside_review_session_keeps_its_cause_uno(ctx, doc):
-    """A UNO exception raised by a recorded edit reaches the caller as itself, with recording and author restored."""
-    reset_body(doc, ctx, "Before.")
-    author = review_authors.office_author(ctx)
-    session = EditReviewSession(doc, ctx, enabled=True)
-    try:
-        with session:
-            session.record_mutation(lambda: doc.getPropertyValue("NoSuchProperty"))
-        raise AssertionError("the UNO exception did not propagate")
-    except Exception as exc:
-        assert isinstance(exc, UnknownPropertyException), repr(exc)
-    finally:
-        session.cleanup()
-    assert doc.getPropertyValue("RecordChanges") is False
-    assert review_authors.office_author(ctx) == author
-
-
-@native_test
-@with_native_doc("writer", reuse=False)
-def test_uno_error_inside_agent_format_author_keeps_its_cause_uno(ctx, doc):
-    """A UNO exception from a format edit authored as WriterAgent reaches the caller as itself, with the author restored."""
-    flag = "doc.agent_edit_review_mode"
-    prev = get_config(flag)
-    author = review_authors.office_author(ctx)
-    save({flag: "record"})
-    doc.setPropertyValue("RecordChanges", True)
-    try:
-        try:
-            with agent_format_author(doc, ctx, []):
-                assert review_authors.office_author(ctx) == review_authors.INSERT_AUTHOR
-                doc.getPropertyValue("NoSuchProperty")
-            raise AssertionError("the UNO exception did not propagate")
-        except UnknownPropertyException:
-            pass
-        assert review_authors.office_author(ctx) == author
-    finally:
-        save({flag: prev})
-        doc.setPropertyValue("RecordChanges", False)
