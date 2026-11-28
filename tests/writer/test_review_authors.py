@@ -40,7 +40,7 @@ class FakeAuthorAccess:
 @pytest.fixture
 def clean_state(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(review_authors, "_state", threading.local())
-    monkeypatch.setattr(review_authors, "inside_insertion_by", lambda _doc, _range, _author: False)
+    monkeypatch.setattr(review_authors, "inside_insertion_by", lambda _doc, _ranges, _author, **_kw: False)
 
 
 @pytest.fixture
@@ -94,7 +94,7 @@ def test_deletion_author_keeps_insert_author_inside_own_insertion(
     store, _commits = fake_profile
     ctx = object()
     monkeypatch.setattr(
-        review_authors, "inside_insertion_by", lambda _doc, _range, author: author == review_authors.INSERT_AUTHOR
+        review_authors, "inside_insertion_by", lambda _doc, _ranges, author, **_kw: author == review_authors.INSERT_AUTHOR
     )
 
     prior = review_authors.begin(ctx)

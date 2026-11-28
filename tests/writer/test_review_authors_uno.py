@@ -8,12 +8,14 @@ from typing import Any
 
 import uno  # noqa: F401
 
+from plugin.doc.text_helpers import TrackedDeletions
 from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import native_writer_tool_context, with_native_doc
 from plugin.writer import html_import, review_authors
-from plugin.writer.apply_document_content import _INSIDE_OWN_INSERTION_NOTE, ApplyDocumentContent
+from plugin.writer.apply_document_content import FOLDED_EDIT_NOTE, ApplyDocumentContent
 from plugin.writer.edit_review import EditReviewSession
+from plugin.writer.inline_review import ResolveStatus, resolve_agent_change
 from tests.writer.doc_builders import (
     body_paragraphs,
     body_texts,
@@ -77,7 +79,7 @@ def test_edit_inside_own_pending_paragraph_rejects_to_original_styles_uno(ctx: A
         assert first.get("status") == "ok", first
         second = ApplyDocumentContent().execute(tctx, target="search", old_content="clause", content="section")
         assert second.get("status") == "ok", second
-    assert _INSIDE_OWN_INSERTION_NOTE in second["message"]
+    assert FOLDED_EDIT_NOTE in second["message"]
     assert "Inserted section text." in body_texts(doc.getText())
     assert review_authors.DELETE_AUTHOR not in {r["RedlineAuthor"] for r in list_redlines(doc)}
     reject_all_changes(doc, ctx)
@@ -139,9 +141,9 @@ def test_replace_inside_own_pending_insertion_registers_no_change_uno(ctx: Any, 
 
 @native_test
 @with_native_doc("writer", reuse=False)
-def test_replace_last_word_of_own_pending_insertion_deletes_it_outright_uno(ctx: Any, doc: Any) -> None:
-    """The new text after the last word of an earlier tagged insertion stays a separate Insert, but
-    the old word still lies inside that insertion, so it is removed outright instead of struck."""
+def test_replace_last_word_of_own_pending_insertion_stays_rejectable_uno(ctx: Any, doc: Any) -> None:
+    """New text after the last word of an earlier tagged insertion stays a separate Insert, so the
+    old word is struck, not removed: rejecting only the new change brings that word back."""
     reset_body(doc, ctx, "Beta two.")
     tctx = native_writer_tool_context(doc, ctx)
     with review_mode("record"):
@@ -149,9 +151,14 @@ def test_replace_last_word_of_own_pending_insertion_deletes_it_outright_uno(ctx:
             tctx, target="search", old_content="two", content=" inserted agent words", position="after"
         )
         assert first.get("status") == "ok", first
+        tokens = {r["RedlineComment"] for r in list_redlines(doc)}
         second = ApplyDocumentContent().execute(tctx, target="search", old_content="words", content="terms")
         assert second.get("status") == "ok", second
-    assert review_authors.DELETE_AUTHOR not in {r["RedlineAuthor"] for r in list_redlines(doc)}
-    assert "Beta two inserted agent terms." in body_texts(doc.getText())
+    assert FOLDED_EDIT_NOTE not in second["message"]
+    assert review_authors.DELETE_AUTHOR in {r["RedlineAuthor"] for r in list_redlines(doc)}
+    (new_token,) = {r["RedlineComment"] for r in list_redlines(doc)} - tokens
+    rejected, _after = resolve_agent_change(doc, ctx, new_token, accept=False)
+    assert rejected.status is ResolveStatus.RESOLVED, rejected
+    assert TrackedDeletions(doc).visible_text(doc.getText()) == "Beta two inserted agent words."
     reject_all_changes(doc, ctx)
     assert body_texts(doc.getText()) == ["Beta two."]

@@ -125,11 +125,14 @@ other path releases it, including a successful non-wait edit.
   wholly inside one pending `WriterAgent` insertion keeps the `WriterAgent` author
   (`review_authors.deletion_author`), so LibreOffice removes the text from that insertion outright.
   A `WriterAgent (deletions)` deletion would stack on the insertion and split it, and Reject All
-  would then leave the inserted paragraph's style or list on the next original paragraph. The
-  replace primitive decides this for each deleted part, so the old text before and after new text
-  that stays a separate Insert at the insertion's end is still removed outright. Such an edit
-  leaves no new redline: it is part of the earlier insertion, gets no review fields (an
-  `apply_content` search or anchor replace says so in its message), and a Wait call returns at once.
+  would then leave the inserted paragraph's style or list on the next original paragraph. Text is
+  removed outright only when the replacement joins that insertion: the run-by-run replace checks
+  the old and new text together after inserting, and a replace that deletes first requires the
+  insertion to extend past both ends of the deleted text. At an insertion's edge LibreOffice keeps
+  the new text as a separate Insert (`SwRedlineData::CanCombine` fails on the `wa-review:` comment),
+  so the old text is struck as before and rejecting the new change brings it back. An edit folded
+  into the insertion leaves no new redline: it gets no review fields (an `apply_content` search or
+  anchor replace says so in its message), and a Wait call returns at once.
 * Crash recovery for the office author:
   * The user's real name is saved to `<profile>/user/config/writeragent_office_author.json` before
     the first swap, and whenever that name changes.

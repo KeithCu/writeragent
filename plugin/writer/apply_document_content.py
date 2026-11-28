@@ -100,7 +100,10 @@ _OWN_FORMAT_CHANGE_WARNING = (
     "The replaced text carried the agent's own pending tracked formatting change, which LibreOffice "
     "drops when that text is replaced, so rejecting the changes keeps that formatting. Tell the user."
 )
-_INSIDE_OWN_INSERTION_NOTE = (
+# Result key _edit_search sets when every replaced range lay inside the agent's own pending
+# insertion; _do_edit removes it and adds FOLDED_EDIT_NOTE when the edit indeed left no new redline.
+_INSIDE_OWN_INSERTION = "_inside_own_insertion"
+FOLDED_EDIT_NOTE = (
     "The edited text is part of the agent's own earlier pending insertion, so the change is folded "
     "into that pending tracked change and has no review entry of its own."
 )
@@ -144,12 +147,10 @@ def _format_change_check(
 def _inside_own_insertion(doc: Any, ranges: list[Any], review: bool) -> bool:
     """True when review mode records the edit and every range lies inside one pending agent insertion.
 
-    The edit then folds into that insertion and leaves no redline of its own (see
-    ``review_authors.deletion_author``).
+    The edit may then fold into that insertion and leave no redline of its own (see
+    ``review_authors.deletion_author``); ``_do_edit`` checks that it did.
     """
-    return review and bool(ranges) and all(
-        inside_insertion_by(doc, r, review_authors.INSERT_AUTHOR) for r in ranges
-    )
+    return review and inside_insertion_by(doc, ranges, review_authors.INSERT_AUTHOR)
 
 
 def _flag_replace_result(result: dict[str, Any], own_format: bool, inside_own: bool) -> None:
@@ -158,7 +159,7 @@ def _flag_replace_result(result: dict[str, Any], own_format: bool, inside_own: b
     if own_format:
         _flag_unrejectable_style(result, _OWN_FORMAT_CHANGE_WARNING)
     if inside_own:
-        result["message"] = (result.get("message") or "").rstrip() + " " + _INSIDE_OWN_INSERTION_NOTE
+        result[_INSIDE_OWN_INSERTION] = True
 
 
 def _flag_unrejectable_style(result: dict[str, Any], warning: str) -> None:
@@ -1109,6 +1110,8 @@ class ApplyDocumentContent(ToolBase):
             if result.get("status") == "ok" and session.accepted_paragraph_formats():
                 _flag_unrejectable_style(result, _PARAGRAPH_FORMAT_ACCEPTED_WARNING)
             pending = result.get("status") == "ok" and session.left_tracked_changes()
+            if result.pop(_INSIDE_OWN_INSERTION, False) and not pending:
+                result["message"] = (result.get("message") or "").rstrip() + " " + FOLDED_EDIT_NOTE
             return result, session, pending
 
         if get_agent_edit_review_mode() != "wait" or on_main:

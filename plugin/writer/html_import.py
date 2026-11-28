@@ -1514,13 +1514,17 @@ def insert_content_at_position(
         raise ToolExecutionError("Unknown position: %s" % position)
 
 
-def _deletion_author(model: Any, doomed: Any) -> Any:
-    """WriterAgent split-author coloring for deleting *doomed*; no-op when ``review_authors`` is omitted (LibrePy)."""
+def _deletion_author(model: Any, doomed: Any, *, strict: bool = True) -> Any:
+    """WriterAgent split-author coloring for deleting *doomed*; no-op when ``review_authors`` is omitted (LibrePy).
+
+    *strict* (the default) is for a deletion followed by new content where *doomed* was; see
+    ``review_authors.deletion_author``.
+    """
     try:
         from .review_authors import deletion_author
     except ImportError:
         return contextlib.nullcontext()
-    return deletion_author(model, doomed)
+    return deletion_author(model, doomed, strict=strict)
 
 
 _ABSORB_PARA_PROPERTIES = CLEARABLE_PARA_PROPERTIES + (
@@ -2116,12 +2120,15 @@ def _replace_recorded(
                 _advance(tail, len(old_text) - split, True)
             head = text.createTextCursorByRange(target_range.getStart())  # target_range may have grown
             head.gotoRange(added.getStart(), True)
-            # Each part decides its own author: the new text may stay a separate redline at the end of
-            # an earlier insertion (PreAppendInsertRedline merges there only with CanCombine), while the
-            # old text left and right of it still lies inside that insertion.
-            for doomed in ((tail, head) if len(old_text) > split else (head,)):
-                with _deletion_author(model, doomed) if author_deletion else contextlib.nullcontext():
-                    doomed.setString("")
+            # The author is decided on the old text together with the new text: only when the new text
+            # joined an earlier insertion does one insertion cover the whole span, and only then may the
+            # old text leave it outright (see review_authors.deletion_author).
+            span = text.createTextCursorByRange(head.getStart())
+            span.gotoRange(tail.getEnd(), True)
+            with _deletion_author(model, span, strict=False) if author_deletion else contextlib.nullcontext():
+                if len(old_text) > split:
+                    tail.setString("")
+                head.setString("")
         except Exception:
             best_effort(lambda: added.setString(""), "replace_preserving_format: could not take back the insertion")
             raise
@@ -2141,7 +2148,7 @@ def _replace_recorded(
     # deletion coloring. The restore on insert-failure is a best-effort extra net (the caller's
     # context rollback also cleans up).
     original = cursor.getString()
-    with _deletion_author(model, cursor):  # author the deletion distinctly (split by-author coloring)
+    with _deletion_author(model, cursor, strict=bool(new_text)):  # author the deletion distinctly (split by-author coloring)
         cursor.setString("")
     if new_text:
         try:

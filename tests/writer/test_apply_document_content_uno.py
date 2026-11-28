@@ -348,11 +348,11 @@ def test_full_document_table_tail_under_review_uno(ctx, doc):
             rl_types.append(str(enum.nextElement().getPropertyValue("RedlineType")))
         assert "Insert" in rl_types, rl_types
 
-        # The whole body is now the agent's own pending insertion, so the second replace removes it
-        # outright instead of striking it, and Reject All still returns the empty document.
+        # The new content goes where the old started, at the edge of the agent's own pending
+        # insertion, so the old content is struck rather than removed; Reject All returns the empty document.
         res2 = ApplyDocumentContent().execute(tctx, target="full_document", content=content)
         assert res2.get("status") == "ok", res2
-        assert doc.getTextTables().getCount() == 1
+        assert doc.getTextTables().getCount() == 2
         reject_all_changes(doc, ctx)
         assert doc.getTextTables().getCount() == 0
         assert doc.getText().getString() == ""

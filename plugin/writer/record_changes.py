@@ -125,19 +125,32 @@ def redline_kinds_covering(spans: list[RedlineSpan], text_range: Any) -> set[str
     return {kind for kind, bounds in spans if bounds_cover(bounds, text_range)}
 
 
-def inside_insertion_by(doc: Any, text_range: Any, author: str) -> bool:
-    """True when one pending Insert redline by *author* spans all of *text_range*.
+def inside_insertion_by(doc: Any, ranges: list[Any], author: str, *, strict: bool = False) -> bool:
+    """True when each of *ranges* lies wholly inside one pending Insert redline by *author*.
 
     A Delete by the same author inside such an insertion removes the text outright instead of
     stacking on it (``PreAppendDeleteRedline``, ``case RedlineType::Insert`` with
-    ``IsOwnRedline``, ``sw/source/core/doc/DocumentRedlineManager.cxx``).
+    ``IsOwnRedline``, ``sw/source/core/doc/DocumentRedlineManager.cxx``). With *strict* the
+    insertion must also extend past both ends of the range, so a point left where the range
+    was is still inside it. The redlines are read once for all ranges.
     """
-    return any(
-        rl.getPropertyValue("RedlineType") == "Insert"
-        and rl.getPropertyValue("RedlineAuthor") == author
-        and bounds_cover(redline_bounds(rl), text_range)
+    insertions = [
+        redline_bounds(rl)
         for rl in _iter_redlines(doc)
-    )
+        if rl.getPropertyValue("RedlineType") == "Insert" and rl.getPropertyValue("RedlineAuthor") == author
+    ]
+
+    def covers(bounds: tuple[Any, Any, Any], text_range: Any) -> bool:
+        if not strict:
+            return bounds_cover(bounds, text_range)
+        text, start, end = bounds
+        return uno_read(
+            lambda: text.compareRegionStarts(start, text_range) > 0 and text.compareRegionEnds(text_range, end) > 0,
+            False,
+            object_type="TextRange",
+        )
+
+    return bool(ranges) and all(any(covers(b, r) for b in insertions) for r in ranges)
 
 
 def overlapping_redline_authors(doc: Any, ranges: list[Any], kind: str) -> set[str]:
