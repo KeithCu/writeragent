@@ -1229,15 +1229,19 @@ def _paragraph_format(cursor: Any, rng: Any | None = None) -> dict[str, Any]:
             for name, state in zip(extra_names, para.getPropertyStates(extra_names)):
                 if state.value == "DIRECT_VALUE":
                     fmt[name] = para.getPropertyValue(name)
-    if rng is not None:
+    # Whole-node Char* attributes set across a paragraph report DIRECT_VALUE on SwXParagraph
+    # (para) even when a SwXTextRange (rng) reports DEFAULT_VALUE.
+    for source in (para, rng):
+        if source is None:
+            continue
         char_names = tuple(
-            n for n in (writable_char_names(rng) or ())
-            if n not in _SKIP_DIRECT_CHAR_PROPS
+            n for n in (writable_char_names(source) or ())
+            if n not in _SKIP_DIRECT_CHAR_PROPS and n not in fmt
         )
         if char_names:
-            for name, state in zip(char_names, rng.getPropertyStates(char_names)):
+            for name, state in zip(char_names, source.getPropertyStates(char_names)):
                 if state.value == "DIRECT_VALUE":
-                    fmt[name] = rng.getPropertyValue(name)
+                    fmt[name] = source.getPropertyValue(name)
     fmt.update(_direct_para_props(cursor))
     return fmt
 
@@ -1261,15 +1265,6 @@ def _restore_paragraph_format(cursor: Any, fmt: dict[str, Any]) -> None:
         cursor.setPropertyValue("ParaStyleName", fmt["ParaStyleName"])
     _drop_absorb_paragraph_props(cursor)
     para = next(iter_elements(cursor.createEnumeration()), None)
-    if para is not None:
-        extra_names = _copy_style_extra_names(para)
-        if extra_names:
-            extra = [
-                name for name, state in zip(extra_names, para.getPropertyStates(extra_names))
-                if state.value == "DIRECT_VALUE" and name not in fmt
-            ]
-            if extra:
-                reset_properties_to_default(cursor, extra)
     for name, value in fmt.items():
         if name == "ParaStyleName" or name == "NumberingIsNumber" or name in _NUMBERING_PROPS or name.startswith("Char"):
             continue
@@ -1418,7 +1413,7 @@ def _replace_whole_paragraphs(
                 # clears every node-level Char* attribute on the struck paragraph.
                 char_items = [(n, v) for n, v in fmt.items() if n.startswith("Char")]
                 if char_items:
-                    struck = text_obj.createTextCursorByRange(rng.getStart())
+                    struck = text_obj.createTextCursorByRange(cursor.getStart())
                     struck.gotoRange(end_cur.getStart(), True)
                     names = tuple(n for n, _val in char_items)
                     values = tuple(v for _name, v in char_items)
@@ -1437,16 +1432,9 @@ def _replace_whole_paragraphs(
             with record_changes.record_changes(model, False):
                 if not keep_layout:
                     _drop_absorb_paragraph_props(cursor)
-                    # ResetAttrs skips 0-length autofmt hints on an empty node (docfmt.cxx:315-319);
-                    # reset across a temporary character so heading font/size do not leak into import.
-                    text_obj.insertString(cursor, " ", False)
-                    span = text_obj.createTextCursorByRange(cursor.getStart())
-                    span.goLeft(1, True)
-                    reset_direct_char_formatting(span, kept_char)
-                    span.setString("")
                 else:
                     _restore_numbering(cursor, fmt)
-                    reset_direct_char_formatting(cursor, kept_char)
+                reset_direct_char_formatting(cursor, kept_char)
         else:
             text_obj.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
             cursor.goLeft(1, False)
@@ -1462,6 +1450,14 @@ def _replace_whole_paragraphs(
     elif not keep_layout:
         _drop_absorb_paragraph_props(cursor)
     anchor = _insert_start_anchor(text_obj, cursor)
+    if recording and shape == "previous":
+        para = next(iter_elements(cursor.createEnumeration()), None)
+        if para is not None and para.getPropertyValue("ParaStyleName") != host_style:
+            # Splitting into a different follow style (e.g. Heading 1 -> Text body) leaves the
+            # old style's CharHeight as direct formatting; SwXParagraph::setPropertyToDefault
+            # (unoparagraph.cxx) clears it via SwDoc::ResetAttrs (docfmt.cxx).
+            with record_changes.record_changes(model, False):
+                para.setPropertyToDefault("CharHeight")
     report = _import_and_drop_leftover(model, ctx, cursor, content, apply_styles=apply_styles)
     _restore_host_para_props(model, text_obj, anchor, cursor, host_style, kept_para, content)
     return report
@@ -1829,6 +1825,16 @@ def _drop_absorb_paragraph_props(cursor: Any) -> None:
     remains the clear-direct subset for Ctrl+M / `clear_direct`.
     """
     reset_properties_to_default(cursor, _ABSORB_PARA_PROPERTIES)
+    para = next(iter_elements(cursor.createEnumeration()), None)
+    if para is not None:
+        extra_names = _copy_style_extra_names(para)
+        if extra_names:
+            extra = [
+                name for name, state in zip(extra_names, para.getPropertyStates(extra_names))
+                if state.value == "DIRECT_VALUE"
+            ]
+            if extra:
+                reset_properties_to_default(cursor, extra)
     clear_direct_numbering(cursor)
 
 
