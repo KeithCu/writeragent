@@ -22,7 +22,7 @@ from typing import Any, Iterator
 
 from plugin.doc.compound_undo import WriterCompoundUndo
 from plugin.doc.text_helpers import bounds_cover, iter_elements_limited, redline_bounds
-from plugin.framework.errors import reraise_if_disposed
+from plugin.framework.errors import reraise_if_disposed, uno_read
 
 log = logging.getLogger("writeragent.writer")
 
@@ -117,6 +117,31 @@ def _iter_redlines(doc: Any) -> Iterator[Any]:
     return iter_elements_limited(redlines.createEnumeration(), int(redlines.getCount()))
 
 
+def _held_redlines(doc: Any) -> list[Any]:
+    """Every redline of *doc*, fetched once, for a scan that reads them all before any is released.
+
+    Over the test pipe each release of a remote ``SwXRedline`` runs on its own bridge thread, and
+    its destructor unregisters without the SolarMutex while the next fetch broadcasts on the same
+    notifier (``SwXRedline::~SwXRedline``, ``sw/source/core/unocore/unoredline.cxx``), which can
+    corrupt soffice's heap; ``tests/writer/doc_builders.list_redlines`` holds them for the same reason.
+    """
+    return list(_iter_redlines(doc))
+
+
+def _readable_bounds(rl: Any) -> tuple[Any, Any, Any] | None:
+    """``redline_bounds`` of *rl*, or None when they cannot be read.
+
+    A tracked change that ends on a table or section node, such as the insertion of a whole
+    table, has an ``SwXTextTable`` or ``SwXTextSection`` as ``RedlineEnd``, which has no
+    ``getText`` (``SwXRedline::getPropertyValue``, ``sw/source/core/unocore/unoredline.cxx``).
+    """
+    try:
+        return redline_bounds(rl)
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        return None
+
+
 def redline_spans(doc: Any) -> list[RedlineSpan]:
     """``(RedlineType, bounds)`` of every tracked change in *doc*; unreadable ones are left out.
 
@@ -134,6 +159,65 @@ def redline_spans(doc: Any) -> list[RedlineSpan]:
 def redline_kinds_covering(spans: list[RedlineSpan], text_range: Any) -> set[str]:
     """``RedlineType`` of every tracked change in *spans* that covers all of *text_range*."""
     return {kind for kind, bounds in spans if bounds_cover(bounds, text_range)}
+
+
+def inside_insertion_by(doc: Any, ranges: list[Any], author: str, *, strict: bool) -> bool:
+    """True when each of *ranges* lies wholly inside one pending Insert redline by *author*.
+
+    A Delete by the same author inside such an insertion removes the text outright instead of
+    stacking on it (``PreAppendDeleteRedline``, ``case RedlineType::Insert`` with
+    ``IsOwnRedline``, ``sw/source/core/doc/DocumentRedlineManager.cxx``). With *strict* the
+    insertion must also extend past both ends of the range, so the point left where the range
+    was is still inside it. The redlines are read once for all ranges.
+    """
+    # Every redline stays referenced until the scan ends (see _held_redlines).
+    held = _held_redlines(doc)
+    insertions = [
+        bounds
+        for rl in held
+        if rl.getPropertyValue("RedlineType") == "Insert" and rl.getPropertyValue("RedlineAuthor") == author
+        and (bounds := _readable_bounds(rl)) is not None
+    ]
+
+    def covers(bounds: tuple[Any, Any, Any], text_range: Any) -> bool:
+        if not strict:
+            return bounds_cover(bounds, text_range)
+        text, start, end = bounds
+        return uno_read(
+            lambda: text.compareRegionStarts(start, text_range) > 0 and text.compareRegionEnds(text_range, end) > 0,
+            False,
+            object_type="TextRange",
+        )
+
+    return bool(ranges) and all(any(covers(b, r) for b in insertions) for r in ranges)
+
+
+def overlapping_redline_authors(doc: Any, ranges: list[Any], kind: str) -> set[str]:
+    """Authors of the pending *kind* redlines that share at least one character with one of *ranges*.
+
+    Range and redline ends are ``SwXTextRange`` objects, which compare document positions
+    across text objects (``SwXTextRange::compareRegionStarts``, ``sw/source/core/unocore/unoobj2.cxx``),
+    so a frame or footnote range never overlaps a body redline. A comparison that fails counts as
+    no overlap for that range only; the other ranges are still compared.
+    """
+    bounds = [(r.getStart(), r.getEnd()) for r in ranges]
+    authors: set[str] = set()
+    for rl in _held_redlines(doc):
+        bounds_read = _readable_bounds(rl) if rl.getPropertyValue("RedlineType") == kind else None
+        if bounds_read is None:
+            continue
+        text, start, end = bounds_read
+        # compareRegionStarts(a, b): 1 when a starts before b.
+        if any(
+            uno_read(
+                lambda: text.compareRegionStarts(start, r_end) > 0 and text.compareRegionStarts(r_start, end) > 0,
+                False,
+                object_type="TextRange",
+            )
+            for r_start, r_end in bounds
+        ):
+            authors.add(str(rl.getPropertyValue("RedlineAuthor")))
+    return authors
 
 
 def redline_kinds_overlapping(spans: list[RedlineSpan], text_range: Any) -> set[str]:
@@ -160,26 +244,10 @@ def overlaps_foreign_insertion(doc: Any, ranges: list[Any], author: str) -> bool
 
     compareRegionStarts compares document positions when both arguments are text ranges
     (``SwXText::compareRegionStarts``, sw/source/core/unocore/unotext.cxx), so insertions in
-    cells and frames work too. ``redline_bounds`` maps an insertion that starts at a table node
-    to the table's anchor; a single insertion that still cannot be read or compared is skipped,
-    so it cannot make every range in the document look overlapped.
+    cells and frames work too. An insertion whose bounds cannot be read or compared is skipped
+    (``overlapping_redline_authors``), so it cannot make every range in the document look overlapped.
     """
-    bounds = [(r.getStart(), r.getEnd()) for r in ranges]
-    for rl in _iter_redlines(doc):
-        if rl.getPropertyValue("RedlineType") != "Insert" or rl.getPropertyValue("RedlineAuthor") == author:
-            continue
-        try:
-            text, start, end = redline_bounds(rl)
-            # compareRegionStarts(a, b): 1 when a starts before b.
-            if any(
-                text.compareRegionStarts(start, r_end) > 0 and text.compareRegionStarts(r_start, end) > 0
-                for r_start, r_end in bounds
-            ):
-                return True
-        except Exception as exc:
-            reraise_if_disposed(exc)
-            log.debug("overlaps_foreign_insertion: skipped an unreadable insertion", exc_info=True)
-    return False
+    return bool(overlapping_redline_authors(doc, ranges, "Insert") - {author})
 
 
 def tracked_change_before_point(doc: Any, point: Any) -> bool:

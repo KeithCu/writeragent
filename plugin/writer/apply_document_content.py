@@ -42,8 +42,7 @@ from plugin.writer.edit_review import (
 )
 from plugin.writer.target_resolver import request_insert_range
 from plugin.doc.compound_undo import UndoStepOrRollback, UndoUnavailable, commit_or_rollback
-from plugin.writer import review_authors
-from plugin.writer.record_changes import is_recording_changes, redline_spans
+from plugin.writer.record_changes import inside_insertion_by, is_recording_changes, overlapping_redline_authors, redline_spans
 from plugin.writer.review_scan import document_has_tracked_deletions
 from plugin.writer.search import replace_text_in_shape
 from plugin.writer.specialized.tables import (
@@ -72,6 +71,7 @@ from plugin.writer import (
     html_import,
     html_import_styles,
     image_placeholders,
+    review_authors,
     search as search_mod,
 )
 from plugin.writer.heading_links import (
@@ -93,6 +93,84 @@ if TYPE_CHECKING:
 
 
 log = logging.getLogger("writeragent.writer")
+
+
+_FOREIGN_FORMAT_CHANGE_MESSAGE = (
+    "The matched text carries another author's pending tracked formatting change, so it was not "
+    "changed: replacing it while Track Changes records would remove that tracked change, and its "
+    "formatting could no longer be rejected. Do not accept or reject that change; edit text outside "
+    "it, or ask the user to review it first."
+)
+_OWN_FORMAT_CHANGE_WARNING = (
+    "The replaced text carried the agent's own pending tracked formatting change, which LibreOffice "
+    "drops when that text is replaced, so rejecting the changes keeps that formatting. Tell the user."
+)
+# Result key _edit_search sets when every replaced range lay inside the agent's own pending
+# insertion; _do_edit removes it and adds FOLDED_EDIT_NOTE when the edit indeed left no new redline.
+_INSIDE_OWN_INSERTION = "_inside_own_insertion"
+FOLDED_EDIT_NOTE = (
+    "The edited text is part of the agent's own earlier pending insertion, so the change is folded "
+    "into that pending tracked change and has no review entry of its own."
+)
+_PARAGRAPH_FORMAT_ACCEPTED_WARNING = (
+    "LibreOffice accepted the pending tracked paragraph-style change of the edited paragraph when "
+    "the text was changed, so rejecting the changes no longer restores that paragraph's earlier "
+    "style. Tell the user."
+)
+
+
+def _format_change_check(
+    doc: Any, ranges: list[Any], recorded: bool, *, skip_crossing: bool = False
+) -> tuple[list[Any], dict[str, Any] | None, bool]:
+    """``(ranges to edit, MATCH_CROSSES_FORMAT_CHANGE error or None, own)`` for a replace of *ranges*.
+
+    A tracked deletion that covers or overlaps a pending Format redline deletes or trims it
+    (``DocumentRedlineManager::PreAppendDeleteRedline``, ``case RedlineType::Format``,
+    ``sw/source/core/doc/DocumentRedlineManager.cxx``), and the recorded replace inserts its new
+    text inside the match first, which splits that redline at the match. Reject All then keeps
+    the formatting. A range that overlaps another author's Format redline is left out when
+    *skip_crossing* (all_matches) and refuses the edit otherwise; *own* is True when a kept range
+    overlaps only the agent's own Format redlines. Unrecorded edits are not checked.
+    """
+    if not recorded or not ranges:
+        return ranges, None, False
+    authors = overlapping_redline_authors(doc, ranges, "Format")
+    if not authors - review_authors.AGENT_AUTHORS:
+        return ranges, None, bool(authors)
+    kept: list[tuple[Any, set[str]]] = []
+    if skip_crossing:
+        per_range = [(r, overlapping_redline_authors(doc, [r], "Format")) for r in ranges]
+        kept = [(r, found) for r, found in per_range if not found - review_authors.AGENT_AUTHORS]
+    if not kept:
+        refusal = make_tool_error(
+            _FOREIGN_FORMAT_CHANGE_MESSAGE, code="MATCH_CROSSES_FORMAT_CHANGE", top_level={"replaced_count": 0}
+        )
+        return [], refusal, False
+    return [r for r, _found in kept], None, any(found for _r, found in kept)
+
+
+def _inside_own_insertion(doc: Any, ranges: list[Any], review: bool) -> bool:
+    """True when review mode records the edit and every range lies inside one pending agent insertion.
+
+    The edit may then fold into that insertion and leave no redline of its own (see
+    ``review_authors.deletion_author``); ``_do_edit`` checks that it did.
+    """
+    return review and inside_insertion_by(doc, ranges, review_authors.INSERT_AUTHOR, strict=False)
+
+
+def _flag_replace_result(result: dict[str, Any], own_format: bool, inside_own: bool) -> None:
+    if result.get("status") != "ok":
+        return
+    if own_format:
+        _flag_unrejectable_style(result, _OWN_FORMAT_CHANGE_WARNING)
+    if inside_own:
+        result[_INSIDE_OWN_INSERTION] = True
+
+
+def _flag_unrejectable_style(result: dict[str, Any], warning: str) -> None:
+    if result.get("status") == "ok":
+        result["style_unreviewed"] = True
+        append_warnings(result, [warning])
 
 
 _OVERRIDE_NEEDS_ONE_LINK = (
@@ -1093,7 +1171,11 @@ class ApplyDocumentContent(ToolBase):
             session = EditReviewSession(ctx.doc, ctx.ctx, enabled=parsed.track_reviewable)
             result = self._dispatch_edit(ctx, session, parsed)
             result = append_warnings(result, diags)
+            if result.get("status") == "ok" and session.accepted_paragraph_formats():
+                _flag_unrejectable_style(result, _PARAGRAPH_FORMAT_ACCEPTED_WARNING)
             pending = result.get("status") == "ok" and session.left_tracked_changes()
+            if result.pop(_INSIDE_OWN_INSERTION, False) and not pending:
+                result["message"] = (result.get("message") or "").rstrip() + " " + FOLDED_EDIT_NOTE
             return result, session, pending
 
         if get_agent_edit_review_mode() != "wait" or on_main:
@@ -1668,7 +1750,13 @@ class ApplyDocumentContent(ToolBase):
             elif (protected := protected_cell_error(doc, found)) is not None:
                 res = protected
             else:
-                res = self._edit_replace_one(ctx, session, params, found)
+                _kept, format_refusal, own_format = _format_change_check(doc, [found], recorded)
+                if format_refusal is not None:
+                    res = format_refusal
+                else:
+                    inside_own = _inside_own_insertion(doc, [found], params.track_reviewable)
+                    res = self._edit_replace_one(ctx, session, params, found)
+                    _flag_replace_result(res, own_format, inside_own)
             res.update(mode.result_fields())
             return res
 
@@ -1688,7 +1776,7 @@ class ApplyDocumentContent(ToolBase):
         picked = ranges if params.all_matches else ranges[first : first + 1]
         # A match that crosses a deletion or sits in a protected or linked section is not edited.
         # all_matches skips it and edits the rest; a single match is refused with its reason.
-        editable: list[Any] = []
+        uncrossed: list[Any] = []
         crossing = 0
         locks: list[html_import.SectionLock] = []
         for r in picked:
@@ -1697,19 +1785,28 @@ class ApplyDocumentContent(ToolBase):
             elif (lock := _section_lock(doc, r)) is not None:
                 locks.append(lock)
             else:
-                editable.append(r)
-        protected = next((err for r in editable if (err := protected_cell_error(doc, r)) is not None), None)
+                uncrossed.append(r)
+        protected = next((err for r in uncrossed if (err := protected_cell_error(doc, r)) is not None), None)
+        # A match over another author's pending formatting change is skipped the same way (all_matches)
+        # or refused (a single match).
+        replacing = params.position == "replace"
+        editable, format_refusal, own_format = _format_change_check(
+            doc, uncrossed, recorded and replacing, skip_crossing=params.all_matches
+        )
+        inside_own = _inside_own_insertion(doc, editable, params.track_reviewable and replacing)
         # Empty ranges fall through to the existing miss / drawing-shape path (models often send occurrence=0).
         if protected is not None:
             res = protected
-        elif picked and not editable and locks:
+        elif picked and not uncrossed and locks:
             res = make_tool_error(locks[0].message, code=locks[0].code, top_level={"replaced_count": 0})
-        elif picked and not editable:
+        elif picked and not uncrossed:
             res = make_tool_error(
                 search_mod.UNRECORDED_CROSSES_DELETION_MESSAGE,
                 code="MATCH_CROSSES_DELETION",
                 top_level={"replaced_count": 0},
             )
+        elif format_refusal is not None:
+            res = format_refusal
         elif not ranges:
             res = self._finish_search_miss(doc, params)
         elif params.all_matches:
@@ -1732,6 +1829,13 @@ class ApplyDocumentContent(ToolBase):
                     + f" {len(locks)} more match(es) are inside the protected or linked section(s) {names}"
                     " and were not changed."
                 )
+            if res.get("status") == "ok" and len(editable) < len(uncrossed):
+                skipped = len(uncrossed) - len(editable)
+                res["message"] = (
+                    res["message"].rstrip()
+                    + f" {skipped} more match(es) carry another author's pending tracked formatting change"
+                    " and were not changed."
+                )
         elif params.occurrence is not None and params.occurrence >= len(ranges):
             res = self._occurrence_oor(params.occurrence, len(ranges))
         else:
@@ -1740,6 +1844,7 @@ class ApplyDocumentContent(ToolBase):
                 res = self._edit_insert_next_to_match(ctx, session, params, found)
             else:
                 res = self._edit_replace_one(ctx, session, params, found)
+        _flag_replace_result(res, own_format, inside_own)
         res.update(mode.result_fields())
         return res
 

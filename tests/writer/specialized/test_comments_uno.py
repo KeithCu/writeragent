@@ -8,7 +8,7 @@ from plugin.doc.text_helpers import iter_annotations
 from plugin.framework.config import get_config, save
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import TestingFactory, with_native_doc
-from tests.writer.doc_builders import set_body_text
+from tests.writer.doc_builders import find_first, recording_as, reset_body, set_body_text
 from plugin.writer.specialized.comments import AddComment, CommentDelete, CommentEdit, CommentList, CommentResolve
 
 
@@ -153,6 +153,41 @@ def test_comment_reads_hide_tracked_deletion_uno(ctx, doc):
     listed = CommentList().execute(tool_ctx, start_index=0, max_comments=10)
     assert listed.get("status") == "ok", listed
     assert listed["comments"][0]["anchor_preview"] == "Body nova"
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_comment_on_pending_insertion_warns_uno(ctx, doc):
+    """A comment on another author's pending insertion stays behind as a point comment when that
+    insertion is rejected, so the result warns."""
+    reset_body(doc, ctx, "Alpha one.")
+    with recording_as(doc, ctx, "Alice"):
+        found = find_first(doc, "one")
+        found.getText().insertString(found.getEnd(), " ALICE-NEW", False)
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    res = AddComment().execute(tool_ctx, content="A remark", search="ALICE-NEW", author="WriterAgent", occurrence=0)
+    assert res.get("status") == "ok", res
+    assert res.get("warnings"), res
+    plain = AddComment().execute(tool_ctx, content="Another", search="Alpha", author="WriterAgent", occurrence=0)
+    assert plain.get("status") == "ok", plain
+    assert "warnings" not in plain, plain
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_comment_delete_while_recording_warns_uno(ctx, doc):
+    """A recorded comment deletion comes back on Reject without its text range, so the result warns."""
+    reset_body(doc, ctx, "Alpha one.", "Beta two.")
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    added = AddComment().execute(tool_ctx, content="Bob says", search="two", author="Bob", occurrence=0)
+    assert added.get("status") == "ok", added
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = CommentDelete().execute(tool_ctx, name=added["name"])
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+    assert res.get("status") == "ok", res
+    assert res.get("warnings"), res
 
 
 @native_test

@@ -90,8 +90,12 @@ def test_clone_heading_block_stale_bookmark_does_not_insert():
     assert inserted == []
 
 
-def test_clone_heading_block_with_table():
+def test_clone_heading_block_with_table(monkeypatch):
+    from plugin.writer import structural
     from plugin.writer.tree import TreeService
+
+    # The stub document has no redlines to scan.
+    monkeypatch.setattr(structural, "overlapping_redline_authors", lambda _doc, _ranges, _kind: set())
 
     class TableStub:
         def __init__(self):

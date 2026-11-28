@@ -33,6 +33,7 @@ def _ctx():
     doc.getUndoManager.return_value = um
     doc.getBookmarks.return_value.hasByName.return_value = False
     doc.getText.return_value.createEnumeration.return_value.hasMoreElements.return_value = False
+    doc.getRedlines.return_value.getCount.return_value = 0
     return types.SimpleNamespace(
         doc=doc, ctx=MagicMock(),
         services=types.SimpleNamespace(get=lambda key, default=None: None),
@@ -64,6 +65,12 @@ class MockRange:
 
     def getText(self):
         return MagicMock()
+
+    def getStart(self):
+        return self
+
+    def getEnd(self):
+        return self
 
 
 def test_search_no_match_returns_error_zero(monkeypatch):
@@ -1211,6 +1218,7 @@ def test_wait_mode_waits_for_review_when_math_import_fails(monkeypatch):
 
     mock_session = MagicMock()
     mock_session.changes = [object()]
+    mock_session.accepted_paragraph_formats.return_value = False
     mock_session.record_mutation.side_effect = lambda fn, **k: fn()
     mock_session.wait_for_review.return_value = {"complete": True, "accepted": 1, "rejected": 0}
     monkeypatch.setattr(apply_mod, "EditReviewSession", lambda doc, ctx, enabled=True: mock_session)

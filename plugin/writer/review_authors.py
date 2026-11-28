@@ -10,7 +10,8 @@ RedlineAuthor on an existing redline is a silent no-op), so the only way to auth
 Insert and Delete differently is to swap the office author BETWEEN the deletion and the
 insertion. EditReviewSession makes the INSERT author the default for the whole edit via
 ``begin()``; each replace primitive wraps its ``setString("")`` deletion in ``deletion_author()``,
-which flips the office author to the DELETE author for that moment and back. All of this runs
+which flips the office author to the DELETE author for that moment and back, except inside the
+agent's own pending insertion, where the deletion keeps the INSERT author. All of this runs
 synchronously on the main thread, so the brief intermediate author state is never observed.
 
 The actual colors are LibreOffice's automatic per-author choice (we cannot pick them) -- the two
@@ -36,6 +37,7 @@ from typing import Any
 from plugin.framework import config
 from plugin.framework.config import atomic_write_text, user_config_dir
 from plugin.framework.i18n import get_lo_locale
+from plugin.writer.record_changes import inside_insertion_by
 
 log = logging.getLogger(__name__)
 
@@ -219,22 +221,44 @@ def end(ctx: Any, prior: tuple[str, str] | None) -> None:
         log.warning("review_authors.end: failed to restore office author %r", prior, exc_info=True)
 
 
-class deletion_author:  # Named like a function: callers write ``with deletion_author():``.
-    """Author the tracked deletion inside this block as the DELETE author, then restore the
-    INSERT author. A no-op unless ``begin()`` armed split authoring on this thread.
+class deletion_author:  # Named like a function: callers write ``with deletion_author(doc, doomed, strict=...):``.
+    """Author the tracked deletion of *doomed* inside this block as the DELETE author, then restore
+    the INSERT author. A no-op unless ``begin()`` armed split authoring on this thread.
 
     A class, not a generator context manager, so a UNO exception from the deletion reaches
     the caller unchanged (see ``plugin.doc.compound_undo.UndoStepOrRollback``).
+
+    Also a no-op when *doomed* lies wholly inside one pending insertion by the INSERT author.
+    Deleted as that author, the text leaves the insertion outright; a DELETE-author deletion would
+    stack on the insertion and split it, and Reject All would then keep the inserted paragraph's
+    style or list on the following original paragraph (``sw_GetJoinFlags``,
+    ``sw/source/core/doc/docedt.cxx``, joins backwards only from offset 0).
+
+    Callers that insert new text where *doomed* was pass *strict*, which also requires the
+    insertion to extend past both ends of *doomed*. The new text joins the insertion
+    unconditionally only strictly inside it (``PreAppendInsertRedline``, ``Inside`` case); at its
+    edge LibreOffice merges only redlines that ``SwRedlineData::CanCombine``
+    (``sw/source/core/doc/docredln.cxx``: same comment, within a minute), which a tagged
+    insertion never is. A separate new Insert next to text removed outright could not be rejected
+    back to that text, so the deletion then stacks and rejecting the new change restores it.
     """
 
     _ctx: Any
+    _doc: Any
+    _doomed: Any
+    _strict: bool
 
-    def __init__(self) -> None:
+    def __init__(self, doc: Any, doomed: Any, *, strict: bool) -> None:
+        self._doc = doc
+        self._doomed = doomed
+        self._strict = strict
         self._ctx = None
 
     def __enter__(self) -> None:
         ctx = getattr(_state, "ctx", None)
-        self._ctx = ctx if ctx is not None and set_office_author(ctx, DELETE_AUTHOR) else None
+        if ctx is None or inside_insertion_by(self._doc, [self._doomed], INSERT_AUTHOR, strict=self._strict):
+            return
+        self._ctx = ctx if set_office_author(ctx, DELETE_AUTHOR) else None
 
     def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: Any) -> None:
         if self._ctx is not None:

@@ -45,6 +45,7 @@ returns an empty complete result), and degrades to inert if tracking cannot be e
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, field
 import itertools
 import logging
@@ -837,6 +838,29 @@ class EditReviewSession:
         before, before_ok = self._first_snapshot
         after, after_ok = self._redline_idents()
         return not (before_ok and after_ok) or bool(after - before)
+
+    def accepted_paragraph_formats(self) -> bool:
+        """Return True when a ``ParagraphFormat`` redline pending before this session's first edit is gone.
+
+        LibreOffice accepts a paragraph's tracked paragraph formatting before every recorded insert
+        or delete in it (tdf#119019: ``DocumentContentOperationsManager::InsertString`` and
+        ``DeleteAndJoinWithRedlineImpl`` call ``AcceptRedlineParagraphFormatting``,
+        ``sw/source/core/doc/DocumentContentOperationsManager.cxx``), so after the edit Reject All
+        keeps that style change. Redlines are counted per type, author, date and comment, because
+        one style change over several paragraphs (or a Word ``w:pPrChange`` per paragraph, dated to
+        the second) gives every paragraph's redline the same four values; an accepted one lowers the
+        count. False when either scan is incomplete or the document was not recording at the first
+        mutation. Main thread only.
+        """
+        if self._first_snapshot is None:
+            return False
+        before, before_ok = self._first_snapshot
+        after, after_ok = self._redline_idents()
+
+        def signatures(keys: set[Any]) -> Counter[Any]:
+            return Counter(key[1:] for key in keys if key[1] == "ParagraphFormat")
+
+        return before_ok and after_ok and bool(signatures(before) - signatures(after))
 
     # -- review ------------------------------------------------------------------------------
 

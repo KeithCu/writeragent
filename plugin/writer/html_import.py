@@ -1440,7 +1440,7 @@ def _replace_whole_paragraphs(
         # Before the delete: on the emptied paragraph this reset cannot be undone, and
         # Undo would bring the old text back without its font, size and language.
         reset_direct_char_formatting(text_obj.createTextCursorByRange(rng), kept_char)
-    with _deletion_author():
+    with _deletion_author(model, doomed, strict=True):
         doomed.setString("")
     if recording:
         if shape == "previous":
@@ -1824,14 +1824,17 @@ def insert_content_at_position(
         raise ToolExecutionError("Unknown position: %s" % position)
 
 
-def _deletion_author() -> Any:
-    """WriterAgent split-author coloring; no-op when ``review_authors`` is omitted (LibrePy)."""
+def _deletion_author(model: Any, doomed: Any, *, strict: bool) -> Any:
+    """WriterAgent split-author coloring for deleting *doomed*; no-op when ``review_authors`` is omitted (LibrePy).
+
+    *strict* is for a deletion followed by new content where *doomed* was; see
+    ``review_authors.deletion_author``.
+    """
     try:
         from .review_authors import deletion_author
-
-        return deletion_author()
     except ImportError:
         return contextlib.nullcontext()
+    return deletion_author(model, doomed, strict=strict)
 
 
 _ABSORB_PARA_PROPERTIES = CLEARABLE_PARA_PROPERTIES + (
@@ -1958,7 +1961,7 @@ def replace_full_document(
         reset_first = one_paragraph and not recording
         if reset_first:
             reset_direct_char_formatting(cursor, language)
-        with _deletion_author():  # author the deletion distinctly (split by-author coloring)
+        with _deletion_author(model, cursor, strict=True):  # author the deletion distinctly (split by-author coloring)
             cursor.setString("")
         cursor.gotoStart(False)
         if recording:
@@ -2023,7 +2026,7 @@ def replace_single_range_with_content(
         if saved_style is not None:
             # Imported at call time: styles.py is WriterAgent-only (not in scripts/librepy_bundle_paths.py) and imports this module back through edit_review.
             from .styles import apply_paragraph_style_preserving_direct_char
-            with _deletion_author():  # author the deletion distinctly (split by-author coloring)
+            with _deletion_author(model, cursor, strict=True):  # author the deletion distinctly (split by-author coloring)
                 cursor.setString("")
             # While recording, the cursor still spans the struck text, and InsertFile
             # (SwUnoCursorHelper::InsertFile, sw/source/core/unocore/unocrsrhelper.cxx) runs
@@ -2071,7 +2074,7 @@ def replace_single_range_with_content(
         else:
             apply_styles, whole_paragraphs, note = _block_range_replace_flags(text_range, prepared)
         if not whole_paragraphs:
-            with _deletion_author():  # author the deletion distinctly (split by-author coloring)
+            with _deletion_author(model, cursor, strict=True):  # author the deletion distinctly (split by-author coloring)
                 cursor.setString("")
         try:
             return _import_block_range_replace(
@@ -2434,18 +2437,24 @@ def recorded_replace_keeps_formatting(target_range: Any) -> bool:
     return len(_text_runs(target_range, in_redlines=True)) == 1
 
 
-def _replace_runs_beside_objects(text: Any, runs: list[Any], new_text: str, author_deletion: bool) -> None:
+def _replace_runs_beside_objects(
+    model: Any, text: Any, runs: list[Any], new_text: str, author_deletion: bool
+) -> None:
     """Recorded replace of the text *runs* around as-character objects, keeping the objects.
 
     Striking the whole range would also strike each object's anchor character, so Accept All
     would delete the picture. Each run is struck on its own instead; a recorded deletion leaves
     the struck text in place, so the insert point taken first still lies after the longest
-    run, whose formatting the new text takes.
+    run, whose formatting the new text takes. The author is decided once for the span from the
+    first run to the last, strictly when new text goes in after the deletion (as in the two-step
+    path of ``_replace_recorded``).
     """
     cursors = [text.createTextCursorByRange(run) for run in runs]
     longest = max(cursors, key=lambda cur: len(cur.getString()))
     point = text.createTextCursorByRange(longest.getEnd())
-    with _deletion_author() if author_deletion else contextlib.nullcontext():
+    span = text.createTextCursorByRange(cursors[0].getStart())
+    span.gotoRange(cursors[-1].getEnd(), True)
+    with _deletion_author(model, span, strict=bool(new_text)) if author_deletion else contextlib.nullcontext():
         for cur in cursors:
             cur.setString("")
     if new_text:
@@ -2487,7 +2496,12 @@ def _replace_recorded(
                 _advance(tail, len(old_text) - split, True)
             head = text.createTextCursorByRange(target_range.getStart())  # target_range may have grown
             head.gotoRange(added.getStart(), True)
-            with _deletion_author() if author_deletion else contextlib.nullcontext():
+            # The author is decided on the old text together with the new text: only when the new text
+            # joined an earlier insertion does one insertion cover the whole span, and only then may the
+            # old text leave it outright (see review_authors.deletion_author).
+            span = text.createTextCursorByRange(head.getStart())
+            span.gotoRange(tail.getEnd(), True)
+            with _deletion_author(model, span, strict=False) if author_deletion else contextlib.nullcontext():
                 if len(old_text) > split:
                     tail.setString("")
                 head.setString("")
@@ -2497,7 +2511,7 @@ def _replace_recorded(
         return
     beside = [] if runs else _text_runs(target_range, in_redlines=True, beside_objects=True)
     if beside:
-        _replace_runs_beside_objects(text, beside, new_text, author_deletion)
+        _replace_runs_beside_objects(model, text, beside, new_text, author_deletion)
         return
     if not author_deletion:
         # Single atomic path. Taken when split-author coloring is OFF, OR when the caller has NOT
@@ -2514,7 +2528,7 @@ def _replace_recorded(
     # deletion coloring. The restore on insert-failure is a best-effort extra net (the caller's
     # context rollback also cleans up).
     original = cursor.getString()
-    with _deletion_author():  # author the deletion distinctly (split by-author coloring)
+    with _deletion_author(model, cursor, strict=bool(new_text)):  # author the deletion distinctly (split by-author coloring)
         cursor.setString("")
     if new_text:
         try:

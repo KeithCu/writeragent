@@ -8,8 +8,20 @@ import uno
 
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import native_writer_tool_context, pinned_writer_tool_context, with_native_doc
+from plugin.writer import review_authors
 from plugin.writer.apply_document_content import ApplyDocumentContent
-from tests.writer.doc_builders import body_paragraphs, body_texts, reject_all_changes
+from plugin.writer.styles import ApplyStyle
+from tests.writer.doc_builders import (
+    body_paragraphs,
+    body_texts,
+    find_first,
+    list_redline_types,
+    list_redlines,
+    recording_as,
+    reject_all_changes,
+    reset_body,
+    review_mode,
+)
 
 
 def _clear_body(doc):
@@ -336,9 +348,14 @@ def test_full_document_table_tail_under_review_uno(ctx, doc):
             rl_types.append(str(enum.nextElement().getPropertyValue("RedlineType")))
         assert "Insert" in rl_types, rl_types
 
+        # The new content goes where the old started, at the edge of the agent's own pending
+        # insertion, so the old content is struck rather than removed; Reject All returns the empty document.
         res2 = ApplyDocumentContent().execute(tctx, target="full_document", content=content)
         assert res2.get("status") == "ok", res2
         assert doc.getTextTables().getCount() == 2
+        reject_all_changes(doc, ctx)
+        assert doc.getTextTables().getCount() == 0
+        assert doc.getText().getString() == ""
     finally:
         save({flag: prev})
         doc.setPropertyValue("RecordChanges", False)
@@ -2624,6 +2641,112 @@ def _check_section_refusals(ctx, source_url):
         many = tool.execute(tctx, target="search", old_content="text.", content="words.", all_matches=True)
         assert many["status"] == "ok" and many["replaced_count"] == 1, many
         assert [p.getString() for p in body_paragraphs(text)][:3] == ["Free words.", "Locked text.", "Linked source text."]
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_recorded_replace_refuses_over_foreign_format_change_uno(ctx, doc):
+    """A recorded replace over another author's pending bold would delete that Format redline,
+    so the bold could no longer be rejected; the edit is refused and the redline stays."""
+    reset_body(doc, ctx, "Alpha one.", "Beta two plain text.")
+    with recording_as(doc, ctx, "Alice"):
+        find_first(doc, "plain").setPropertyValue("CharWeight", 150.0)
+    before = list_redlines(doc)
+    with review_mode("record"):
+        res = ApplyDocumentContent().execute(
+            native_writer_tool_context(doc, ctx), target="search", old_content="two plain text", content="two simple text"
+        )
+    assert res.get("code") == "MATCH_CROSSES_FORMAT_CHANGE", res
+    assert list_redlines(doc) == before
+    assert body_texts(doc.getText()) == ["Alpha one.", "Beta two plain text."]
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_recorded_replace_over_own_format_change_flags_style_unreviewed_uno(ctx, doc):
+    """Over the agent's own pending Format redline the replace goes ahead and says Reject All keeps the formatting."""
+    reset_body(doc, ctx, "Alpha one.", "Beta two plain text.")
+    with recording_as(doc, ctx, review_authors.INSERT_AUTHOR):
+        find_first(doc, "plain").setPropertyValue("CharWeight", 150.0)
+    with review_mode("record"):
+        res = ApplyDocumentContent().execute(
+            native_writer_tool_context(doc, ctx), target="search", old_content="two plain text", content="two simple text"
+        )
+    assert res.get("status") == "ok", res
+    assert res.get("style_unreviewed") is True, res
+    assert res.get("warnings"), res
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_text_edit_that_accepts_paragraph_style_change_flags_style_unreviewed_uno(ctx, doc):
+    """A recorded word edit in a paragraph with a pending style change makes LibreOffice accept
+    that change (tdf#119019), so Reject All keeps the new style; the result says so."""
+    reset_body(doc, ctx, "Alpha one.", "Beta two plain text.")
+    tctx = native_writer_tool_context(doc, ctx)
+    with review_mode("record"):
+        styled = ApplyStyle().execute(tctx, style="Heading 1", target="search", old_content="Beta two")
+        assert styled.get("status") == "ok", styled
+        assert "ParagraphFormat" in list_redline_types(doc)
+        res = ApplyDocumentContent().execute(tctx, target="search", old_content="two", content="2")
+    assert res.get("status") == "ok", res
+    assert res.get("style_unreviewed") is True, res
+    assert res.get("warnings"), res
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_all_matches_skips_match_over_foreign_format_change_across_texts_uno(ctx, doc):
+    """all_matches where only the frame match lies under Alice's pending bold: that match is
+    skipped and her Format redline kept, while the body matches are still replaced."""
+    reset_body(doc, ctx, "Alpha Vendor.", "Beta Vendor.")
+    frame = doc.createInstance("com.sun.star.text.TextFrame")
+    doc.getText().insertTextContent(doc.getText().getEnd(), frame, False)
+    frame_text = frame.getText()
+    frame_text.setString("Gamma Vendor.")
+    with recording_as(doc, ctx, "Alice"):
+        bold = frame_text.createTextCursor()
+        bold.gotoEnd(True)
+        bold.setPropertyValue("CharWeight", 150.0)
+    alice = [r for r in list_redlines(doc) if r["RedlineAuthor"] == "Alice"]
+    assert alice, list_redlines(doc)
+    with review_mode("record"):
+        res = ApplyDocumentContent().execute(
+            native_writer_tool_context(doc, ctx), target="search", old_content="Vendor", content="Supplier", all_matches=True
+        )
+    assert res.get("status") == "ok", res
+    assert [r for r in list_redlines(doc) if r["RedlineAuthor"] == "Alice"] == alice
+    assert frame_text.getString() == "Gamma Vendor."
+    assert all("Supplier" in t for t in body_texts(doc.getText())), body_texts(doc.getText())
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_accepted_one_of_two_same_signature_paragraph_style_changes_is_flagged_uno(ctx, doc):
+    """Two paragraphs restyled in one go carry ParagraphFormat redlines with the same author and
+    date; a word edit in one makes LibreOffice accept that one, and the result still says so."""
+    reset_body(doc, ctx, "Alpha one.", "Beta two plain text.", "Gamma three end.")
+    stamp = uno.createUnoStruct("com.sun.star.util.DateTime")
+    stamp.Year, stamp.Month, stamp.Day, stamp.Hours = 2026, 11, 27, 10
+    props = (
+        uno.createUnoStruct("com.sun.star.beans.PropertyValue", "RedlineAuthor", 0, "Counsel", 0),
+        uno.createUnoStruct("com.sun.star.beans.PropertyValue", "RedlineDateTime", 0, stamp, 0),
+    )
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        for needle in ("Beta two plain text.", "Gamma three end."):
+            found = find_first(doc, needle)
+            found.getText().createTextCursorByRange(found).makeRedline("ParagraphFormat", props)
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+    assert list_redline_types(doc).count("ParagraphFormat") == 2
+    with review_mode("record"):
+        res = ApplyDocumentContent().execute(
+            native_writer_tool_context(doc, ctx), target="search", old_content="two", content="2"
+        )
+    assert res.get("status") == "ok", res
+    assert list_redline_types(doc).count("ParagraphFormat") == 1
+    assert res.get("style_unreviewed") is True, res
 
 
 @native_test

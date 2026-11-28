@@ -20,7 +20,7 @@ import logging
 from typing import Any, Callable, cast
 
 from plugin.framework.constants import WORKFLOW_TASK_PREFIXES, now_aware
-from plugin.framework.errors import make_tool_error, reraise_if_disposed, uno_read
+from plugin.framework.errors import append_warnings, make_tool_error, reraise_if_disposed, uno_read
 import uno
 
 from plugin.doc.paragraph_search import paragraph_entries
@@ -31,7 +31,7 @@ from plugin.framework.errors import name_miss_details
 from plugin.framework.i18n import N_, _
 from plugin.framework.uno_context import uno_same
 from ..edit_review import flag_tracked, flag_tracked_delete, flag_untracked, next_agent_edit_undo_title
-from ..record_changes import is_recording_changes
+from ..record_changes import is_recording_changes, overlapping_redline_authors
 from ..search import (
     LADDER_CASE_SENSITIVE_DESCRIPTION,
     LocationLabeler,
@@ -53,6 +53,17 @@ _COMMENT_UNTRACKED_WARNING = N_(
 _RESOLVED_MARK_UNTRACKED_WARNING = N_(
     "The reply is a tracked change, but the resolved mark is not: it stays after rejecting "
     "changes (Ctrl+Z undoes it). Tell the user."
+)
+_COMMENT_ON_PENDING_INSERTION_WARNING = N_(
+    "The commented text is a pending tracked insertion. If that insertion is rejected while the "
+    "comment is kept, the comment stays in the document as a comment on an empty point."
+)
+# removeTextContent reaches SwTextField::DeleteTextField (sw/source/core/txtnode/atrfld.cxx), whose
+# DeleteAndJoin covers only the comment's field character, so the recorded deletion does not hold the
+# comment's text range and Reject cannot restore it.
+_RECORDED_COMMENT_DELETE_WARNING = N_(
+    "Track Changes recorded the deletion. If the user rejects it, the comment comes back without "
+    "the text range it was attached to (as a comment on one point)."
 )
 
 
@@ -269,6 +280,9 @@ class AddComment(ToolBase):
             **mode.result_fields(),
         }
         _flag_comment_write(result, doc, is_recording_changes(doc))
+        # LibreOffice keeps the annotation when the insertion under it is rejected.
+        if overlapping_redline_authors(doc, [found], "Insert"):
+            append_warnings(result, [_(_COMMENT_ON_PENDING_INSERTION_WARNING)])
         return result
 
 
@@ -359,6 +373,7 @@ class CommentDelete(ToolWriterCommentBase):
         result: dict[str, Any] = {"status": "ok", "deleted": len(to_delete)}
         if is_recording_changes(doc):
             flag_tracked_delete(result, "%d comment(s) are" % len(to_delete))
+            append_warnings(result, [_(_RECORDED_COMMENT_DELETE_WARNING)])
         else:
             flag_untracked(result, doc, _(_COMMENT_UNTRACKED_WARNING))
         return result

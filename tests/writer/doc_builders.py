@@ -18,7 +18,9 @@ from typing import Any
 
 from plugin.doc.document_helpers import DocumentService
 from plugin.doc.text_helpers import iter_elements, normalize_linebreaks
+from plugin.framework.config import get_config, save
 from plugin.framework.uno_context import execute_dispatch
+from plugin.writer import review_authors
 from plugin.writer.specialized.bookmarks import BookmarkService
 
 # com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK
@@ -147,6 +149,17 @@ def build_chain_deletion_doc(doc: Any, text: Any) -> None:
         doc.setPropertyValue("RecordChanges", False)
 
 
+@contextlib.contextmanager
+def review_mode(mode: str) -> Iterator[None]:
+    """Set ``doc.agent_edit_review_mode`` to *mode* for the block, then restore the prior value."""
+    prior = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": mode})
+    try:
+        yield
+    finally:
+        save({"doc.agent_edit_review_mode": prior})
+
+
 def accept_all_changes(doc: Any, ctx: Any) -> None:
     """Accept every tracked change through the command the user runs."""
     execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
@@ -191,8 +204,6 @@ def list_redline_types(doc: Any) -> list[str]:
 @contextlib.contextmanager
 def recording_as(doc: Any, ctx: Any, author: str = "Alice") -> Iterator[None]:
     """Record changes as *author* (another reviewer) for the duration of the block."""
-    from plugin.writer import review_authors
-
     prior = review_authors.begin(ctx)
     try:
         assert review_authors.set_office_author(ctx, author) is True

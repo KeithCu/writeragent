@@ -420,7 +420,7 @@ def test_deletion_author_noop_when_review_authors_missing(monkeypatch):
     import plugin.writer.html_import as html_import
 
     monkeypatch.setitem(sys.modules, "plugin.writer.review_authors", None)
-    cm = html_import._deletion_author()
+    cm = html_import._deletion_author(object(), object(), strict=False)
     with cm:
         pass
     assert isinstance(cm, contextlib.nullcontext)
@@ -1342,7 +1342,7 @@ def test_replace_preserving_format_restores_original_on_insert_failure():
     text = _FakeText()
     target = _FakeRange(text)
     with patch("plugin.writer.record_changes.is_recording_changes", return_value=True), \
-         patch("plugin.writer.review_authors.deletion_author", lambda: contextlib.nullcontext()), \
+         patch("plugin.writer.review_authors.deletion_author", lambda _doc, _doomed, **_kw: contextlib.nullcontext()), \
          pytest.raises(RuntimeError, match="insert boom"):
         fmt.replace_preserving_format(object(), target, "NEW TEXT", in_undo_context=True)
 
@@ -1891,7 +1891,7 @@ def test_replace_preserving_format_two_step_when_split_author_true_in_undo_conte
     text = _OkText()
     target = _FakeRange(text)
     with patch("plugin.writer.record_changes.is_recording_changes", return_value=True), \
-         patch("plugin.writer.review_authors.deletion_author", lambda: contextlib.nullcontext()):
+         patch("plugin.writer.review_authors.deletion_author", lambda _doc, _doomed, **_kw: contextlib.nullcontext()):
         fmt.replace_preserving_format(object(), target, "NEW TEXT", in_undo_context=True)
 
     assert text.cursor.getString() == ""   # the deletion emptied the range (step 1)
