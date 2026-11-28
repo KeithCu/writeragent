@@ -45,19 +45,18 @@ returns an empty complete result), and degrades to inert if tracking cannot be e
 
 from __future__ import annotations
 
-import contextlib
 from dataclasses import dataclass, field
 import itertools
 import logging
 import re
 import time
 import uuid
-from typing import Any, Callable, ClassVar, Generator, TypeVar
+from typing import Any, Callable, ClassVar, TypeVar
 
 from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK  # type: ignore
 
 from plugin.doc.compound_undo import UndoLock, UndoOutcome, UndoUnavailable, WriterCompoundUndo, commit_or_rollback
-from plugin.doc.text_helpers import FAILED, go_right, is_text_table, iter_elements, iter_portions
+from plugin.doc.text_helpers import FAILED, TrackedDeletions, go_right, is_text_table, iter_elements, iter_portions
 # Module-qualified on purpose: plugin/testing_runner.py replaces config.get_config while native
 # suites run (review mode reads "off" unless a test sets it); a from-import would keep the original.
 from plugin.framework import config
@@ -133,27 +132,41 @@ def edit_is_recorded(doc: Any) -> bool:
     return review_recording_enabled() or is_recording_changes(doc)
 
 
-@contextlib.contextmanager
-def agent_format_author(doc: Any, ctx: Any, ranges: list[Any]) -> Generator[None, None, None]:
+class agent_format_author:  # Named like a function: callers write ``with agent_format_author(...):``.
     """Author redlines recorded on *ranges* in this block as WriterAgent in record/wait mode.
 
     LibreOffice folds a format into a pending insertion only when both have the same author;
     otherwise rejecting keeps the inserted text (PreAppendFormatRedline in
     DocumentRedlineManager.cxx). So the office author stays when *ranges* overlap an insertion
-    that is not WriterAgent's.
+    that is not WriterAgent's. A class, not a generator context manager, so a UNO exception
+    from the block reaches the caller unchanged (see
+    ``plugin.doc.compound_undo.UndoStepOrRollback``).
     """
-    if (
-        not review_recording_enabled()
-        or not is_recording_changes(doc)
-        or overlaps_foreign_insertion(doc, ranges, review_authors.INSERT_AUTHOR)
-    ):
-        yield
-        return
-    prior = review_authors.begin(ctx)
-    try:
-        yield
-    finally:
-        review_authors.end(ctx, prior)
+
+    _doc: Any
+    _ctx: Any
+    _ranges: list[Any]
+    _begun: bool
+    _prior: tuple[str, str] | None
+
+    def __init__(self, doc: Any, ctx: Any, ranges: list[Any]) -> None:
+        self._doc = doc
+        self._ctx = ctx
+        self._ranges = ranges
+        self._begun = False
+        self._prior = None
+
+    def __enter__(self) -> None:
+        self._begun = (
+            review_recording_enabled()
+            and is_recording_changes(self._doc)
+            and not overlaps_foreign_insertion(self._doc, self._ranges, review_authors.INSERT_AUTHOR)
+        )
+        self._prior = review_authors.begin(self._ctx) if self._begun else None
+
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: Any) -> None:
+        if self._begun:
+            review_authors.end(self._ctx, self._prior)
 
 
 def paragraph_redline_author(ctx: Any) -> str:
@@ -986,10 +999,19 @@ def collapsed_anchor(text_range: Any) -> Any | None:
     return uno_read(lambda: text_range.getText().createTextCursorByRange(text_range.getStart()), None)
 
 
-def paragraph_window_text(anchor: Any | None, max_chars: int = _EDITED_CONTEXT_MAX_CHARS) -> str | None:
-    """Plain text of the paragraph around *anchor* plus one neighbor each side, read AFTER the edit."""
+def paragraph_window_text(doc: Any, anchor: Any | None, max_chars: int = _EDITED_CONTEXT_MAX_CHARS) -> str | None:
+    """Plain text of the paragraph around *anchor* plus one neighbor each side, read AFTER the edit.
+
+    Pending tracked deletions are left out, so the window reads as it will after Accept
+    (``_string_skipping_redline``); otherwise struck text is glued to the new text ("Third3rd")
+    and the model takes it for live text. A window with no deletion is the raw ``getString()``,
+    because the portion walk renders an object portion as ``_OBJECT_MARK`` and reads fields
+    portion by portion; without the ``overlaps`` test the echo would change for every document,
+    Track Changes off included.
+    """
     if anchor is None:
         return None
+    deletions = TrackedDeletions(doc)
 
     def window() -> str:
         text = anchor.getText()
@@ -1003,7 +1025,7 @@ def paragraph_window_text(anchor: Any | None, max_chars: int = _EDITED_CONTEXT_M
         end.gotoEndOfParagraph(False)
         span = text.createTextCursorByRange(start.getStart())
         span.gotoRange(end.getEnd(), True)
-        return span.getString()
+        return _string_skipping_redline(span, "Delete") if deletions.overlaps(span) else span.getString()
 
     s = uno_read(window, None)
     if not s or not s.strip():
@@ -1015,9 +1037,9 @@ def paragraph_window_text(anchor: Any | None, max_chars: int = _EDITED_CONTEXT_M
     return s
 
 
-def attach_edited_context(result: Any, anchor: Any | None) -> dict[str, Any]:
+def attach_edited_context(result: Any, doc: Any, anchor: Any | None) -> dict[str, Any]:
     """Add edited_context (the touched paragraph(s) as they now read) to a successful result."""
-    snippet = paragraph_window_text(anchor)
+    snippet = paragraph_window_text(doc, anchor)
     if snippet:
         result["edited_context"] = snippet
     return result

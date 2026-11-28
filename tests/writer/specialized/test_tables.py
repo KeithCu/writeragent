@@ -21,6 +21,7 @@ from plugin.writer.specialized.tables import (
     TableMergeCells,
     TableSetCell,
     TableSplitCell,
+    _TEXT_CONTENT,
     _cell_content,
     _hosted_in_band,
     _unknown_cell_message,
@@ -1900,4 +1901,4 @@ def test_cell_content_crlf_empty_paragraphs_is_empty():
         getString=lambda: "\r\nx",
         createEnumeration=lambda: FakeUnoEnum([FakeParagraph(), FakeParagraph("x")]),
     )
-    assert _cell_content(non_empty_cell) is not None
+    assert _cell_content(non_empty_cell) == _TEXT_CONTENT

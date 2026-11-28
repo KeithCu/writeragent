@@ -361,7 +361,7 @@ def test_offset_window_slices_by_running_offset():
 def test_offset_window_past_end_exactly_at_end():
     from plugin.writer.html_export import _offset_window
 
-    past_end, window = _offset_window(0, 5)
+    past_end, window = _offset_window(0, 6)
     e1, e2 = MagicMock(), MagicMock()
     assert window(e1, "Hello", [], False) == ([], (0, 5))
     assert past_end(e2) is True
