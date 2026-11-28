@@ -471,3 +471,31 @@ def test_refused_table_into_cell_keeps_view_cursor_uno(ctx, doc):
     assert res["status"] == "error" and res["code"] == "TABLE_INSERT_FAILED", res
     assert vc.TextTable is None
     assert text.compareRegionStarts(caret, vc.getStart()) == 0
+
+
+@native_test
+def test_recorded_replace_refuses_word_inserted_row_text_uno(ctx):
+    """apply_content over a Word row insertion's text (row_changes.docx) is refused; Reject All still removes the row."""
+    import tempfile
+    from pathlib import Path
+
+    from plugin.framework.config import get_config, save
+    from tests.writer.corpus_fixture import ROW_CHANGES
+
+    prev = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "record"})
+    try:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
+            path = Path(folder) / "row_changes.docx"
+            ROW_CHANGES.write(path)
+            for all_matches in (False, True):
+                with TestingFactory.native_doc(ctx, doc_type=uno.systemPathToFileUrl(str(path)), reuse=False) as d:
+                    tool_ctx = TestingFactory.create_context(doc=d, ctx=ctx, env="native")
+                    res = ApplyDocumentContent().execute_safe(
+                        tool_ctx, target="search", old_content="New", content=["Newer"], all_matches=all_matches
+                    )
+                    assert res["status"] == "error" and res["code"] == "CELL_IN_PENDING_INSERTION", res
+                    reject_all_changes(d, ctx)
+                    assert d.getTextTables().getByIndex(0).getRows().getCount() == 3
+    finally:
+        save({"doc.agent_edit_review_mode": prev})

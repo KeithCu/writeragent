@@ -24,6 +24,7 @@ from tests.writer.doc_builders import (
     accept_all_changes,
     insert_named_table,
     list_redlines,
+    recording_as,
     reject_all_changes,
 )
 
@@ -1734,21 +1735,6 @@ def test_table_set_cell_keeps_picture_uno(ctx, doc):
 
 
 @contextlib.contextmanager
-def _as_author(doc, ctx, author="Alice"):
-    """Record changes as *author* (another reviewer) for the duration of the block."""
-    from plugin.writer import review_authors
-
-    prior = review_authors.begin(ctx)
-    assert review_authors.set_office_author(ctx, author) is True
-    doc.setPropertyValue("RecordChanges", True)
-    try:
-        yield
-    finally:
-        doc.setPropertyValue("RecordChanges", False)
-        review_authors.end(ctx, prior)
-
-
-@contextlib.contextmanager
 def _review_mode(doc, mode):
     """'record': WriterAgent's Record review mode; 'user': review Off while the user records."""
     from plugin.framework.config import get_config, save
@@ -1789,7 +1775,7 @@ def _cells(table):
 def test_table_set_cell_keeps_tracked_row_insertion_anchor_uno(ctx, doc):
     """A recorded write into the first cell of a tracked inserted row keeps the row's U+200D Insert."""
     table = _lettered_table(doc)
-    with _as_author(doc, ctx):
+    with recording_as(doc, ctx):
         _dispatch_in_cell(doc, ctx, table, "A1", ".uno:InsertRowsAfter")
     assert table.getRows().getCount() == 4
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
@@ -1826,7 +1812,7 @@ def test_refused_delete_of_own_pending_table_keeps_its_insertion_uno(ctx, doc):
 def test_delete_of_other_authors_pending_table_and_row_refused_uno(ctx, doc):
     """Deleting a table or a row that another author inserted is refused; Reject All still removes them."""
     table = _lettered_table(doc)
-    with _as_author(doc, ctx):
+    with recording_as(doc, ctx):
         insert_named_table(doc, "TA", 2, 2, {"A1": "q1", "B1": "q2", "A2": "q3", "B2": "q4"})
         _dispatch_in_cell(doc, ctx, table, "A1", ".uno:InsertRowsAfter")
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
@@ -1848,7 +1834,7 @@ def test_delete_of_other_authors_pending_table_and_row_refused_uno(ctx, doc):
 def test_struck_row_reported_and_write_refused_uno(ctx, doc):
     """A row pending deletion is listed in deleted_rows and table_set_cell refuses to write into it."""
     table = _lettered_table(doc)
-    with _as_author(doc, ctx):
+    with recording_as(doc, ctx):
         _dispatch_in_cell(doc, ctx, table, "A2", ".uno:DeleteRows")
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     cells = TableGetCells().execute(tool_ctx, name="T1")
@@ -1865,8 +1851,7 @@ def test_struck_row_reported_and_write_refused_uno(ctx, doc):
 
 
 @native_test
-@with_native_doc("writer", reuse=False)
-def test_recorded_set_cell_keeps_as_character_picture_uno(ctx, doc):
+def test_recorded_set_cell_keeps_as_character_picture_uno(ctx):
     """A recorded table_set_cell strikes only the text of a cell, so Accept All keeps its picture."""
     from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 
@@ -1910,7 +1895,7 @@ def test_recorded_set_cell_refuses_formula_and_value_cells_uno(ctx, doc):
 def test_recorded_set_cell_refuses_other_authors_inserted_table_or_row_text_uno(ctx, doc):
     """Recorded writes over another author's pending table or row insertion are refused; Reject All still removes them."""
     table = _lettered_table(doc)
-    with _as_author(doc, ctx):
+    with recording_as(doc, ctx):
         insert_named_table(doc, "TA", 2, 2, {"A1": "q1", "B1": "q2", "A2": "q3", "B2": "q4"})
         _dispatch_in_cell(doc, ctx, table, "A1", ".uno:InsertRowsAfter")
         b2 = table.getCellByName("B2")
@@ -1952,3 +1937,24 @@ def test_recorded_set_cell_refuses_word_inserted_row_text_uno(ctx, doc):
             assert res["status"] == "error" and res["code"] == "CELL_IN_PENDING_INSERTION", res
             reject_all_changes(d, ctx)
             assert table.getRows().getCount() == 3, _cells(table)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_own_table_stays_writable_beside_foreign_table_inserted_at_document_start_uno(ctx, doc):
+    """Another author's table insertion that starts at a table node does not block the agent's own table."""
+    text = doc.getText()
+    text.setString("After.")
+    with recording_as(doc, ctx):
+        table = doc.createInstance("com.sun.star.text.TextTable")
+        table.initialize(1, 2)
+        text.insertTextContent(text.getStart(), table, False)
+        table.setName("TA")
+        table.getCellByName("A1").setString("q1")
+    doc.getCurrentController().select(text.getEnd())
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    with _review_mode(doc, "record"):
+        ins = TableInsert().execute_safe(tool_ctx, rows=1, columns=2, data=[["x1", ""]])
+        assert ins["status"] == "ok", ins
+        res = TableSetCell().execute_safe(tool_ctx, name=ins["table_name"], cell="B1", text="x2")
+    assert res["status"] == "ok" and res["tracked"] is True, res

@@ -35,7 +35,7 @@ from plugin.framework.uno_context import execute_dispatch, uno_same
 from plugin.writer.edit_review import get_agent_edit_review_mode
 from plugin.writer.inline_review import agent_self_resolution_block_reason
 from plugin.writer.review_scan import is_agent_token, redline_identity_key, redline_is_agent_change
-from plugin.writer.range_copy import writer_cell_position
+from plugin.writer.range_copy import tracked_row_of
 from plugin.writer.search import LocationLabeler
 from .specialized_base import ToolWriterTrackingBase, enum_param
 
@@ -112,27 +112,17 @@ def _redline_start(redline: Any) -> Any:
 
 
 def _tracked_row(start: Any) -> tuple[str, int] | None:
-    """(table name, row index) when *start* lies in a row inserted or deleted as a tracked change.
-
-    LibreOffice marks such a row with ``HasTextChangesOnly`` false and records one redline per
-    cell (``SwTableLine::UpdateTextChangesOnly``, sw/source/core/table/swtable.cxx). A start
-    outside a table, or at a table itself (no ``TextTable`` property), gives None.
-    """
-    table = uno_read(lambda: start.getPropertyValue("TextTable"), None)
-    cell = uno_read(lambda: start.getPropertyValue("Cell"), None)
-    if table is None or cell is None:
-        return None
-    pos = writer_cell_position(cell.CellName)
-    if pos is None or table.getRows().getByIndex(pos[1]).getPropertyValue("HasTextChangesOnly") is not False:
-        return None
-    return table.getName(), pos[1]
+    """(table name, row index) of the tracked row *start* lies in, comparable across redlines."""
+    row = tracked_row_of(start)
+    return None if row is None else (row[0].getName(), row[1])
 
 
 def _row_sibling_refusal(index: int, objs: list[Any], start: Any) -> str | None:
-    """Refusal when the change at *index* is one cell of a tracked row change that has other cells.
+    """Refusal when the change at *index* lies in a tracked row that holds other changes too.
 
-    Resolving one cell's redline by index resolves only that cell and resets the row's tracked
-    state, so the rest of the row would stay struck (or inserted) as plain text changes.
+    LibreOffice records a tracked row insertion or deletion as one redline per cell; resolving
+    one of them by index resolves only that cell and resets the row's tracked state, so the rest
+    of the row would stay struck (or inserted) as plain text changes.
     """
     row = _tracked_row(start)
     if row is None:
@@ -141,11 +131,11 @@ def _row_sibling_refusal(index: int, objs: list[Any], start: Any) -> str | None:
     if not siblings:
         return None
     return (
-        "Tracked change %d is one cell of a tracked row change in row %d of table '%s' (the row's other "
-        "cells are changes %s). Accepting or rejecting one cell would leave the rest of the row "
-        "half-resolved, so nothing was changed. Ask the user to accept or reject the row "
-        "(Edit > Track Changes > Manage)."
-        % (index, row[1] + 1, row[0], ", ".join(str(i) for i in siblings))
+        "Tracked change %d is a change inside a tracked row insertion or deletion (row index %d, "
+        "0-based as the table tools count, of table '%s'; the row's other changes are %s). Accepting "
+        "or rejecting it alone would leave the rest of the row half-resolved, so nothing was changed. "
+        "Ask the user to accept or reject the row (Edit > Track Changes > Manage)."
+        % (index, row[1], row[0], ", ".join(str(i) for i in siblings))
     )
 
 

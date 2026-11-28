@@ -36,6 +36,7 @@ from plugin.writer.edit_review import flag_tracked, record_write
 from plugin.writer.html_import import non_text_portion_type, replace_preserving_format
 from plugin.writer import review_authors
 from plugin.writer.record_changes import (
+    RedlineSpan,
     is_recording_changes,
     overlaps_foreign_insertion,
     redline_kinds_covering,
@@ -43,7 +44,7 @@ from plugin.writer.record_changes import (
 )
 from plugin.writer.review_scan import scan_redlines
 
-from ..range_copy import cells_all_tracked_deleted, writer_cell_position  # range_copy/table_nesting also ship in LibrePy and must not import this module.
+from ..range_copy import cells_all_tracked_deleted, row_is_tracked, tracked_row_of, writer_cell_position  # range_copy/table_nesting also ship in LibrePy and must not import this module.
 from ..specialized_base import ToolWriterTableBase, enum_param
 from ..table_helpers import check_grid, check_table_band, edit_table_band, fill_table_cells, table_dims
 from ..table_nesting import (
@@ -715,16 +716,17 @@ def _pending_insertions(doc: Any, names: list[str]) -> set[str]:
     return pending
 
 
-def _table_pending_insertion(doc: Any, table: Any, name: str) -> bool:
+def _table_pending_insertion(doc: Any, table: Any, name: str, spans: list[RedlineSpan]) -> bool:
     """True when *table* was itself inserted as a pending tracked change, by any author.
 
-    An insertion that starts at the table node has the table as ``RedlineStart``
-    (``_pending_insertions``); one typed after a paragraph starts at that paragraph's end, so
-    it is found by covering the table's anchor (``redline_bounds``).
+    An insertion typed after a paragraph starts at that paragraph's end, so it is found by
+    covering the table's anchor in *spans* (``redline_spans``; ``redline_bounds`` also maps a
+    start at the table node to that anchor). ``redline_spans`` drops an insertion whose end is
+    a table too (its ``end.getText()`` raises), which is the case ``_pending_insertions`` adds.
     """
     if name in _pending_insertions(doc, [name]):
         return True
-    inserts = [bounds for kind, bounds in redline_spans(doc) if kind == "Insert"]
+    inserts = [bounds for kind, bounds in spans if kind == "Insert"]
     if not inserts:
         return False
     anchor = table.getAnchor()
@@ -735,19 +737,9 @@ def _row_cells(table: Any, idx: int) -> list[Any]:
     return [table.getCellByName(n) for n in _band_cell_names(table, "row", idx)]
 
 
-def _row_tracked(table: Any, idx: int) -> bool:
-    """True when row *idx* was inserted or deleted as a tracked change.
-
-    LibreOffice sets ``HasTextChangesOnly`` false on such a row, and Accept or Reject then
-    keeps or removes the row by the redlines in its cells
-    (``SwTableLine::UpdateTextChangesOnly``, sw/source/core/table/swtable.cxx).
-    """
-    return table.getRows().getByIndex(idx).getPropertyValue("HasTextChangesOnly") is False
-
-
 def _row_pending_deletion(doc: Any, table: Any, idx: int) -> bool:
     """True when accepting the pending changes removes row *idx*: tracked, and all its text struck."""
-    return _row_tracked(table, idx) and cells_all_tracked_deleted(_row_cells(table, idx), doc)
+    return row_is_tracked(table, idx) and cells_all_tracked_deleted(_row_cells(table, idx), doc)
 
 
 def _deleted_rows(doc: Any, table: Any) -> list[int]:
@@ -755,55 +747,53 @@ def _deleted_rows(doc: Any, table: Any) -> list[int]:
     return [i for i in range(table.getRows().getCount()) if _row_pending_deletion(doc, table, i)]
 
 
-def _row_pending_insertion(doc: Any, table: Any, idx: int) -> bool:
-    """True when row *idx* is a tracked row insertion: tracked, and one of its cells holds an Insert redline."""
-    if not _row_tracked(table, idx):
+def _row_pending_insertion(doc: Any, table: Any, idx: int, spans: list[RedlineSpan]) -> bool:
+    """True when row *idx* is a tracked row insertion: tracked, and one of its cells holds an Insert in *spans*."""
+    if not row_is_tracked(table, idx):
         return False
     cells = _row_cells(table, idx)
     return not cells_all_tracked_deleted(cells, doc) and any(
-        kind == "Insert" and any(uno_same(bounds[0], cell) for cell in cells) for kind, bounds in redline_spans(doc)
+        kind == "Insert" and any(uno_same(bounds[0], cell) for cell in cells) for kind, bounds in spans
     )
 
 
-def _starts_with_row_insertion_anchor(doc: Any, cell: Any) -> bool:
+def _starts_with_row_insertion_anchor(cell: Any, spans: list[RedlineSpan]) -> bool:
     """True when *cell* starts with the U+200D of a pending Insert (Writer's tracked row insertion marker)."""
     if not cell.getString().startswith(_EMPTY_ROW_ANCHOR):
         return False
     first = cell.createTextCursor()
     first.gotoStart(False)
     first.goRight(1, True)
-    return "Insert" in redline_kinds_covering(redline_spans(doc), first)
+    return "Insert" in redline_kinds_covering(spans, first)
 
 
-def _holds_object(span: Any) -> bool:
-    """True when *span* holds an as-character object (picture, frame, shape)."""
-    return any(
-        portion.getPropertyValue("TextPortionType") == "Frame"
-        for para in iter_elements(span.createEnumeration())
-        for portion in iter_elements(para.createEnumeration())
-    )
+def refuse_edit_over_pending_insertion(doc: Any, span: Any, author: str, spans: list[RedlineSpan] | None = None) -> None:
+    """Refuse a recorded edit of *span*, in a table cell, over another author's pending table or row insertion.
 
-
-def _replace_text_beside_objects(cell: Any, span: Any, new: str) -> None:
-    """Record replacing the text of *span* with *new*, striking each text run on its own.
-
-    A tracked replace of the whole span would also strike the anchor character of an
-    as-character picture, so Accept All would delete the picture. Recorded deletions leave
-    the struck text in place, so the insert point taken first still lies after the longest
-    run, whose formatting the new text takes.
+    Another author's deletion stacks on that insertion and splits its Insert redline, so
+    Reject All would keep an empty table or row (``SwTableLine::UpdateTextChangesOnly``,
+    sw/source/core/table/swtable.cxx). An edit by the insertion's own *author* folds into it,
+    and an edit that touches none of the inserted text (an empty cell of an inserted row,
+    the text after its U+200D) leaves it whole, so both go ahead. Nothing happens outside a cell.
     """
-    runs = [
-        cell.createTextCursorByRange(portion)
-        for para in iter_elements(span.createEnumeration())
-        for portion in iter_elements(para.createEnumeration())
-        if portion.getPropertyValue("TextPortionType") == "Text" and portion.getString()
-    ]
-    longest = max(runs, key=lambda run: len(run.getString()), default=span)
-    point = cell.createTextCursorByRange(longest.getEnd())
-    for run in runs:
-        run.setString("")
-    if new:
-        cell.insertString(point, new, False)
+    at = span.getText().createTextCursorByRange(span.getStart())
+    table = uno_read(lambda: at.getPropertyValue("TextTable"), None)
+    if table is None:
+        return
+    name = table.getName()
+    spans = redline_spans(doc) if spans is None else spans
+    row = tracked_row_of(at)
+    shell = (
+        "table" if _table_pending_insertion(doc, table, name, spans)
+        else "row" if row is not None and _row_pending_insertion(doc, table, row[1], spans)
+        else None
+    )
+    if shell and overlaps_foreign_insertion(doc, [span], author):
+        raise _pending_insertion_error(
+            "The text of cell %s of table '%s'" % (at.getPropertyValue("Cell").CellName, name),
+            shell,
+            "CELL_IN_PENDING_INSERTION",
+        )
 
 
 def delete_leading_tables(session: Any, doc: Any, uno_ctx: Any) -> None:
@@ -875,9 +865,10 @@ def _delete_band_tracked(doc: Any, uno_ctx: Any, table: Any, name: str, axis: st
             raise _band_locate_error()
         target_cell = col_target
 
-    if _table_pending_insertion(doc, table, name):
+    spans = redline_spans(doc)
+    if _table_pending_insertion(doc, table, name, spans):
         raise _pending_insertion_error("Table '%s'" % name, "table")
-    if axis == "row" and _row_pending_insertion(doc, table, idx):
+    if axis == "row" and _row_pending_insertion(doc, table, idx, spans):
         raise _pending_insertion_error("The row at index %d of table '%s'" % (idx, name), "row")
 
     controller = doc.getCurrentController()
@@ -962,7 +953,7 @@ def delete_writer_table(doc: Any, uno_ctx: Any, table: Any, name: str, nesting: 
     """
     _require_no_protected_cells(doc, table, name, nesting)
     if uno_read(lambda: is_recording_changes(doc), False):
-        if _table_pending_insertion(doc, table, name):
+        if _table_pending_insertion(doc, table, name, redline_spans(doc)):
             raise _pending_insertion_error("Table '%s'" % name, "table")
         _delete_writer_table_tracked(doc, uno_ctx, table, name)
         return True
@@ -1167,8 +1158,7 @@ class TableGetCells(ToolWriterTableBase):
                 return self._tool_error(
                     "Could not read cell '%s' in table '%s'." % (cell_raw, name)
                 )
-            deleted_rows = _deleted_rows(ctx.doc, table)
-            payload = {
+            writer_payload: dict[str, Any] = {
                 "status": "ok",
                 "table_name": name,
                 "rows": rows,
@@ -1177,11 +1167,13 @@ class TableGetCells(ToolWriterTableBase):
                 "cells": cells,
                 "nesting": _nesting_for(ctx.doc, table, name),
                 "nested_in_cells": nested_in_cells,
-                **({"deleted_rows": deleted_rows} if deleted_rows else {}),
             }
             if resolved:
-                payload["cell"] = resolved
-            return payload
+                writer_payload["cell"] = resolved
+            deleted_rows = _deleted_rows(ctx.doc, table)
+            if deleted_rows:
+                writer_payload["deleted_rows"] = deleted_rows
+            return writer_payload
         except ValueError as ve:
             return self._tool_error(str(ve))
 
@@ -1258,8 +1250,8 @@ class TableSetCell(ToolWriterTableBase):
                     _protected_refusal("change", "cell %s of table '%s'" % (cell_name, name), protected),
                     code="CELLS_PROTECTED",
                 )
-            row = writer_cell_position(cell_name)
-            if row is not None and _row_pending_deletion(ctx.doc, table, row[1]):
+            pos = writer_cell_position(cell_name)
+            if pos is not None and _row_pending_deletion(ctx.doc, table, pos[1]):
                 return self._tool_error(_STRUCK_ROW_REFUSAL % (cell_name, name), code="MATCH_CROSSES_DELETION")
             uno_ctx = resolve_uno_context(ctx)
             # Decide from Writer's recording state at write time, not from the review mode or
@@ -1276,27 +1268,16 @@ class TableSetCell(ToolWriterTableBase):
                     recorded = is_recording_changes(ctx.doc)
                     return
                 recording = is_recording_changes(ctx.doc)
+                spans = redline_spans(ctx.doc) if recording else []
                 span = cell.createTextCursor()
                 span.gotoStart(False)
-                if recording and _starts_with_row_insertion_anchor(ctx.doc, cell):
+                if recording and _starts_with_row_insertion_anchor(cell, spans):
                     # Writer keeps a tracked row insertion only through that anchor's Insert
                     # redline, so replacing it would make Reject All keep the row.
                     span.goRight(1, False)
                 span.gotoEnd(True)
                 if recording:
-                    # Another author's edit stacks on the insertion of a pending table or row and
-                    # splits its Insert redline, so Reject All would keep an empty table or row
-                    # (SwTableLine::UpdateTextChangesOnly, swtable.cxx). The same author's edit
-                    # folds into that insertion.
-                    shell = (
-                        "table" if _table_pending_insertion(ctx.doc, table, name)
-                        else "row" if row is not None and _row_pending_insertion(ctx.doc, table, row[1])
-                        else None
-                    )
-                    if shell and overlaps_foreign_insertion(ctx.doc, [span], review_authors.office_author(uno_ctx)):
-                        raise _pending_insertion_error(
-                            "The text of cell %s of table '%s'" % (cell_name, name), shell, "CELL_IN_PENDING_INSERTION"
-                        )
+                    refuse_edit_over_pending_insertion(ctx.doc, span, review_authors.office_author(uno_ctx), spans)
                 # An untracked replace writes into the struck run, and setString removes another
                 # author's deletion.
                 elif deletions.overlaps(span):
@@ -1311,9 +1292,6 @@ class TableSetCell(ToolWriterTableBase):
                     if recording:
                         raise ToolExecutionError(_NUMBER_CELL_REFUSAL % (cell_name, name), code="CELL_VALUE_NOT_TRACKABLE")
                     cell.setString(new)
-                elif recording and _holds_object(span):
-                    _replace_text_beside_objects(cell, span, new)
-                    recorded = True
                 else:
                     # One atomic op authored once, as index_refresh_toc_entry does: a cell replace
                     # is a single small edit, and the atomic path cannot leave a half-applied delete.

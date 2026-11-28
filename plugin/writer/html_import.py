@@ -2007,7 +2007,7 @@ def content_is_block(content: str | None) -> bool:
     )
 
 
-def _text_runs(target_range: Any, *, in_redlines: bool) -> list[Any]:
+def _text_runs(target_range: Any, *, in_redlines: bool, beside_objects: bool = False) -> list[Any]:
     """Non-empty text portions in *target_range*, or [] when it holds anything but text.
 
     A break between paragraphs is in no run, so a range over several paragraphs adds up to
@@ -2016,6 +2016,9 @@ def _text_runs(target_range: Any, *, in_redlines: bool) -> list[Any]:
     When *in_redlines* is False (untracked), a range edge may carry a leading/trailing
     marker, but text inside a redline or a mid-range redline returns ``[]`` so untracked
     replaces do not alter or split tracked-change markup without recording.
+    *beside_objects* also skips ``Frame`` portions (as-character pictures, frames and shapes).
+    A range enumeration is clipped to the range (``SwXTextCursor::createEnumeration``,
+    sw/source/core/unocore/unoobj.cxx), so text outside it is never a run.
     """
     runs: list[Any] = []
     inside = False
@@ -2027,6 +2030,8 @@ def _text_runs(target_range: Any, *, in_redlines: bool) -> list[Any]:
                     inside = portion.getPropertyValue("IsStart")
                     if runs and not inside and not in_redlines:
                         return []
+                    continue
+                if beside_objects and kind == "Frame":
                     continue
                 if kind not in ("Text", "SoftPageBreak"):
                     return []
@@ -2088,9 +2093,32 @@ def _step_replace_characters(text: Any, main_cursor: Any, old_text: str, new_tex
             _replace_run_text(text, main_cursor, old, new, inside_run=False)
 
 
+def _replace_runs_beside_objects(text: Any, runs: list[Any], new_text: str, author_deletion: bool) -> None:
+    """Recorded replace of the text *runs* around as-character objects, keeping the objects.
+
+    Striking the whole range would also strike each object's anchor character, so Accept All
+    would delete the picture. Each run is struck on its own instead; a recorded deletion leaves
+    the struck text in place, so the insert point taken first still lies after the longest
+    run, whose formatting the new text takes.
+    """
+    cursors = [text.createTextCursorByRange(run) for run in runs]
+    longest = max(cursors, key=lambda cur: len(cur.getString()))
+    point = text.createTextCursorByRange(longest.getEnd())
+    with _deletion_author() if author_deletion else contextlib.nullcontext():
+        for cur in cursors:
+            cur.setString("")
+    if new_text:
+        text.insertString(point, new_text, False)
+
+
 def _replace_recorded(
     model: Any, text: Any, target_range: Any, old_text: str, new_text: str, author_deletion: bool
 ) -> None:
+    if not old_text:
+        # Nothing to strike (an empty cell, or one holding only a picture): a whole-range
+        # replace would strike the picture's anchor, so insert at the start as the untracked path does.
+        text.insertString(text.createTextCursorByRange(target_range.getStart()), new_text, False)
+        return
     # Track Changes: run-by-run redlines scramble the edit, so insert the new text once after
     # the longest run (leaving the deletion in two parts when that run is not last).
     cursor = text.createTextCursorByRange(target_range)
@@ -2124,6 +2152,10 @@ def _replace_recorded(
         except Exception:
             best_effort(lambda: added.setString(""), "replace_preserving_format: could not take back the insertion")
             raise
+        return
+    beside = [] if runs else _text_runs(target_range, in_redlines=True, beside_objects=True)
+    if beside:
+        _replace_runs_beside_objects(text, beside, new_text, author_deletion)
         return
     if not author_deletion:
         # Single atomic path. Taken when split-author coloring is OFF, OR when the caller has NOT

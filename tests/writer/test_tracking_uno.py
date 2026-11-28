@@ -141,22 +141,15 @@ def test_writer_accept_all_clears_redlines_uno(ctx, doc):
 def test_single_resolve_of_one_cell_of_a_tracked_row_refused_uno(ctx, doc):
     """tracking_manage by index refuses one cell of another author's row deletion and leaves the row."""
     from plugin.framework.uno_context import execute_dispatch
-    from plugin.writer import review_authors
     from plugin.writer.tracking import ManageTrackedChanges
-    from tests.writer.doc_builders import insert_named_table, list_redlines
+    from tests.writer.doc_builders import insert_named_table, list_redlines, recording_as
 
     table = insert_named_table(doc, "T1", 3, 3, {n: n.lower() for n in ("A1", "B1", "C1", "A2", "B2", "C2", "A3", "B3", "C3")})
     controller = doc.getCurrentController()
-    prior = review_authors.begin(ctx)
-    assert review_authors.set_office_author(ctx, "Alice") is True
-    doc.setPropertyValue("RecordChanges", True)
-    try:
+    with recording_as(doc, ctx):
         controller.select(table.getCellByName("A2").getEnd())
         controller.getSelection()
         execute_dispatch(ctx, controller, ".uno:DeleteRows")
-    finally:
-        doc.setPropertyValue("RecordChanges", False)
-        review_authors.end(ctx, prior)
     before = list_redlines(doc)
     assert len(before) == 3, before
     tctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native", doc_type="writer")

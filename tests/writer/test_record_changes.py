@@ -248,15 +248,15 @@ def test_overlaps_foreign_insertion():
         _FakeRL("Insert", _FakePoint(42, text=text), _FakePoint(48, text=text), author="Alice"),
     ]), ranges, "WriterAgent") is True
 
-    # Real compareRegionStarts error fails closed (returns True).
+    # One insertion that cannot be compared or read is skipped, so it does not mark the
+    # ranges as overlapped; a readable overlapping one after it still counts.
     bad_text = _FakeText(raise_on_compare=True)
+    incomparable = _FakeRL("Insert", _FakePoint(0, text=bad_text), _FakePoint(5, text=bad_text), author="Alice")
+    unreadable = _FakeRL("Insert", object(), object(), author="Alice")
+    assert overlaps_foreign_insertion(_FakeRedlineDoc([incomparable, unreadable]), ranges, "WriterAgent") is False
     assert overlaps_foreign_insertion(_FakeRedlineDoc([
-        _FakeRL("Insert", _FakePoint(0, text=bad_text), _FakePoint(5, text=bad_text), author="Alice"),
-    ]), ranges, "WriterAgent") is True
-
-    # Table-insertion shape (RedlineStart has no getText) also fails closed (returns True).
-    assert overlaps_foreign_insertion(_FakeRedlineDoc([
-        _FakeRL("Insert", object(), object(), author="Alice"),
+        incomparable,
+        _FakeRL("Insert", _FakePoint(42, text=text), _FakePoint(48, text=text), author="Alice"),
     ]), ranges, "WriterAgent") is True
 
     class _DisposedRL:

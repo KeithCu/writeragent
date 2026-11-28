@@ -85,11 +85,16 @@ deletion (`HasTextChangesOnly` false and every cell's text struck), whose cells 
 row on Accept All (`SwTableLine::UpdateTextChangesOnly`, `sw/source/core/table/swtable.cxx`). A
 recorded `table_set_cell` in the first cell of a tracked inserted row keeps the row's U+200D, whose
 Insert redline is what lets Reject All remove the row, and reads leave a leading U+200D out of the cell
-text. A recorded write over another author's text in a table or row that is a pending insertion is
-refused with `CELL_IN_PENDING_INSERTION`: the deletion stacks on that insertion and splits it, so
-Reject All would keep an empty table or row (also for Word row insertions, `w:ins` in `w:trPr`). An
-empty cell, the text after the kept U+200D, and the agent's own freshly inserted table stay writable. A recorded write strikes the cell's text runs one by one when the cell holds an as-character
-picture, so Accept All keeps the picture. Formula and number cells are refused while recording:
+text. A recorded `table_set_cell` or `apply_content` replace (one match or `all_matches`) over another
+author's text in a table or row that is a pending insertion is refused with `CELL_IN_PENDING_INSERTION`
+before anything is written (`refuse_edit_over_pending_insertion`): the deletion stacks on that insertion
+and splits it, so Reject All would keep an empty table or row (also for Word row insertions, `w:ins` in
+`w:trPr`). An empty cell, the text after the kept U+200D, and the agent's own freshly inserted table
+stay writable; another author's insertion that starts at a table node is read through
+`redline_bounds`, so it does not make the agent's own table look foreign. A recorded plain-text replace
+(`replace_preserving_format`, so `table_set_cell` and plain `apply_content` alike) strikes the text
+runs one by one around an as-character picture, frame or shape, and inserts at the start when the range
+holds no text, so Accept All keeps the object. Formula and number cells are refused while recording:
 `SwXCell::setString` (`sw_setString`, `unotbl.cxx`) clears the formula and value with no redline and
 no undo action, so Reject All would bring back only the text. `tracking_manage accept|reject index=N`
 refuses one cell of a tracked row insertion or deletion whose other cells hold their own redlines:
