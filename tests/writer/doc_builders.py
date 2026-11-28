@@ -17,7 +17,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from plugin.doc.document_helpers import DocumentService
-from plugin.doc.text_helpers import iter_elements
+from plugin.doc.text_helpers import iter_elements, normalize_linebreaks
 from plugin.framework.config import get_config, save
 from plugin.framework.uno_context import execute_dispatch
 from plugin.writer import review_authors
@@ -160,19 +160,6 @@ def review_mode(mode: str) -> Iterator[None]:
         save({"doc.agent_edit_review_mode": prior})
 
 
-@contextlib.contextmanager
-def recording_as(doc: Any, ctx: Any, author: str) -> Iterator[None]:
-    """Record the block's edits as tracked changes by *author*, then stop recording and restore the office author."""
-    prior = review_authors.begin(ctx)
-    try:
-        assert review_authors.set_office_author(ctx, author) is True
-        doc.setPropertyValue("RecordChanges", True)
-        yield
-    finally:
-        doc.setPropertyValue("RecordChanges", False)
-        review_authors.end(ctx, prior)
-
-
 def accept_all_changes(doc: Any, ctx: Any) -> None:
     """Accept every tracked change through the command the user runs."""
     execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
@@ -214,24 +201,38 @@ def list_redline_types(doc: Any) -> list[str]:
     return [redline["type"] for redline in list_redlines(doc)]
 
 
+@contextlib.contextmanager
+def recording_as(doc: Any, ctx: Any, author: str = "Alice") -> Iterator[None]:
+    """Record changes as *author* (another reviewer) for the duration of the block."""
+    prior = review_authors.begin(ctx)
+    try:
+        assert review_authors.set_office_author(ctx, author) is True
+        doc.setPropertyValue("RecordChanges", True)
+        yield
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        review_authors.end(ctx, prior)
+
+
 def strike_substring(
     doc: Any, xtext: Any, needle: str, *, ctx: Any = None, author: str | None = None
 ) -> None:
-    """Strike the first occurrence of *needle* in *xtext* as a tracked deletion."""
+    """Strike the first occurrence of *needle* in *xtext* as a tracked deletion.
+
+    Normalizes linebreaks so the offset counts one per paragraph break, as ``goRight`` does.
+    """
     cur = xtext.createTextCursor()
     cur.gotoStart(False)
-    idx = xtext.getString().index(needle)
+    idx = normalize_linebreaks(xtext.getString()).index(needle)
     cur.goRight(idx, False)
     cur.goRight(len(needle), True)
-    prior = None
+    if author is not None:
+        assert ctx is not None
+        with recording_as(doc, ctx, author):
+            cur.setString("")
+        return
     doc.setPropertyValue("RecordChanges", True)
     try:
-        if author is not None:
-            assert ctx is not None
-            prior = review_authors.begin(ctx)
-            assert review_authors.set_office_author(ctx, author) is True
         cur.setString("")
     finally:
         doc.setPropertyValue("RecordChanges", False)
-        if author is not None:
-            review_authors.end(ctx, prior)

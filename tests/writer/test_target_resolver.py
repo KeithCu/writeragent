@@ -205,10 +205,11 @@ def test_insert_at_target_search_deletes_then_inserts_inside_the_bracket(monkeyp
 
     res = insert_at_target(ctx, {"target": "search", "old_content": "needle"}, fake_insert, what="the thing")
     assert res is None
+    # The delete and the insert both run inside the outer undo group (record_mutation's own group nests in it).
     assert call_order[0][0] == "enterUndoContext"
-    assert call_order[1] == ("setString", "")
-    assert call_order[2] == ("insert", cursor)
-    assert call_order[3] == "leaveUndoContext"
+    assert call_order[-1] == "leaveUndoContext"
+    edits = [c for c in call_order if c != "leaveUndoContext" and c[0] != "enterUndoContext"]
+    assert edits == [("setString", ""), ("insert", cursor)]
 
 
 def test_insert_at_target_replace_match_false_keeps_the_match(monkeypatch):
@@ -243,15 +244,15 @@ def test_insert_at_target_non_search_is_one_undo_step(monkeypatch):
     res = insert_at_target(ctx, {"target": "end"}, lambda c: None, what="the thing")
     assert res is None
     cursor.setString.assert_not_called()
-    undo_mgr.enterUndoContext.assert_called_once()
-    assert str(undo_mgr.enterUndoContext.call_args[0][0]).startswith("WriterAgent edit#")
+    # The first group entered is the outer one; record_mutation's nests inside it.
+    assert str(undo_mgr.enterUndoContext.call_args_list[0].args[0]).startswith("WriterAgent edit#")
 
     # Explicit undo_title uses the provided string
     undo_mgr.reset_mock()
     res = insert_at_target(ctx, {"target": "end"}, lambda c: None, what="the thing", undo_title="Custom Title")
     assert res is None
     cursor.setString.assert_not_called()
-    undo_mgr.enterUndoContext.assert_called_once_with("Custom Title")
+    assert undo_mgr.enterUndoContext.call_args_list[0].args == ("Custom Title",)
 
 
 def test_insert_at_target_resolver_error_is_the_tool_error(monkeypatch):

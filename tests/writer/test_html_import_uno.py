@@ -20,6 +20,7 @@ from tests.writer.doc_builders import (
     body_shape,
     body_texts,
     reject_all_changes,
+    reset_body,
     seed_styled_body,
 )
 
@@ -3961,3 +3962,142 @@ def test_recorded_partial_block_replace_authors_deletion_separately_uno(ctx: Any
     finally:
         save({flag: prev})
         doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_recorded_all_matches_over_touching_matches_accepts_every_replacement_uno(ctx: Any, doc: Any) -> None:
+    """Three or more touching matches each sit next to the previous change's review anchor."""
+    from plugin.framework.config import get_config, save
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    cases = [
+        ("Pay 1000 by 2020.", "0", "9", "Pay 1999 by 2929."),
+        ("Say foofoofoo bar.", "foo", "qux", "Say quxquxqux bar."),
+    ]
+    try:
+        save({flag: "record"})
+        for original, old, new, accepted in cases:
+            for resolve, want in ((accept_all_changes, accepted), (reject_all_changes, original)):
+                reset_body(doc, ctx, original)
+                res = ApplyDocumentContent().execute(
+                    native_writer_tool_context(doc, ctx),
+                    target="search", old_content=old, content=[new], all_matches=True,
+                )
+                assert res.get("status") == "ok", res
+                resolve(doc, ctx)
+                assert body_texts(doc.getText()) == [want], (original, resolve.__name__)
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_recorded_replace_over_user_bookmark_keeps_it_on_reject_uno(ctx: Any, doc: Any) -> None:
+    """A user's bookmark inside a recorded replace is back in place after Reject All."""
+    from plugin.framework.config import get_config, save
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    text = doc.getText()
+
+    def seed(expand: bool) -> None:
+        reset_body(doc, ctx, "Call the client today.")
+        bookmarks = doc.getBookmarks()
+        for name in bookmarks.getElementNames():
+            bookmarks.getByName(name).dispose()
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        cur.goRight(9, False)  # start of "client"
+        cur.goRight(6 if expand else 3, expand)  # the whole word, or the point after "cli"
+        mark = doc.createInstance("com.sun.star.text.Bookmark")
+        mark.setName("UserMark")
+        text.insertTextContent(cur, mark, expand)
+
+    def mark_offset_and_text() -> tuple[int, str] | None:
+        bookmarks = doc.getBookmarks()
+        if not bookmarks.hasByName("UserMark"):
+            return None
+        anchor = bookmarks.getByName("UserMark").getAnchor()
+        before = text.createTextCursor()
+        before.gotoStart(False)
+        before.gotoRange(anchor.getStart(), True)
+        return len(before.getString()), anchor.getString()
+
+    try:
+        save({flag: "record"})
+        for expand, kept in ((False, (12, "")), (True, (9, "client"))):
+            for resolve in (accept_all_changes, reject_all_changes):
+                seed(expand)
+                res = ApplyDocumentContent().execute(
+                    native_writer_tool_context(doc, ctx),
+                    target="search", old_content="client", content=["customer"],
+                )
+                assert res.get("status") == "ok", res
+                resolve(doc, ctx)
+                if resolve is reject_all_changes:
+                    assert body_texts(text) == ["Call the client today."]
+                    assert mark_offset_and_text() == kept, expand
+                else:
+                    assert body_texts(text) == ["Call the customer today."]
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_recorded_inline_replace_across_list_items_undoes_in_one_step_uno(ctx: Any, doc: Any) -> None:
+    """One Undo of a recorded inline replace that spans two list items keeps every item in its list."""
+    from plugin.framework.config import get_config, save
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    text = doc.getText()
+
+    def items() -> list[tuple[str, bool, str]]:
+        return [
+            (p.getString(), bool(p.getPropertyValue("NumberingIsNumber")), str(p.getPropertyValue("ListLabelString")))
+            for p in body_paragraphs(text)
+        ]
+
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    try:
+        for mode, user_records in (("record", False), ("off", True)):
+            doc.setPropertyValue("RecordChanges", False)
+            text.setString("")
+            cursor = text.createTextCursor()
+            for i, item in enumerate(("Apple", "Banana", "Cherry", "Damson")):
+                if i:
+                    text.insertControlCharacter(cursor, 0, False)  # PARAGRAPH_BREAK
+                text.insertString(cursor, item, False)
+            whole = text.createTextCursor()
+            whole.gotoStart(False)
+            whole.gotoEnd(True)
+            whole.setPropertyValue("NumberingStyleName", "Numbering 123")
+            before = items()
+            doc.getUndoManager().clear()
+
+            save({flag: mode})
+            doc.setPropertyValue("RecordChanges", user_records)
+            try:
+                res = ApplyDocumentContent().execute(
+                    native_writer_tool_context(doc, ctx),
+                    target="search", start_anchor="Banana", end_anchor="Cherry", content="<b>Berry mix</b>",
+                )
+            finally:
+                doc.setPropertyValue("RecordChanges", False)
+                save({flag: prev})
+            assert res["status"] == "ok", res
+            assert doc.getRedlines().getCount() > 0
+
+            doc.getUndoManager().undo()
+
+            assert items() == before, mode
+            assert doc.getRedlines().getCount() == 0, mode
+    finally:
+        save({flag: prev})

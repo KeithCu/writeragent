@@ -507,3 +507,39 @@ def test_clone_heading_block_unrecorded_refuses_pending_insertion_uno(ctx, doc):
         res = CloneHeadingBlock().execute(writer_services_tool_context(doc, ctx), paragraph_index=1)
     assert res.get("code") == "BLOCK_HAS_PENDING_INSERTION", res
     assert body_texts(doc.getText()) == before
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_clone_heading_block_is_one_undo_step_uno(ctx, doc):
+    """One Undo removes the whole clone: every paragraph break, text insert and style write."""
+    text = doc.getText()
+    cursor = text.createTextCursor()
+    for style, line in (("Heading 1", "My Heading"), ("Standard", "Body one."), ("Standard", "Body two.")):
+        if line != "My Heading":
+            text.insertControlCharacter(cursor, 0, False)  # PARAGRAPH_BREAK
+        cursor.setPropertyValue("ParaStyleName", style)
+        text.insertString(cursor, line, False)
+
+    def paragraphs() -> list[tuple[str, str]]:
+        rows = []
+        enum = text.createEnumeration()
+        while enum_has_more(enum):
+            para = enum.nextElement()
+            rows.append((para.getString(), para.getPropertyValue("ParaStyleName")))
+        return rows
+
+    before = paragraphs()
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    from plugin.writer.specialized.bookmarks import BookmarkService
+    from plugin.writer.tree import TreeService
+
+    tool_ctx.services.register("writer_bookmarks", BookmarkService(tool_ctx.services))
+    tool_ctx.services.register("writer_tree", TreeService(tool_ctx.services))
+    clone_res = CloneHeadingBlock().execute(tool_ctx, paragraph_index=0)
+    assert clone_res.get("status") == "ok", clone_res
+    assert len(paragraphs()) == 6
+
+    doc.getUndoManager().undo()
+
+    assert paragraphs() == before

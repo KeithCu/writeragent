@@ -634,7 +634,7 @@ def test_whole_paragraph_char_change_over_para_redline_is_flagged_uno(ctx, doc):
         r2 = StyleFormatText().execute(native_writer_tool_context(doc, ctx), properties={"CharWeight": 150}, target='selection', all_matches=False)
         assert r2.get("status") == "ok", r2
         assert r2.get("style_unreviewed") is True, r2
-        assert "direct paragraph formatting" in r2.get("warning", ""), r2
+        assert "tracked paragraph change" in r2.get("warning", ""), r2
         reject_all_changes(doc, ctx)
         assert _margin() <= 2
 
@@ -645,7 +645,7 @@ def test_whole_paragraph_char_change_over_para_redline_is_flagged_uno(ctx, doc):
         r_char = ApplyStyle().execute(native_writer_tool_context(doc, ctx), style="Emphasis", family="CharacterStyles", all_matches=False, clear_direct='style_props')
         assert r_char.get("status") == "ok", r_char
         assert r_char.get("style_unreviewed") is True, r_char
-        assert "direct paragraph formatting" in r_char.get("warning", ""), r_char
+        assert "tracked paragraph change" in r_char.get("warning", ""), r_char
         reject_all_changes(doc, ctx)
         assert _margin() <= 2
 
@@ -670,15 +670,15 @@ def test_whole_paragraph_char_change_over_para_redline_is_flagged_uno(ctx, doc):
         reject_all_changes(doc, ctx)
         assert abs(_margin() - 500) <= 2
 
-        # 5. Para then whole Char on a paragraph with one bold word: not flagged, margin kept.
+        # 5. Para then whole Char on a paragraph with one bold word: one Format redline per run,
+        # together covering the paragraph, so Reject All may drop the bold; flagged.
         cur = _setup("Alpha beta.", bold_first_word=True)
         _select_all(cur)
         ApplyStyle().execute(native_writer_tool_context(doc, ctx), style="Heading 2", clear_direct="none", family='ParagraphStyles', all_matches=False)
         r_two = StyleFormatText().execute(native_writer_tool_context(doc, ctx), properties={"CharPosture": 2}, target='selection', all_matches=False)
         assert r_two.get("status") == "ok", r_two
-        assert "style_unreviewed" not in r_two, r_two
-        reject_all_changes(doc, ctx)
-        assert abs(_margin() - 500) <= 2
+        assert r_two.get("style_unreviewed") is True, r_two
+        assert "tracked paragraph change" in r_two.get("warning", ""), r_two
     finally:
         doc.setPropertyValue("RecordChanges", False)
 
@@ -1956,15 +1956,15 @@ def test_apply_para_style_recording_docx_roundtrip_uno(ctx, doc):
     prev = get_config(_FLAG)
     save({_FLAG: "off"})
     doc.setPropertyValue("RecordChanges", True)
-    reloaded = None
-    try:
-        res = ApplyStyle().execute(
-            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document", clear_direct="none",
-            family='ParagraphStyles',
-            all_matches=False,
-        )
-        assert res["tracked"] is True
-        with tempfile.TemporaryDirectory() as tmpdir:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        reloaded = None
+        try:
+            res = ApplyStyle().execute(
+                native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document", clear_direct="none",
+                family='ParagraphStyles',
+                all_matches=False,
+            )
+            assert res["tracked"] is True
             path = os.path.join(tmpdir, "para_style.docx")
             url = uno.systemPathToFileUrl(path)
             fv = PropertyValue()
@@ -1981,13 +1981,13 @@ def test_apply_para_style_recording_docx_roundtrip_uno(ctx, doc):
             p0 = body_paragraphs(reloaded.getText())[0]
             assert p0.getPropertyValue("ParaStyleName") == "Standard"
             assert abs(p0.getPropertyValue("ParaLeftMargin") - 500) <= 2
-    finally:
-        if reloaded is not None:
-            reloaded.close(True)
-        doc.setPropertyValue("RecordChanges", False)
-        save({_FLAG: prev})
-        if len(doc.getRedlines()):
-            accept_all_changes(doc, ctx)
+        finally:
+            if reloaded is not None:
+                reloaded.close(True)
+            doc.setPropertyValue("RecordChanges", False)
+            save({_FLAG: prev})
+            if len(doc.getRedlines()):
+                accept_all_changes(doc, ctx)
 
 
 @native_test
@@ -2497,9 +2497,9 @@ def test_para_format_character_unit_indent_is_tracked_uno(ctx, doc):
 
     prev = get_config(_FLAG)
     save({_FLAG: "record"})
-    reloaded = None
-    try:
-        with tempfile.TemporaryDirectory() as tmpdir:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        reloaded = None
+        try:
             docx_path = os.path.join(tmpdir, "char_indent.docx")
             with zipfile.ZipFile(docx_path, "w") as zf:
                 zf.writestr("[Content_Types].xml", content_types)
@@ -2536,10 +2536,10 @@ def test_para_format_character_unit_indent_is_tracked_uno(ctx, doc):
                 assert p0.getPropertyValue("ParaLeftMarginUnit") == orig_left_unit
             if has_first_unit:
                 assert p0.getPropertyValue("ParaFirstLineIndentUnit") == orig_first_unit
-    finally:
-        if reloaded is not None:
-            reloaded.close(True)
-        save({_FLAG: prev})
+        finally:
+            if reloaded is not None:
+                reloaded.close(True)
+            save({_FLAG: prev})
 
 
 @native_test

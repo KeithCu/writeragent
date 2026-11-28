@@ -229,6 +229,7 @@ def test_footnote_insert_in_record_mode_rejects_to_no_note_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_footnote_edit_text_and_label_in_record_mode_uno(ctx, doc):
+    """The text change is tracked, so the label warning must not turn the result into tracked: false."""
     doc.getText().setString("probe text ")
     note = _insert_note(doc, "footnote", "old body")
 
@@ -246,9 +247,9 @@ def test_footnote_edit_text_and_label_in_record_mode_uno(ctx, doc):
         save({"doc.agent_edit_review_mode": prev})
 
     assert res["status"] == "ok", res
-    assert res.get("tracked") is False
+    assert res.get("tracked") is True
     assert res.get("pending_review") is True
-    assert "warning" in res
+    assert "custom mark" in res.get("warning", "")
 
     reject_all_changes(doc, ctx)
     assert note.getString() == "old body"
@@ -312,6 +313,35 @@ def test_footnote_list_hides_tracked_deletion_uno(ctx, doc):
 
 
 @native_test
+@with_native_doc("writer")
+def test_footnote_list_flags_note_with_struck_mark_uno(ctx, doc):
+    """A note whose mark sits in a pending deletion is flagged pending_deletion; a live note is not."""
+    from plugin.tests.testing_utils import TestingFactory
+
+    doc.setPropertyValue("RecordChanges", False)
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    for word in ("KEEP", "GONE"):
+        text.insertString(cur, " %s" % word, False)
+        note = doc.createInstance("com.sun.star.text.Footnote")
+        text.insertTextContent(cur, note, False)
+        note.setString("NOTE-%s body" % word)
+    # The footnote mark is one character: strike " GONE" and the mark after it.
+    struck = text.createTextCursorByRange(text.getEnd())
+    struck.goLeft(len(" GONE") + 1, True)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        struck.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    res = TestingFactory.execute_tool(doc, ctx, "footnote_list", {"note": "footnote"}, doc_type="writer")
+    assert [(n["text"], n.get("pending_deletion", False)) for n in res["notes"]] == [
+        ("NOTE-KEEP body", False), ("NOTE-GONE body", True)], res
+
+
+@native_test
 @with_native_doc("writer", reuse=False)
 def test_footnote_edit_refuses_unrecorded_rewrite_over_pending_changes_uno(ctx, doc):
     from plugin.writer import review_authors
@@ -368,3 +398,30 @@ def test_footnote_edit_refuses_unrecorded_rewrite_over_pending_changes_uno(ctx, 
     finally:
         doc.setPropertyValue("RecordChanges", False)
         save({"doc.agent_edit_review_mode": prev_mode})
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_footnote_insert_is_one_undo_step_with_review_off_uno(ctx, doc):
+    """With review Off, one Undo removes the footnote and its text, with or without the user's recording."""
+    prev = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "off"})
+    try:
+        for user_records in (False, True):
+            doc.getText().setString("probe text ")
+            doc.getCurrentController().getViewCursor().gotoEnd(False)
+            doc.setPropertyValue("RecordChanges", user_records)
+            try:
+                res = FootnotesInsert().execute(native_writer_tool_context(doc, ctx), note="footnote", text="note body")
+            finally:
+                doc.setPropertyValue("RecordChanges", False)
+            assert res["status"] == "ok", res
+            assert _supplier(doc, "footnote").getCount() == 1
+
+            doc.getUndoManager().undo()
+
+            assert _supplier(doc, "footnote").getCount() == 0, user_records
+            assert _body_text(doc) == "probe text ", user_records
+            assert doc.getRedlines().getCount() == 0, user_records
+    finally:
+        save({"doc.agent_edit_review_mode": prev})

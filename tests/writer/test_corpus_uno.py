@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import os
+import shutil
 import tempfile
 import unittest
 from collections import Counter
@@ -39,19 +41,26 @@ _TEXT_DOCUMENT = "com.sun.star.text.TextDocument"
 _SAVE_FILTER = {".docx": "MS Word 2007 XML", ".fodt": "OpenDocument Text Flat XML"}
 # Tiers that are not document reads: agent sessions, host-only helpers and peer messaging.
 _OTHER_TIERS = frozenset({"specialized_control", "unlisted", "chat"})
-# Reads that move the user's view, or read the folder instead of the document.
-_NOT_DOCUMENT_READS = {"set_selection", "nav_goto_page", "image_list_nearby_files"}
+# Reads that move the user's view, or read the folder or the network instead of the document.
+_NOT_DOCUMENT_READS = {"set_selection", "nav_goto_page", "image_list_nearby_files", "image_download"}
 
 
 @contextmanager
 def _opened(ctx: Any, path: Path) -> Iterator[Any]:
-    with TestingFactory.native_doc(ctx, doc_type=uno.systemPathToFileUrl(str(path)), reuse=False) as doc:
+    """Open a fresh copy of *path* (which must live in a temporary folder)."""
+    # On Windows TestingFactory.close_doc can leave the previous Writer open. Its system
+    # file lock makes a second load of the same file read-only (SfxMedium::LockOrigFileOnDemand,
+    # sfx2/source/doc/docfile.cxx), which disables .uno:Watermark and writes.
+    fd, name = tempfile.mkstemp(suffix=path.suffix, dir=path.parent)
+    os.close(fd)
+    shutil.copyfile(path, name)
+    with TestingFactory.native_doc(ctx, doc_type=uno.systemPathToFileUrl(name), reuse=False) as doc:
         yield doc
 
 
 @contextmanager
 def _corpus_file(case: CorpusDoc) -> Iterator[Path]:
-    # Windows may keep a hidden Writer open (TestingFactory.close_doc), which locks its file.
+    # Leftover copies in the folder stay locked on Windows when TestingFactory.close_doc skips closing.
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
         path = Path(folder) / (case.name + case.suffix)
         case.write(path)

@@ -2,11 +2,12 @@
 import uno  # noqa: F401
 
 from plugin.doc.text_helpers import get_string_without_tracked_deletions
+from plugin.framework.config import get_config, save
 from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import TestingFactory, with_native_doc
 from plugin.writer.specialized.fields import FieldsDelete, FieldsInsert
-from tests.writer.doc_builders import list_redlines, set_body_text
+from tests.writer.doc_builders import list_redlines, reject_all_changes, set_body_text
 
 
 def _count_text_fields(doc):
@@ -218,3 +219,59 @@ def test_fields_insert_refuses_crossing_deletion_uno(ctx, doc):
     assert _count_text_fields(doc) == 1
     reject_all_changes(doc, ctx)
     assert doc.getText().getString() == "Word OLD here"
+
+
+@native_test
+@with_native_doc("writer")
+def test_field_delete_in_record_mode_strikes_the_field_and_reject_restores_uno(ctx, doc):
+    """Record mode: field_delete is a tagged tracked deletion, reported as one, and Reject All puts the field back."""
+    set_body_text(doc, "alpha omega")
+    cur = doc.getText().createTextCursor()
+    cur.gotoStart(False)
+    cur.goRight(6, False)
+    doc.getText().insertTextContent(cur, doc.createInstance("com.sun.star.text.textfield.PageNumber"), False)
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+
+    prev = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "record"})
+    try:
+        res = FieldsDelete().execute(tool_ctx, ids=[1])
+    finally:
+        save({"doc.agent_edit_review_mode": prev})
+
+    assert res["status"] == "ok", res
+    assert res.get("tracked") is True and res.get("pending_review") is True, res
+    assert "marked for deletion" in res["message"], res
+    redlines = list_redlines(doc)
+    assert [rl["type"] for rl in redlines] == ["Delete"], redlines
+    assert redlines[0]["RedlineComment"].startswith("wa-review:"), redlines
+    assert doc.getPropertyValue("RecordChanges") is False
+
+    reject_all_changes(doc, ctx)
+    assert _count_text_fields(doc) == 1
+
+
+@native_test
+@with_native_doc("writer")
+def test_field_list_flags_field_inside_pending_deletion_uno(ctx, doc):
+    """A field inside struck text is flagged pending_deletion; a live field is not."""
+    set_body_text(doc, "")
+    text = doc.getText()
+    cur = text.createTextCursor()
+    for word in ("KEEPF", "GONEF"):
+        text.insertString(cur, " %s " % word.lower(), False)
+        field = doc.createInstance("com.sun.star.text.textfield.Input")
+        field.setPropertyValue("Content", word)
+        text.insertTextContent(cur, field, False)
+    # The field is one character: strike " gonef " and the field after it.
+    struck = text.createTextCursorByRange(text.getEnd())
+    struck.goLeft(len(" gonef ") + 1, True)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        struck.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    res = TestingFactory.execute_tool(doc, ctx, "field_list", {}, doc_type="writer")
+    flagged = {row["presentation"]: row.get("pending_deletion", False) for row in res["fields"]}
+    assert flagged == {"KEEPF": False, "GONEF": True}, res

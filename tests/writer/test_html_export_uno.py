@@ -1190,6 +1190,7 @@ def test_range_and_selection_export_keep_pictures_and_names_uno(ctx: Any, doc: A
     import re
     import tempfile
     from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_CHARACTER, AT_PARAGRAPH
+    from plugin.doc.text_helpers import normalize_linebreaks
     from plugin.framework.uno_context import execute_dispatch
     from plugin.tests.testing_utils import native_writer_tool_context
     from plugin.writer.apply_document_content import ApplyDocumentContent
@@ -1246,7 +1247,7 @@ def test_range_and_selection_export_keep_pictures_and_names_uno(ctx: Any, doc: A
             assert f"PicA_{tag}" in full_ids and f"PicB_{tag}" in full_ids, full_html
 
             # Range read covering the second paragraph.
-            full_str = text.getString()
+            full_str = normalize_linebreaks(text.getString())
             p2_start = full_str.index("one")
             range_html = document_to_content(
                 doc, ctx, scope="range", range_start=p2_start, range_end=len(full_str), include_images=False
@@ -1635,6 +1636,45 @@ def test_struck_paragraphs_omitted_full_and_range_uno(ctx: Any, doc: Any) -> Non
         assert _block_styles_and_texts(range_html) == expected, (paragraphs, d_start, d_end, range_html)
         assert doc.getRedlines().getCount() == redlines_before
         assert desktop.getFrames().getCount() == frames_before
+
+
+@native_test
+@with_native_doc("writer")
+def test_commented_deletion_keeps_paragraph_and_list_numbers_uno(ctx: Any, doc: Any) -> None:
+    import re
+    from plugin.writer.html_export import document_to_content
+
+    doc.setPropertyValue("RecordChanges", False)
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    cur.setPropertyValue("NumberingStyleName", "Numbering 123")
+    for idx, label in enumerate(("Apple", "Banana split", "Cherry")):
+        if idx:
+            text.insertControlCharacter(cur, 0, False)
+        text.insertString(cur, label, False)
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        found = doc.createSearchDescriptor()
+        found.setSearchString(" split")
+        hit = doc.findFirst(found)
+        hit.setString("")
+        # Every review-mode deletion WriterAgent records carries a comment.
+        enum = doc.getRedlines().createEnumeration()
+        while enum_has_more(enum):
+            enum.nextElement().setPropertyValue("RedlineComment", "checked by Bob")
+        full_html = document_to_content(doc, ctx, scope="full")
+        items = [
+            (
+                re.sub(r"<[^>]+>", "", lbl).strip(),
+                re.sub(r"<[^>]+>", "", body).replace("\xa0", "").strip(),
+            )
+            for lbl, body in re.findall(r"<li><p[^>]*>(<span[^>]*>[^<]*</span>)(.*?)</p></li>", full_html, re.DOTALL)
+        ]
+        assert items == [("1.", "Apple"), ("2.", "Banana"), ("3.", "Cherry")], full_html
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
 
 
 @native_test
@@ -2415,7 +2455,9 @@ def test_outline_picture_link_and_text_outline_link_restore_uno(ctx, doc):
         os.unlink(img_path)
 
 
-@native_test
+# Heavy fixture (560 shared-list items, failed XHTML pass + StarWriter fallback, then range read);
+# takes ~19 s on Linux CI and runs ~2x slower over Windows URP.
+@native_test(timeout=90)
 def test_shared_list_full_read_hides_tracked_deletions_uno(ctx):
     """Shared-list XHTML fallback hides pending deletions and points at scope='range'."""
     import os

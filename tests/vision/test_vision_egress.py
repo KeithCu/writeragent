@@ -635,7 +635,9 @@ def test_writer_delete_image_failure_rolls_back_insert(mock_prepare, _insert, _r
     doc.getGraphicObjects.return_value.hasByName.return_value = True
     um = MagicMock()
     um.isLocked.return_value = False
-    um.getAllUndoActionTitles.side_effect = [(), ("WriterAgent: Insert OCR",)]
+    # record_mutation's group encloses the OCR group, so the stack shows the outer title until it
+    # closes, and the outer group is the one undone.
+    um.getAllUndoActionTitles.side_effect = [(), ("WriterAgent edit",), ("WriterAgent edit",), ("WriterAgent edit",)]
     doc.getUndoManager.return_value = um
     result = {"status": "ok", "helper": "extract_structure", "html": "<p>ocr</p>"}
 

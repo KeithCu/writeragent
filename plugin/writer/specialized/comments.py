@@ -28,8 +28,9 @@ from plugin.doc.text_helpers import TrackedDeletions, iter_annotations
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.framework.tool import ToolBase
 from plugin.framework.errors import name_miss_details
+from plugin.framework.i18n import N_, _
 from plugin.framework.uno_context import uno_same
-from ..edit_review import next_agent_edit_undo_title
+from ..edit_review import flag_tracked, flag_tracked_delete, flag_untracked, next_agent_edit_undo_title
 from ..record_changes import is_recording_changes, overlapping_redline_authors
 from ..search import (
     LADDER_CASE_SENSITIVE_DESCRIPTION,
@@ -42,17 +43,36 @@ from ..specialized_base import ToolWriterCommentBase, enum_param
 
 log = logging.getLogger("writeragent.writer.comments")
 
-_COMMENT_ON_PENDING_INSERTION_WARNING = (
+# The comment tools do not run in a review session, so Record/Wait mode does not record them and
+# the result warns. A user's own Track Changes > Record still records inserting or deleting a
+# comment (not editing or resolving one), and the result then reports it as tracked.
+_COMMENT_UNTRACKED_WARNING = N_(
+    "This comment change is not a tracked change, so rejecting changes does not undo it "
+    "(Ctrl+Z does). Tell the user."
+)
+_RESOLVED_MARK_UNTRACKED_WARNING = N_(
+    "The reply is a tracked change, but the resolved mark is not: it stays after rejecting "
+    "changes (Ctrl+Z undoes it). Tell the user."
+)
+_COMMENT_ON_PENDING_INSERTION_WARNING = N_(
     "The commented text is a pending tracked insertion. If that insertion is rejected while the "
     "comment is kept, the comment stays in the document as a comment on an empty point."
 )
 # removeTextContent reaches SwTextField::DeleteTextField (sw/source/core/txtnode/atrfld.cxx), whose
 # DeleteAndJoin covers only the comment's field character, so the recorded deletion does not hold the
 # comment's text range and Reject cannot restore it.
-_RECORDED_COMMENT_DELETE_WARNING = (
+_RECORDED_COMMENT_DELETE_WARNING = N_(
     "Track Changes recorded the deletion. If the user rejects it, the comment comes back without "
     "the text range it was attached to (as a comment on one point)."
 )
+
+
+def _flag_comment_write(result: dict[str, Any], doc: Any, recorded: bool) -> None:
+    """Say whether a comment add, reply or delete left a tracked change."""
+    if recorded:
+        flag_tracked(result)
+    else:
+        flag_untracked(result, doc, _(_COMMENT_UNTRACKED_WARNING))
 
 
 def _prop(field: Any, name: str, default: Any = "") -> Any:
@@ -190,7 +210,7 @@ class AddComment(ToolBase):
                 reply_name = _insert_annotation_reply(ctx.doc, parent, parent_name, content, author)
             except _ReplyNotRegistered as exc:
                 return _reply_error(str(exc), parent_name, comment_added=False)
-            return {
+            reply: dict[str, Any] = {
                 "status": "ok",
                 "message": "Reply added.",
                 "author": author,
@@ -198,6 +218,8 @@ class AddComment(ToolBase):
                 "name": reply_name,
                 "parent_name": parent_name,
             }
+            _flag_comment_write(reply, ctx.doc, is_recording_changes(ctx.doc))
+            return reply
 
         search_text = kwargs.get("search")
         if not search_text:
@@ -247,7 +269,7 @@ class AddComment(ToolBase):
 
         prior = {n for n in names_before if n}
         new_name = next((n for n in names_after if n and n not in prior), "")
-        result = {
+        result: dict[str, Any] = {
             "status": "ok",
             "message": "Comment added.",
             "author": author,
@@ -257,9 +279,10 @@ class AddComment(ToolBase):
             "name": _annotation_name(annotation) or new_name,
             **mode.result_fields(),
         }
+        _flag_comment_write(result, doc, is_recording_changes(doc))
         # LibreOffice keeps the annotation when the insertion under it is rejected.
         if overlapping_redline_authors(doc, [found], "Insert"):
-            append_warnings(result, [_COMMENT_ON_PENDING_INSERTION_WARNING])
+            append_warnings(result, [_(_COMMENT_ON_PENDING_INSERTION_WARNING)])
         return result
 
 
@@ -329,7 +352,6 @@ class CommentDelete(ToolWriterCommentBase):
             )
 
         undo_title = next_agent_edit_undo_title()
-        recording = is_recording_changes(doc)
 
         def mutate() -> dict[str, Any] | None:
             for field in to_delete:
@@ -349,8 +371,11 @@ class CommentDelete(ToolWriterCommentBase):
             return err
 
         result: dict[str, Any] = {"status": "ok", "deleted": len(to_delete)}
-        if recording:
-            append_warnings(result, [_RECORDED_COMMENT_DELETE_WARNING])
+        if is_recording_changes(doc):
+            flag_tracked_delete(result, "%d comment(s) are" % len(to_delete))
+            append_warnings(result, [_(_RECORDED_COMMENT_DELETE_WARNING)])
+        else:
+            flag_untracked(result, doc, _(_COMMENT_UNTRACKED_WARNING))
         return result
 
 
@@ -407,6 +432,12 @@ class CommentResolve(ToolWriterCommentBase):
         result: dict[str, Any] = {"status": "ok", "comment_name": comment_name, "resolved": True}
         if reply_name:
             result["reply_name"] = reply_name
+        # The reply is recorded while the user records; the Resolved mark never is.
+        if reply_name and is_recording_changes(doc):
+            flag_tracked(result)
+            flag_untracked(result, doc, _(_RESOLVED_MARK_UNTRACKED_WARNING))
+        else:
+            flag_untracked(result, doc, _(_COMMENT_UNTRACKED_WARNING))
         return result
 
 
@@ -452,7 +483,9 @@ class CommentEdit(ToolWriterCommentBase):
         if err is not None:
             return err
 
-        return {"status": "ok", "comment_name": comment_name, "content": content}
+        result: dict[str, Any] = {"status": "ok", "comment_name": comment_name, "content": content}
+        flag_untracked(result, doc, _(_COMMENT_UNTRACKED_WARNING))
+        return result
 
 
 _ANNOTATION_PROPERTIES = (

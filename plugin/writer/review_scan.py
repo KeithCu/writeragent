@@ -188,15 +188,24 @@ def scan_redlines(doc: Any, on_item: Callable[[Any], bool]) -> tuple[bool, int, 
 
 def document_has_tracked_deletions(doc: Any) -> bool:
     """True when *doc* holds at least one pending tracked deletion (best effort)."""
+    return _document_has_redline_type(doc, ("Delete",))
+
+
+def document_has_tracked_insert_or_delete(doc: Any) -> bool:
+    """True when *doc* holds at least one pending tracked insertion or deletion (best effort)."""
+    return _document_has_redline_type(doc, ("Insert", "Delete"))
+
+
+def _document_has_redline_type(doc: Any, kinds: tuple[str, ...]) -> bool:
     found = False
 
     def on_item(rl: Any) -> bool:
         nonlocal found
         try:
-            is_delete = rl.getPropertyValue("RedlineType") == "Delete"
+            hit = rl.getPropertyValue("RedlineType") in kinds
         except Exception:
             return True  # one unreadable redline does not hide the others
-        if is_delete:
+        if hit:
             found = True
             raise RedlineScanAbort()
         return True

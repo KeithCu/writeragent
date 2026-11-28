@@ -827,6 +827,22 @@ Do not drop a shape proxy and immediately fetch the same shape again (for exampl
 
 Do not read redlines with `redlines.getByIndex(i).getPropertyValue(...)` in a loop or comprehension. Each temporary `SwXRedline` proxy is released on the URP release thread, and its destructor unregisters from the standard page style's notifier without the SolarMutex (`sw/source/core/unocore/unoredline.cxx`, `SwXRedline::~SwXRedline` through `SvtListener::EndListeningAll`). The next `getByIndex` broadcasts on that same notifier (`sw/source/core/unocore/unoredlines.cxx`, `SwXRedlines::GetObject`). A gdb catch showed both threads inside `SvtBroadcaster::Normalize` when soffice died (`free(): invalid size`, then `Unspecified Application Error`), and soaking `tests/writer/specialized/test_footnotes_uno.py` crashed this way within fifteen rounds in each of three local runs (150 rounds pass with `list_redlines`). `list_redlines` in `tests/writer/doc_builders.py` fetches each redline once through the SolarMutex-guarded `getByIndex` (`SwXRedlineEnumeration::nextElement` takes no lock) and keeps every proxy referenced until all are read. Use it, or follow the same pattern. Product code is not exposed because in-office PyUNO calls are in-process, so the release runs on the calling main thread.
 
+### Normalize `getString()` before offsets or comparisons
+
+Writer's `getString()` joins paragraphs with CRLF on Windows (`SwUnoCursorHelper::GetTextFromPam`, `sw/source/core/unocore/unoobj.cxx`, via `SwAsciiOptions::Reset` -> `GetSystemLineEnd()`), whereas `goRight` counts one step per paragraph break. Wrap `getString()` in `normalize_linebreaks` (`plugin/doc/text_helpers.py`) before `.index(...)`, `len(...)`, or comparing against `"\n"` literals.
+
+### Close reloaded documents inside `TemporaryDirectory`
+
+On Windows an open file handle cannot be unlinked, so `with tempfile.TemporaryDirectory()` fails with `WinError 32` if the `finally: reloaded.close(True)` runs outside the `with` block. Place `reloaded = None` and `try: ... finally: if reloaded is not None: reloaded.close(True)` inside the `with tempfile.TemporaryDirectory()` block.
+
+### Give each open of a saved file its own copy
+
+When a test opens the same saved path more than once, `TestingFactory.close_doc` on Windows can leave an earlier Writer open; its system file lock makes the second load read-only (`SfxMedium::LockOrigFileOnDemand`, `sfx2/source/doc/docfile.cxx`), which disables `.uno:Watermark` and writes. Copy to a fresh `tempfile.mkstemp` per open (with `ignore_cleanup_errors=True` on the outer `TemporaryDirectory`).
+
+### Use `uno.systemPathToFileUrl` for file URLs
+
+Never construct file URLs as `"file://" + path`, which produces invalid `file://C:\...` URLs on Windows. Always use `uno.systemPathToFileUrl(path)`.
+
 ### Share Writer builders; prove a mock twin before deleting
 
 Writer UNO suites build bodies and tables (`reset_body`, `set_body_text`, and `seed_styled_body`, which writes a list of `(ParaStyleName, text)` paragraphs in one `setString`; prefer it to one insert per paragraph when a matrix re-seeds per case), find text (`find_first`), list paragraphs (`body_paragraphs`, `body_texts`, `body_shape`, which take any `XText`: body, header or cell) and resolve redlines (`accept_all_changes`, `reject_all_changes`, `list_redlines`) through `tests/writer/doc_builders.py`; do not add a local paragraph walker or `DispatchHelper` wrapper. Call `native_writer_tool_context` / `writer_services_tool_context` from `tests/testing_utils.py` directly for tool contexts, or `pinned_writer_tool_context` when the tool must act on the current selection after the test moves the caret. Document lifecycle stays in `tests/testing_utils.py`.

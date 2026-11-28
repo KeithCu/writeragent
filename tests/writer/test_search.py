@@ -1427,6 +1427,9 @@ class _SampleFakeDoc:
         um = MagicMock()
         um.isLocked.return_value = False
         self.getUndoManager = MagicMock(return_value=um)
+        # A document with no indexes and no sections.
+        self.getDocumentIndexes = MagicMock(return_value=MagicMock(hasElements=MagicMock(return_value=False)))
+        self.getTextSections = MagicMock(return_value=MagicMock(hasElements=MagicMock(return_value=False)))
 
     def getCurrentController(self):
         return self.controller

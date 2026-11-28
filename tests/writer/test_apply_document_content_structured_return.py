@@ -49,7 +49,11 @@ def _no_libreoffice(monkeypatch):
     monkeypatch.setattr(search_mod, "normalize_search_string_for_find", lambda s: s)
     monkeypatch.setattr(format_mod, "replace_preserving_format", lambda *a, **k: None)
     monkeypatch.setattr(format_mod, "replace_single_range_with_content", lambda *a, **k: html_import_styles.WriteReport())
+    # MockRange has no table cell or redlines to check.
+    monkeypatch.setattr("plugin.writer.apply_document_content.refuse_edit_over_pending_insertion", lambda *a, **k: None)
     monkeypatch.setattr(search_mod, "drawing_shape_object_containing", lambda *a, **k: None)
+    # Mock matches read as protected table cells; the refusal has its own UNO test.
+    monkeypatch.setattr("plugin.writer.apply_document_content.protected_cell_error", lambda *a, **k: None)
 
 
 class MockRange:
@@ -488,7 +492,7 @@ def test_search_occurrence_dry_run_selects_without_editing(monkeypatch):
     monkeypatch.setattr(
         search_mod,
         "describe_match_location",
-        lambda found, doc, label_cache=None:
+        lambda found, doc, label_cache=None, has_indexes=None:
             "first" if found is first else "second",
     )
     monkeypatch.setattr(
@@ -653,7 +657,7 @@ def test_search_occurrence_dry_run_oor_includes_replaceable(monkeypatch):
     monkeypatch.setattr(
         search_mod,
         "describe_match_location",
-        lambda found, doc, label_cache=None:
+        lambda found, doc, label_cache=None, has_indexes=None:
             "first" if found is first else "second",
     )
     monkeypatch.setattr(
@@ -694,7 +698,7 @@ def test_dry_run_splits_replaceable_and_not_replaceable(monkeypatch):
     monkeypatch.setattr(
         search_mod,
         "describe_match_location",
-        lambda found, doc, label_cache=None:
+        lambda found, doc, label_cache=None, has_indexes=None:
             "first_loc" if found is first else "second_loc",
     )
     monkeypatch.setattr(
@@ -770,7 +774,7 @@ def test_dry_run_shared_preview_cap(monkeypatch):
     monkeypatch.setattr(
         search_mod,
         "describe_match_location",
-        lambda found, doc, label_cache=None: "body",
+        lambda found, doc, label_cache=None, has_indexes=None: "body",
     )
     monkeypatch.setattr(
         search_mod,

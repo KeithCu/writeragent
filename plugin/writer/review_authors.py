@@ -28,12 +28,11 @@ which drop the comment.
 
 from __future__ import annotations
 
-import contextlib
 import json
 import logging
 import os
 import threading
-from typing import Any, Generator
+from typing import Any
 
 from plugin.framework.config import atomic_write_text, user_config_dir
 from plugin.framework.i18n import get_lo_locale
@@ -215,10 +214,12 @@ def end(ctx: Any, prior: tuple[str, str] | None) -> None:
         log.warning("review_authors.end: failed to restore office author %r", prior, exc_info=True)
 
 
-@contextlib.contextmanager
-def deletion_author(doc: Any, doomed: Any, *, strict: bool) -> Generator[None, None, None]:
+class deletion_author:  # Named like a function: callers write ``with deletion_author(doc, doomed, strict=...):``.
     """Author the tracked deletion of *doomed* inside this block as the DELETE author, then restore
     the INSERT author. A no-op unless ``begin()`` armed split authoring on this thread.
+
+    A class, not a generator context manager, so a UNO exception from the deletion reaches
+    the caller unchanged (see ``plugin.doc.compound_undo.UndoStepOrRollback``).
 
     Also a no-op when *doomed* lies wholly inside one pending insertion by the INSERT author.
     Deleted as that author, the text leaves the insertion outright; a DELETE-author deletion would
@@ -234,15 +235,24 @@ def deletion_author(doc: Any, doomed: Any, *, strict: bool) -> Generator[None, N
     insertion never is. A separate new Insert next to text removed outright could not be rejected
     back to that text, so the deletion then stacks and rejecting the new change restores it.
     """
-    ctx = getattr(_state, "ctx", None)
-    if (
-        ctx is None
-        or inside_insertion_by(doc, [doomed], INSERT_AUTHOR, strict=strict)
-        or not set_office_author(ctx, DELETE_AUTHOR)
-    ):
-        yield
-        return
-    try:
-        yield
-    finally:
-        set_office_author(ctx, INSERT_AUTHOR)
+
+    _ctx: Any
+    _doc: Any
+    _doomed: Any
+    _strict: bool
+
+    def __init__(self, doc: Any, doomed: Any, *, strict: bool) -> None:
+        self._doc = doc
+        self._doomed = doomed
+        self._strict = strict
+        self._ctx = None
+
+    def __enter__(self) -> None:
+        ctx = getattr(_state, "ctx", None)
+        if ctx is None or inside_insertion_by(self._doc, [self._doomed], INSERT_AUTHOR, strict=self._strict):
+            return
+        self._ctx = ctx if set_office_author(ctx, DELETE_AUTHOR) else None
+
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: Any) -> None:
+        if self._ctx is not None:
+            set_office_author(self._ctx, INSERT_AUTHOR)

@@ -65,6 +65,7 @@ from plugin.writer.edit_review import (
     edit_is_recorded,
     flag_style_unreviewed,
     flag_tracked,
+    format_overlaps_foreign_insertion,
     next_agent_edit_undo_title,
     paragraph_redline_author,
     review_recording_enabled,
@@ -434,35 +435,39 @@ def _has_paragraph_format_redline(para: Any) -> bool:
 
 
 def _format_reject_drops_paragraph_restore(para: Any) -> bool:
-    """Return True if a whole-paragraph Format redline sits before ParagraphFormat in the table.
+    """Return True if Format redlines covering the paragraph start before ParagraphFormat in the table.
 
-    Reject All works from the end of the redline table; a ``Format`` redline over the whole
-    paragraph that sits before the ``ParagraphFormat`` one is rejected last, and its
-    ``ResetAttrs`` drops the direct formatting just restored (``lcl_RejectRedline``,
+    Reject All works from the end of the redline table; a ``Format`` redline at the paragraph
+    start that sits before the ``ParagraphFormat`` one is rejected last, and its ``ResetAttrs``
+    drops the direct formatting just restored (``lcl_RejectRedline``,
     ``DocumentRedlineManager.cxx``; ``SwDoc::ResetAttrs``, ``docfmt.cxx``). Redline portions
     at one position come in table order (``lcl_FillRedlineArray``, ``unoportenum.cxx``).
     ``lcl_SetRedlines`` (``DocumentContentOperationsManager.cxx``) makes one Format redline
-    per run and paragraph, so a partial one is harmless.
+    per run and paragraph, so a whole-paragraph character change over several runs is several
+    Format redlines; they count when together they cover every character of the paragraph.
+    A Format redline over only part of the paragraph is harmless.
     """
-    leading: set[str] = set()  # Format redlines from the paragraph start, listed before any ParagraphFormat
-    closing: set[str] = set()  # redlines that end after the last text
+    leading = False  # a Format redline from the paragraph start, listed before any ParagraphFormat
+    covered = True  # every text portion sits inside some Format redline
+    open_formats: set[str] = set()
     at_start = True
     has_paragraph_format = False
     for portion in iter_elements_limited(para.createEnumeration(), _CAPTURE_PORTION_LIMIT):
         if portion.getPropertyValue("TextPortionType") != "Redline":
             if portion.getString():
                 at_start = False
-                closing.clear()
+                covered = covered and bool(open_formats)
             continue
         identifier = portion.getPropertyValue("RedlineIdentifier")
         kind = portion.getPropertyValue("RedlineType")
         if not portion.getPropertyValue("IsStart"):
-            closing.add(identifier)
+            open_formats.discard(identifier)
         elif kind == "ParagraphFormat":
             has_paragraph_format = True
-        elif kind == "Format" and at_start and not has_paragraph_format:
-            leading.add(identifier)
-    return has_paragraph_format and not leading.isdisjoint(closing)
+        elif kind == "Format":
+            open_formats.add(identifier)
+            leading = leading or (at_start and not has_paragraph_format)
+    return has_paragraph_format and leading and covered and not at_start
 
 
 def _flag_stacked_format_redlines(res: dict[str, Any], doc: Any, cursors: list[Any]) -> None:
@@ -484,9 +489,9 @@ def _flag_stacked_format_redlines(res: dict[str, Any], doc: Any, cursors: list[A
                 if _format_reject_drops_paragraph_restore(para):
                     res["style_unreviewed"] = True
                     msg = (
-                        "Rejecting all changes may drop direct paragraph formatting (indents, alignment) "
-                        "from before the tracked changes, because a tracked character change covers a whole "
-                        "paragraph that also has a tracked paragraph change."
+                        "Rejecting all changes may drop direct formatting (indents, alignment, bold or other "
+                        "character formatting) from before the tracked changes, because a tracked character "
+                        "change covers a whole paragraph that also has a tracked paragraph change."
                     )
                     existing = res.get("warning")
                     res["warning"] = f"{existing} {msg}" if existing else msg
@@ -495,6 +500,18 @@ def _flag_stacked_format_redlines(res: dict[str, Any], doc: Any, cursors: list[A
         reraise_if_disposed(exc)
         # Do not fail the tool: the style is already applied.
         log.exception("Failed to inspect redlines for stacked Format warning")
+
+
+def _flag_foreign_insertion(res: dict[str, Any], doc: Any) -> None:
+    """Warn that the format covered another author's pending insertion, which Reject All now keeps."""
+    msg = (
+        "Part of this text is another author's pending insertion. LibreOffice records formatting over it "
+        "by turning that insertion into a format change, so rejecting all changes keeps the inserted text. "
+        "Tell the user."
+    )
+    existing = res.get("warning")
+    res["warning"] = f"{existing} {msg}" if existing else msg
+    flag_style_unreviewed(res, doc)
 
 
 def _paragraph_property_names(para: Any) -> tuple[str, ...]:
@@ -1137,6 +1154,12 @@ _TEXT_PROPERTY_PREFIXES = ("Char", "HyperLink", "Ruby", "Visited", "Unvisited")
 # Paragraph properties whose change Reject undoes. Reject keeps a direct page break, page
 # style, or writing direction (lcl_RstAttr in docfmt.cxx), so those changes stay untracked.
 _RECORDABLE_PARA_PROPERTIES = frozenset({*_REVERT_PARA_PROPERTIES, "NumberingStyleName"} - {"BreakType", "WritingMode"})
+# SwUnoCursorHelper::SetCursorPropertyValue (sw/source/core/unocore/unoobj.cxx) writes these straight
+# to the text node (SwTextNode::SetAttrListLevel, SetCountedInList) without an undo action, so
+# commit_or_rollback's undo group holds nothing that restores them. ParaIsNumberingRestart is not
+# listed: it goes through SwDoc::SetNumRuleStart (sw/source/core/doc/docnum.cxx), which appends
+# SwUndoNumRuleStart, so the tool's single undo step restores it.
+_NOT_UNDOABLE_PARA_PROPERTIES = frozenset({"NumberingLevel", "NumberingIsNumber"})
 
 
 def _records_char_format(doc: Any, cursors: list[Any]) -> bool:
@@ -1147,6 +1170,22 @@ def _records_char_format(doc: Any, cursors: list[Any]) -> bool:
 
 def _is_text_property(name: str) -> bool:
     return name.startswith(_TEXT_PROPERTY_PREFIXES)
+
+
+def _has_hyperlink(cursor: Any) -> bool:
+    """True when some text in *cursor*'s range already carries a hyperlink.
+
+    A Format redline does not save the old link (lcl_SetRedline clears RES_TXTATR_INETFMT,
+    DocumentContentOperationsManager.cxx) and Reject resets the range's attributes, so a
+    recorded change of an existing link's target removes the link on Reject.
+    """
+    for para in iter_elements(cursor.createEnumeration()):
+        if not para.supportsService("com.sun.star.text.Paragraph"):
+            continue
+        for portion in iter_elements_limited(para.createEnumeration(), _CAPTURE_PORTION_LIMIT):
+            if portion.getPropertyValue("HyperLinkURL"):
+                return True
+    return False
 
 
 # Writer rejects setting these to their own default, so a reset of them cannot be recorded.
@@ -2001,6 +2040,7 @@ class ApplyStyle(ToolBase):
             recording_cm = record_changes(ctx.doc, False)
         with recording_cm:
             char_tracked = family == "CharacterStyles" and _records_char_format(ctx.doc, cursors)
+            foreign = char_tracked and format_overlaps_foreign_insertion(ctx.doc, ctx.ctx, cursors)
             reports, err = apply_to_cursors(
                 ctx,
                 cursors,
@@ -2013,6 +2053,8 @@ class ApplyStyle(ToolBase):
         res = self._success(style_name, family, target, reports, char_tracked=char_tracked)
         if res.get("tracked"):
             _flag_stacked_format_redlines(res, ctx.doc, cursors)
+        if foreign:
+            _flag_foreign_insertion(res, ctx.doc)
         if search_mode is not None:
             res.update(search_mode.result_fields())
         return res
@@ -2157,6 +2199,12 @@ class StyleFormatText(ToolWriterStyleBase):
             )
             if recording and any(n in _RECORDABLE_PARA_PROPERTIES for n in all_names):
                 para_author = paragraph_redline_author(ctx.ctx)
+            relinked = (
+                char_tracked
+                and any(n.startswith("HyperLink") for n in all_names)
+                and any(_has_hyperlink(c) for c in cursors)
+            )
+            foreign = char_tracked and format_overlaps_foreign_insertion(ctx.doc, ctx.ctx, cursors)
             reports, err = apply_to_cursors(ctx, cursors, apply_one, "direct formatting")
         if err is not None:
             return err
@@ -2221,6 +2269,8 @@ class StyleFormatText(ToolWriterStyleBase):
         def is_untracked(name: str) -> bool:
             if name in _RECORDABLE_PARA_PROPERTIES:
                 return not para_complete
+            if relinked and name.startswith("HyperLink"):
+                return True
             if name in reset_names:
                 return not char_tracked or name not in reset_values
             return not char_tracked or not _is_text_property(name)
@@ -2229,11 +2279,17 @@ class StyleFormatText(ToolWriterStyleBase):
         if recording and untracked:
             warnings.append(
                 "Not fully recorded as a tracked change (carets, headings, list items and empty paragraphs "
-                "are not recorded, nor are page breaks, page styles, writing direction and list levels): %s."
+                "are not recorded, nor are page breaks, page styles, writing direction, list levels and "
+                "changes to an existing hyperlink, whose Reject removes the link): %s."
                 % ", ".join(untracked)
             )
         if unrestorable:
             warnings.append(_unrestorable_note(unrestorable))
+        not_undoable = [n for n in updates if n in _NOT_UNDOABLE_PARA_PROPERTIES]
+        if not_undoable:
+            warnings.append(
+                "Ctrl+Z cannot undo %s; tell the user to change it back by hand if needed." % ", ".join(not_undoable)
+            )
         if not_reset:
             warnings.append(
                 "Could not reset as direct formatting: %s." % ", ".join(not_reset)
@@ -2246,6 +2302,8 @@ class StyleFormatText(ToolWriterStyleBase):
             _flag_stacked_format_redlines(res, ctx.doc, cursors)
         if untracked or not tracked or unrestorable:
             flag_style_unreviewed(res, ctx.doc)
+        if foreign:
+            _flag_foreign_insertion(res, ctx.doc)
         if search_mode is not None:
             res.update(search_mode.result_fields())
         return res

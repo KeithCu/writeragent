@@ -21,6 +21,7 @@ import uno
 
 from plugin.framework.uno_context import create_property_value, enum_has_more
 from plugin.testing_runner import native_test
+from plugin.writer import review_authors
 from plugin.writer.styles import ApplyStyle, StyleClone, StyleCreate, StyleFormatText, StyleGetInfo, StyleImport, StyleList, StyleUpdate
 from plugin.tests.testing_utils import TestingFactory, with_native_doc
 from tests.writer.doc_builders import accept_all_changes, body_paragraphs, reject_all_changes
@@ -1065,9 +1066,9 @@ def test_style_format_text_para_back_color_reaches_tables_persists_and_resets_un
     for p in _all_paras(doc):
         assert int(p.getPropertyValue("ParaBackColor")) == 0xFFE4C4
 
-    reloaded = None
-    try:
-        with tempfile.TemporaryDirectory() as tmpdir:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        reloaded = None
+        try:
             path = os.path.join(tmpdir, "bg_test.odt")
             url = uno.systemPathToFileUrl(path)
             doc.storeToURL(url, ())
@@ -1077,9 +1078,9 @@ def test_style_format_text_para_back_color_reaches_tables_persists_and_resets_un
             )
             for p in _all_paras(reloaded):
                 assert int(p.getPropertyValue("ParaBackColor")) == 0xFFE4C4
-    finally:
-        if reloaded is not None:
-            reloaded.close(True)
+        finally:
+            if reloaded is not None:
+                reloaded.close(True)
 
     res_reset = StyleFormatText().execute(
         tool_ctx, reset=["ParaBackColor"], target="full_document",
@@ -1601,6 +1602,40 @@ def test_style_format_text_full_document_table_in_leading_section_uno(ctx, doc):
 
 
 @native_test
+@with_native_doc("writer")
+def test_style_format_text_flags_link_retarget_and_foreign_insertion_uno(ctx, doc):
+    """While recording, a new target for an existing link and a format over Alice's insertion are flagged unreviewed."""
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    text = doc.getText()
+    text.setString("Beta two plain text.")
+    sd = doc.createSearchDescriptor()
+    sd.setSearchString("two")
+    doc.findFirst(sd).setPropertyValue("HyperLinkURL", "http://old.example/")
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        relinked = StyleFormatText().execute(
+            tool_ctx, properties={"HyperLinkURL": "http://changed.example/"}, target="search", old_content="two",
+        )
+        prior = review_authors.begin(ctx)
+        try:
+            assert review_authors.set_office_author(ctx, "Alice") is True
+            text.insertString(text.getEnd(), " ALICE", False)
+        finally:
+            review_authors.end(ctx, prior)
+        foreign = StyleFormatText().execute(
+            tool_ctx, properties={"CharWeight": 150.0}, target="search", old_content="text. ALICE",
+        )
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    assert relinked["status"] == "ok", relinked
+    assert relinked.get("style_unreviewed") is True and "HyperLinkURL" in relinked.get("warning", ""), relinked
+    assert foreign["status"] == "ok", foreign
+    assert foreign.get("style_unreviewed") is True and "another author" in foreign.get("warning", ""), foreign
+
+
+@native_test
 @with_native_doc("writer", reuse=False)
 def test_selection_format_refuses_recorded_format_over_deletion_uno(ctx, doc):
     from plugin.framework.config import get_config, save
@@ -1663,3 +1698,56 @@ def test_selection_format_refuses_recorded_format_over_deletion_uno(ctx, doc):
         doc.setPropertyValue("RecordChanges", False)
         review_authors.end(ctx, prev_author)
         save({"doc.agent_edit_review_mode": prev_mode})
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_style_format_text_warns_that_list_level_cannot_be_undone_uno(ctx, doc):
+    """Undo does not restore NumberingLevel, so the result warns in every review mode; other properties do not warn."""
+    from plugin.framework.config import get_config, save
+
+    text = doc.getText()
+    text.setString("")
+    cursor = text.createTextCursor()
+    for i, item in enumerate(("Apple", "Banana", "Cherry")):
+        if i:
+            text.insertControlCharacter(cursor, 0, False)  # PARAGRAPH_BREAK
+        text.insertString(cursor, item, False)
+    whole = text.createTextCursor()
+    whole.gotoStart(False)
+    whole.gotoEnd(True)
+    whole.setPropertyValue("NumberingStyleName", "Numbering 123")
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    prev = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "off"})
+    try:
+        res = StyleFormatText().execute(
+            tool_ctx, properties={"NumberingLevel": 1}, target="search", old_content="Cherry", all_matches=False,
+        )
+        assert res["status"] == "ok", res
+        cherry = body_paragraphs(text)[2]
+        assert cherry.getPropertyValue("NumberingLevel") == 1
+
+        doc.getUndoManager().undo()
+        assert cherry.getPropertyValue("NumberingLevel") == 1, "LibreOffice now undoes NumberingLevel; drop the warning"
+        assert "NumberingLevel" in res.get("warning", ""), res
+
+        res_plain = StyleFormatText().execute(
+            tool_ctx, properties={"CharWeight": 150.0}, target="search", old_content="Apple", all_matches=False,
+        )
+        assert res_plain["status"] == "ok", res_plain
+        assert "warning" not in res_plain, res_plain
+
+        # A numbering restart is undoable (SwUndoNumRuleStart), so it gets no warning and one Undo restores it.
+        banana = body_paragraphs(text)[1]
+        res_restart = StyleFormatText().execute(
+            tool_ctx, properties={"ParaIsNumberingRestart": True}, target="search", old_content="Banana", all_matches=False,
+        )
+        assert res_restart["status"] == "ok", res_restart
+        assert "warning" not in res_restart, res_restart
+        assert banana.getPropertyValue("ParaIsNumberingRestart") is True
+        doc.getUndoManager().undo()
+        assert banana.getPropertyValue("ParaIsNumberingRestart") is False
+    finally:
+        save({"doc.agent_edit_review_mode": prev})

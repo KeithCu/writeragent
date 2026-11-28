@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import Any
 
 import uno  # noqa: F401
+from com.sun.star.beans import UnknownPropertyException
 
 from plugin.doc.text_helpers import TrackedDeletions
 from plugin.framework.uno_context import enum_has_more
@@ -195,3 +196,20 @@ def test_markup_replace_of_first_word_in_own_pending_paragraph_strikes_it_uno(ct
     edit_first_word()
     reject_all_changes(doc, ctx)
     assert _styles(doc) == [("Standard", "Intro."), ("Text body", "Heading Title"), ("Standard", "Body text.")], _styles(doc)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_uno_error_inside_deletion_author_keeps_its_cause_uno(ctx: Any, doc: Any) -> None:
+    """A UNO exception from the authored deletion reaches the caller as itself, and the insert author comes back."""
+    prior = review_authors.begin(ctx)
+    try:
+        try:
+            with review_authors.deletion_author(doc, doc.getText().getStart(), strict=False):
+                doc.getPropertyValue("NoSuchProperty")
+            raise AssertionError("the UNO exception did not propagate")
+        except UnknownPropertyException:
+            pass
+        assert review_authors.office_author(ctx) == review_authors.INSERT_AUTHOR
+    finally:
+        review_authors.end(ctx, prior)

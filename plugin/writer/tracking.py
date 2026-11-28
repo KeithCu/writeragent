@@ -31,9 +31,11 @@ from typing import TYPE_CHECKING, Any
 from plugin.calc.base import ToolCalcSpecialTracking
 from plugin.doc.text_helpers import KeepViewSelection, iter_elements_limited
 from plugin.framework.doc_type import is_writer
+from plugin.framework.errors import uno_read
 from plugin.framework.uno_context import execute_dispatch, uno_same
 from plugin.writer.edit_review import get_agent_edit_review_mode
 from plugin.writer.inline_review import agent_self_resolution_block_reason
+from plugin.writer.range_copy import tracked_row_of
 from plugin.writer.review_authors import AGENT_AUTHORS
 from plugin.writer.review_scan import RedlinesShown, redline_identity_key, redline_is_agent_change
 from plugin.writer.search import LocationLabeler
@@ -105,6 +107,40 @@ def _overlap_refusal(target_index: int, objs: list[Any], start: Any, end: Any) -
         except Exception as rb_err:
             return _overlap_bounds_error(i, rb_err)
     return None
+
+
+def _redline_start(redline: Any) -> Any:
+    return uno_read(lambda: redline.getPropertyValue("RedlineStart"), None)
+
+
+def _tracked_row(start: Any) -> tuple[str, int] | None:
+    """(table name, row index) of the tracked row *start* lies in, comparable across redlines."""
+    row = tracked_row_of(start)
+    return None if row is None else (row[0].getName(), row[1])
+
+
+def _row_sibling_refusal(index: int, target_index: int, objs: list[Any], start: Any) -> str | None:
+    """Refusal when the change at *target_index* of *objs* lies in a tracked row holding other changes too.
+
+    LibreOffice records a tracked row insertion or deletion as one redline per cell; resolving
+    one of them by index resolves only that cell and resets the row's tracked state, so the rest
+    of the row would stay struck (or inserted) as plain text changes. The message names the
+    change by the caller's *index*; the siblings are counted, not listed, because *objs* may be
+    in shown-deletions order rather than the order tracking_list reported.
+    """
+    row = _tracked_row(start)
+    if row is None:
+        return None
+    siblings = sum(1 for i, r in enumerate(objs) if i != target_index and _tracked_row(_redline_start(r)) == row)
+    if not siblings:
+        return None
+    return (
+        "Tracked change %d is a change inside a tracked row insertion or deletion (row index %d, "
+        "0-based as the table tools count, of table '%s', which holds %d other change(s)). Accepting "
+        "or rejecting it alone would leave the rest of the row half-resolved, so nothing was changed. "
+        "Ask the user to accept or reject the row (Edit > Track Changes > Manage)."
+        % (index, row[1], row[0], siblings)
+    )
 
 
 def _resolve_outcome(index: int, before_keys: list[tuple[Any, ...]], after_keys: list[tuple[Any, ...]]) -> str | None:
@@ -391,8 +427,9 @@ class ManageTrackedChanges(ToolWriterTrackingBase, ToolCalcSpecialTracking):  # 
     description: str = (
         "Accept or reject tracked changes. action=accept/reject requires index "
         "(from tracking_list). That index is stale after any resolve; call "
-        "tracking_list again before the next accept or reject. action=accept_all/reject_all "
-        "resolves every change."
+        "tracking_list again before the next accept or reject. Writer refuses accept/reject of one "
+        "cell of a tracked row insertion or deletion whose other cells have their own changes. "
+        "action=accept_all/reject_all resolves every change."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -546,7 +583,9 @@ class ManageTrackedChanges(ToolWriterTrackingBase, ToolCalcSpecialTracking):  # 
                 # collapsed span (e.g. a deletion) — selecting the start point suffices
                 log.debug("tracking_manage: RedlineEnd unreadable; selecting the start point", exc_info=True)
 
-            refusal = _overlap_refusal(target_index, objs, start, end)
+            refusal = _row_sibling_refusal(index, target_index, objs, start) or _overlap_refusal(
+                target_index, objs, start, end
+            )
             if refusal is not None:
                 return self._tool_error(refusal)
 

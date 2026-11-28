@@ -428,8 +428,9 @@ def test_form_create_second_field_failure_triggers_undo(monkeypatch):
 
     assert res["status"] == "error"
     assert res.get("rolled_back") is True
-    mgr.enterUndoContext.assert_called_once_with("Form Create")
-    mgr.leaveUndoContext.assert_called_once()
+    # Each field's record_mutation group nests inside the batch group; only the batch is undone.
+    assert mgr.enterUndoContext.call_args_list[0].args == ("Form Create",)
+    assert mgr.leaveUndoContext.call_count == mgr.enterUndoContext.call_count
     mgr.undo.assert_called_once()
 
 

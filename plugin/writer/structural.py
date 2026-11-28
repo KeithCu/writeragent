@@ -29,7 +29,6 @@ if TYPE_CHECKING:
 from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK  # type: ignore
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_CHARACTER, AT_PAGE, AT_PARAGRAPH
 
-from plugin.doc.compound_undo import WriterCompoundUndo
 from plugin.doc.text_helpers import (
     TrackedDeletions,
     clone_text_range,
@@ -45,7 +44,8 @@ from plugin.draw.tree import custom_shape_geometry
 from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_disposed
 from plugin.framework.tool import ToolBase, ToolBaseDummy
 from plugin.framework.tool_schema import page_index_param
-from plugin.writer.edit_review import edit_is_recorded, flag_tracked, next_agent_edit_undo_title, record_write
+from plugin.framework.i18n import _
+from plugin.writer.edit_review import edit_is_recorded, flag_tracked, flag_untracked, record_write
 from plugin.writer.record_changes import overlapping_redline_authors
 from plugin.writer.target_resolver import update_selection_pin
 
@@ -420,9 +420,8 @@ class CloneHeadingBlock(ToolBaseDummy):
                 cursor.setPropertyValue("ParaStyleName", sty)
                 cursor.gotoEndOfParagraph(False)
 
-        # One reviewable change and one Ctrl+Z step for the whole clone.
-        with WriterCompoundUndo(ctx.doc, next_agent_edit_undo_title()):
-            _unused, recording = record_write(ctx.doc, ctx.ctx, insert_clones)
+        # record_mutation makes the whole clone one Ctrl+Z step in every review mode.
+        _unused, recording = record_write(ctx.doc, ctx.ctx, insert_clones)
 
         suffix = (", %d tables skipped" % skipped_tables) if skipped_tables else ""
         msg = "Cloned heading block '%s' (%d paragraphs%s)." % (node.get("text", ""), total, suffix)
@@ -430,4 +429,10 @@ class CloneHeadingBlock(ToolBaseDummy):
         result: dict[str, Any] = {"status": "ok", "message": msg, "heading_text": node.get("text", ""), "block_size": total}
         if recording:
             flag_tracked(result)
+        else:
+            flag_untracked(
+                result,
+                ctx.doc,
+                _("The cloned block was inserted directly and is not tracked (Ctrl+Z undoes it). Tell the user."),
+            )
         return result

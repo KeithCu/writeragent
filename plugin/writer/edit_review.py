@@ -45,7 +45,6 @@ returns an empty complete result), and degrades to inert if tracking cannot be e
 
 from __future__ import annotations
 
-import contextlib
 from collections import Counter
 from dataclasses import dataclass, field
 import itertools
@@ -53,12 +52,28 @@ import logging
 import re
 import time
 import uuid
-from typing import Any, Callable, ClassVar, Generator, TypeVar
+from typing import Any, Callable, ClassVar, TypeVar
 
 from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK  # type: ignore
 
-from plugin.doc.compound_undo import UndoLock, UndoOutcome, UndoUnavailable, WriterCompoundUndo, commit_or_rollback
-from plugin.doc.text_helpers import FAILED, go_right, is_text_table, iter_elements, iter_portions
+from plugin.doc.compound_undo import (
+    UndoLock,
+    UndoOutcome,
+    UndoStepOrRollback,
+    UndoUnavailable,
+    WriterCompoundUndo,
+    commit_or_rollback,
+    rollback_failed_error,
+)
+from plugin.doc.text_helpers import (
+    FAILED,
+    TrackedDeletions,
+    go_right,
+    is_text_table,
+    iter_elements,
+    iter_portions,
+    starts_at_or_after,
+)
 # Module-qualified on purpose: plugin/testing_runner.py replaces config.get_config while native
 # suites run (review mode reads "off" unless a test sets it); a from-import would keep the original.
 from plugin.framework import config
@@ -76,7 +91,7 @@ from plugin.framework.uno_context import get_ctx
 from plugin.writer import review_authors
 from plugin.writer import review_scan as _review_scan
 from plugin.writer.heading_links import headings_if_touched, retarget_renamed_links
-from plugin.writer.html_import import replace_preserving_format
+from plugin.writer.html_import import recorded_replace_keeps_formatting, replace_preserving_format
 from plugin.writer.record_changes import (
     is_recording_changes,
     overlaps_foreign_insertion,
@@ -125,6 +140,18 @@ def review_recording_enabled() -> bool:
     return get_agent_edit_review_mode() in ("record", "wait")
 
 
+def changes_protected(doc: Any) -> bool:
+    """True when *doc*'s tracked changes are password-protected (Edit > Track Changes > Protect).
+
+    LibreOffice then disables every Accept and Reject command: the single-change ones in
+    ``SwView::GetState`` (``sw/source/uibase/uiview/viewstat.cxx``) and Accept All / Reject All
+    in ``SwDocShell::GetState`` (``sw/source/uibase/app/docsh.cxx``), both through
+    ``SwDocShell::HasChangeRecordProtection``. Nobody can resolve a pending agent change until
+    the protection is removed.
+    """
+    return len(doc.getPropertyValue("RedlineProtectionKey")) > 0
+
+
 def edit_is_recorded(doc: Any) -> bool:
     """True when an agent edit of *doc* made now is recorded as a tracked change.
 
@@ -134,27 +161,61 @@ def edit_is_recorded(doc: Any) -> bool:
     return review_recording_enabled() or is_recording_changes(doc)
 
 
-@contextlib.contextmanager
-def agent_format_author(doc: Any, ctx: Any, ranges: list[Any]) -> Generator[None, None, None]:
-    """Author redlines recorded on *ranges* in this block as WriterAgent in record/wait mode.
+def _agent_authors_format(doc: Any, ranges: list[Any]) -> bool:
+    """True when a character format recorded now on *ranges* is authored WriterAgent.
 
-    LibreOffice folds a format into a pending insertion only when both have the same author;
-    otherwise rejecting keeps the inserted text (PreAppendFormatRedline in
-    DocumentRedlineManager.cxx). So the office author stays when *ranges* overlap an insertion
-    that is not WriterAgent's.
+    That is Record/Wait mode while the document records, unless *ranges* overlap an insertion
+    that is not WriterAgent's: LibreOffice folds a format into a pending insertion only when
+    both have the same author, otherwise rejecting keeps the inserted text
+    (PreAppendFormatRedline in DocumentRedlineManager.cxx), so the office author stays then.
     """
-    if (
-        not review_recording_enabled()
-        or not is_recording_changes(doc)
-        or overlaps_foreign_insertion(doc, ranges, review_authors.INSERT_AUTHOR)
-    ):
-        yield
-        return
-    prior = review_authors.begin(ctx)
-    try:
-        yield
-    finally:
-        review_authors.end(ctx, prior)
+    return (
+        review_recording_enabled()
+        and is_recording_changes(doc)
+        and not overlaps_foreign_insertion(doc, ranges, review_authors.INSERT_AUTHOR)
+    )
+
+
+class agent_format_author:  # Named like a function: callers write ``with agent_format_author(...):``.
+    """Author redlines recorded on *ranges* in this block as WriterAgent when ``_agent_authors_format`` says so.
+
+    A class, not a generator context manager, so a UNO exception
+    from the block reaches the caller unchanged (see
+    ``plugin.doc.compound_undo.UndoStepOrRollback``).
+    """
+
+    _doc: Any
+    _ctx: Any
+    _ranges: list[Any]
+    _begun: bool
+    _prior: tuple[str, str] | None
+
+    def __init__(self, doc: Any, ctx: Any, ranges: list[Any]) -> None:
+        self._doc = doc
+        self._ctx = ctx
+        self._ranges = ranges
+        self._begun = False
+        self._prior = None
+
+    def __enter__(self) -> None:
+        self._begun = _agent_authors_format(self._doc, self._ranges)
+        self._prior = review_authors.begin(self._ctx) if self._begun else None
+
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: Any) -> None:
+        if self._begun:
+            review_authors.end(self._ctx, self._prior)
+
+
+def format_overlaps_foreign_insertion(doc: Any, ctx: Any, ranges: list[Any]) -> bool:
+    """True when a character format recorded now on *ranges* covers a pending insertion it cannot fold into.
+
+    The format's author follows ``_agent_authors_format``. An insertion by anyone else becomes
+    the Format redline, so Reject keeps the inserted text. Call before the write, which
+    changes the insertion.
+    """
+    if _agent_authors_format(doc, ranges):
+        return False  # WriterAgent authors the format and every insertion it covers is its own
+    return overlaps_foreign_insertion(doc, ranges, review_authors.office_author(ctx))
 
 
 def paragraph_redline_author(ctx: Any) -> str:
@@ -203,11 +264,26 @@ def flag_tracked(result: dict[str, Any]) -> None:
         )
 
 
+def flag_tracked_delete(result: dict[str, Any], what: str) -> None:
+    """Report a deletion LibreOffice recorded: the item stays in the document, struck, until the user resolves it.
+
+    *what* names the item with its verb ("footnote at index 0 is", "2 fields are"). Without this
+    the result reads as a plain deletion while the read tools still list the item.
+    """
+    result["message"] = (
+        f"{what} marked for deletion as a tracked change; it stays in the document "
+        "until the user accepts or rejects it."
+    )
+    flag_tracked(result)
+
+
 def flag_untracked(result: dict[str, Any], doc: Any, message: str, *, replaced_pending: bool = False) -> None:
-    """Flag a Writer mutation that was not recorded as a tracked change.
+    """Flag a Writer mutation, or the part of one, that was not recorded as a tracked change.
 
     *replaced_pending* means the text it replaced was struck as a tracked deletion, which keeps
     ``pending_review``, ``tracked: False``, and the warning even if the review mode is off by now.
+    A result that ``flag_tracked`` already marked keeps ``tracked: True``, because part of the call
+    was recorded; only the warning is added for the part that was not.
     """
     if result.get("status") != "ok" or not is_writer(doc):
         return
@@ -215,7 +291,8 @@ def flag_untracked(result: dict[str, Any], doc: Any, message: str, *, replaced_p
         result["pending_review"] = True
     elif not edit_is_recorded(doc):
         return
-    result["tracked"] = False
+    if result.get("tracked") is not True:
+        result["tracked"] = False
     existing = result.get("warning")
     result["warning"] = f"{existing} {message}".strip() if existing else message
 
@@ -447,6 +524,38 @@ def _force_show_changes(doc: Any, who: str) -> None:
         log.debug("%s: could not force ShowChanges", who, exc_info=True)
 
 
+# A Format or ParagraphFormat redline is never an agent text change come back: style tools
+# author them WriterAgent without a token (styles.py), so counting them would keep a resolved
+# change pending for the whole timeout.
+_UNTAGGED_PENDING_TYPES = frozenset({"Insert", "Delete"})
+
+
+def _pending_without_token(records: list[ChangeRecord], spans: list[tuple[Any, Any]]) -> set[str]:
+    """Tokens of *records* still pending although their token is on no redline.
+
+    Undo then Redo brings an agent change back without its token, and editing the change
+    comment (Edit > Track Changes > Manage) replaces the token; the change is still pending
+    either way. *spans* are the agent-authored Insert and Delete redlines with no ``wa-review``
+    token; one that touches a record's anchor keeps that record pending. Touching is enough
+    because Redo puts the text back next to the anchor cursor rather than inside it. A part of
+    the same edit that was never tagged (a deletion stacked on another author's insertion) also
+    keeps it pending until the user resolves that part in Edit > Track Changes > Manage.
+    """
+    pending: set[str] = set()
+    if not spans:
+        return pending
+    for record in records:
+        # A cursor whose table cell or frame was deleted cannot be read; that change is not pending.
+        text = uno_read(record.anchor.getText, None)
+        if text is None:
+            continue
+        if any(starts_at_or_after(text, record.anchor.getEnd(), start)
+               and starts_at_or_after(text, end, record.anchor.getStart())
+               for start, end in spans):
+            pending.add(record.token)
+    return pending
+
+
 @dataclass(frozen=True)
 class ChangeRecord:
     """One reviewable change: its token, anchor, and the two expected end states."""
@@ -553,93 +662,112 @@ class EditReviewSession:
 
         Call once per logical change (per replaced match, per inserted block) so each gets
         its own accept/reject outcome. Returns ``apply_fn``'s return value.
+
+        The edit is one undo step in every review mode, so one Ctrl+Z removes it whether or
+        not a session is active. When ``apply_fn`` raises, the step is undone while it is still
+        the newest one (``UndoStepOrRollback``); otherwise a helper's own rollback nested inside
+        this group could not run, because ``XUndoManager.undo`` refuses while a context is open
+        (``UndoManagerHelper_Impl::impl_doUndoRedo``, framework/source/fwe/helper/undomanagerhelper.cxx).
+        Inside a caller's undo group the step joins that group and the caller's rollback applies.
+        A rollback inside ``apply_fn`` must therefore raise: an error dict returned after a
+        partial write leaves that write in the document.
         """
-        if not self._active:
-            # The user's own Track Changes recording still makes redlines; note them so
-            # left_tracked_changes can report the edit whatever the review mode.
-            if self._first_snapshot is None and is_recording_changes(self.doc):
-                self._first_snapshot = self._redline_idents()
-            return apply_fn()
-
-        group = WriterCompoundUndo.try_enter(self.doc, _AGENT_EDIT_UNDO_TITLE)
+        group = UndoStepOrRollback(self.doc, _AGENT_EDIT_UNDO_TITLE, warn=False)
         try:
-            # Every edit rescans all redlines instead of tracking deltas, because only a complete
-            # scan can fail closed; batches are capped at doc.agent_edit_max_surgical_runs.
-            before, before_ok = self._redline_idents()
-            if self._first_snapshot is None:
-                self._first_snapshot = (before, before_ok)
-            result = apply_fn()
+            with group:
+                if not self._active:
+                    # The user's own Track Changes recording still makes redlines; note them so
+                    # left_tracked_changes can report the edit whatever the review mode.
+                    if self._first_snapshot is None and is_recording_changes(self.doc):
+                        self._first_snapshot = self._redline_idents()
+                    return apply_fn()
+                return self._record_tagged(apply_fn, original_preview, proposed_preview)
+        except Exception as exc:
+            if group.rollback_error is not None:
+                raise rollback_failed_error(group.rollback_error, exc) from exc
+            raise
 
-            # A failed tag or a failed missing-anchor clear can leave
-            # wa-review:<session>:<n> on a redline without appending a ChangeRecord.
-            # len(self.changes) would mint that same n again, so the leftover becomes
-            # the next registered token and wait_for_review stays blocked after the
-            # user resolves the new change.
-            n = self._next_change
-            def mint() -> str:
-                self._next_change = n + 1
-                return _review_scan.make_agent_token(self.session_id, n)
+    def _record_tagged(self, apply_fn: Callable[[], Any], original_preview: str, proposed_preview: str) -> Any:
+        """Run *apply_fn* in an active session, then tag and anchor what it recorded.
 
-            tagged = _tag_new_change(self.doc, before, before_ok, mint, "EditReviewSession")
-            if tagged is None:
-                return result
-            token, new_redlines = tagged
+        Runs inside the undo group ``record_mutation`` opened, so anything the tagging pass
+        records joins the edit's one step. ``_tag_new_change`` writes ``RedlineComment``, which adds
+        no undo action of its own, so Undo then Redo brings the redline back untagged.
+        """
+        # Every edit rescans all redlines instead of tracking deltas, because only a complete
+        # scan can fail closed; batches are capped at doc.agent_edit_max_surgical_runs.
+        before, before_ok = self._redline_idents()
+        if self._first_snapshot is None:
+            self._first_snapshot = (before, before_ok)
+        result = apply_fn()
 
-            # Bounding span across the new redlines -> anchor cursor + expected end states.
-            # Built with cursor.gotoRange(range, expand=True): XTextRangeCompare is unreliable on
-            # redline ranges (a tracked DELETE's text sits outside the normal flow), so comparing
-            # starts/ends can collapse the span for replace changes.
-            groups: list[list[Any]] = []
-            at_table = False
-            for rl in new_redlines:
-                try:
-                    ends = (rl.getPropertyValue("RedlineStart"), rl.getPropertyValue("RedlineEnd"))
-                except Exception:
-                    log.debug("EditReviewSession: redline span unreadable", exc_info=True)
+        # A failed tag or a failed missing-anchor clear can leave
+        # wa-review:<session>:<n> on a redline without appending a ChangeRecord.
+        # len(self.changes) would mint that same n again, so the leftover becomes
+        # the next registered token and wait_for_review stays blocked after the
+        # user resolves the new change.
+        n = self._next_change
+        def mint() -> str:
+            self._next_change = n + 1
+            return _review_scan.make_agent_token(self.session_id, n)
+
+        tagged = _tag_new_change(self.doc, before, before_ok, mint, "EditReviewSession")
+        if tagged is None:
+            return result
+        token, new_redlines = tagged
+
+        # Bounding span across the new redlines -> anchor cursor + expected end states.
+        # Built with cursor.gotoRange(range, expand=True): XTextRangeCompare is unreliable on
+        # redline ranges (a tracked DELETE's text sits outside the normal flow), so comparing
+        # starts/ends can collapse the span for replace changes.
+        groups: list[list[Any]] = []
+        at_table = False
+        for rl in new_redlines:
+            try:
+                ends = (rl.getPropertyValue("RedlineStart"), rl.getPropertyValue("RedlineEnd"))
+            except Exception:
+                log.debug("EditReviewSession: redline span unreadable", exc_info=True)
+                continue
+            for end in ends:
+                # An end that sits on a table or section is an SwXTextTable/SwXTextSection, not a text range.
+                host = uno_read(lambda: end.getText(), None)
+                if host is None:
+                    at_table = True
                     continue
-                for end in ends:
-                    # An end that sits on a table or section is an SwXTextTable/SwXTextSection, not a text range.
-                    host = uno_read(lambda: end.getText(), None)
-                    if host is None:
-                        at_table = True
-                        continue
-                    for text_group in groups:
-                        if text_group[0].getText() == host:
-                            text_group.append(end)
-                            break
-                    else:
-                        groups.append([end])
-            anchor: Any = None
-            accepted_text = rejected_text = ""
-            accepted_all: list[str] = []
-            rejected_all: list[str] = []
-            if groups:
-                try:
-                    anchor_span = None
-                    for text_group in groups:
-                        span = text_group[0].getText().createTextCursorByRange(text_group[0])
-                        for point in text_group[1:]:
-                            span.gotoRange(point, True)  # expand=True grows the span in either direction
-                        # Scope the captured states AND the anchor cursor to the CHANGE's own redline
-                        # span, not the whole paragraph -- so when several changes share a paragraph each
-                        # one's outcome/final_text reflects only itself, and a change deep in a long
-                        # paragraph is never truncated out of the preview.
-                        acc = _string_skipping_redline(span, "Delete")
-                        rej = _string_skipping_redline(span, "Insert")
-                        accepted_all.append(acc)
-                        rejected_all.append(rej)
-                        # The anchored text omits the table, so a table-only insert reads the same
-                        # after Accept and Reject and must stay untagged; with several texts, only
-                        # one that changes can tell Accept from Reject.
-                        if anchor_span is None and (acc != rej or (len(groups) == 1 and not at_table)):
-                            anchor_span, accepted_text, rejected_text = span, acc, rej
-                    anchor = anchor_span
-                except Exception:
-                    anchor = None
-                    log.debug("EditReviewSession: anchoring failed for change %d", n, exc_info=True)
-        finally:
-            if group is not None:
-                group.close()
+                for text_group in groups:
+                    if text_group[0].getText() == host:
+                        text_group.append(end)
+                        break
+                else:
+                    groups.append([end])
+        anchor: Any = None
+        accepted_text = rejected_text = ""
+        accepted_all: list[str] = []
+        rejected_all: list[str] = []
+        if groups:
+            try:
+                anchor_span = None
+                for text_group in groups:
+                    span = text_group[0].getText().createTextCursorByRange(text_group[0])
+                    for point in text_group[1:]:
+                        span.gotoRange(point, True)  # expand=True grows the span in either direction
+                    # Scope the captured states AND the anchor cursor to the CHANGE's own redline
+                    # span, not the whole paragraph -- so when several changes share a paragraph each
+                    # one's outcome/final_text reflects only itself, and a change deep in a long
+                    # paragraph is never truncated out of the preview.
+                    acc = _string_skipping_redline(span, "Delete")
+                    rej = _string_skipping_redline(span, "Insert")
+                    accepted_all.append(acc)
+                    rejected_all.append(rej)
+                    # The anchored text omits the table, so a table-only insert reads the same
+                    # after Accept and Reject and must stay untagged; with several texts, only
+                    # one that changes can tell Accept from Reject.
+                    if anchor_span is None and (acc != rej or (len(groups) == 1 and not at_table)):
+                        anchor_span, accepted_text, rejected_text = span, acc, rej
+                anchor = anchor_span
+            except Exception:
+                anchor = None
+                log.debug("EditReviewSession: anchoring failed for change %d", n, exc_info=True)
 
         # No anchor → do not register. ChangeRecord with anchor=None makes _outcome guess
         # rejected/modified (current is None). That is a lie to the model. Same as failed tagging:
@@ -767,6 +895,7 @@ class EditReviewSession:
         prefix = _review_scan.session_token_prefix(self.session_id)
         registered = {record.token for record in self.changes}
         seen: set[str] = set()
+        untagged_spans: list[tuple[Any, Any]] = []
 
         def on_item(rl: Any) -> bool:
             try:
@@ -775,12 +904,18 @@ class EditReviewSession:
                 return False
             if comment.startswith(prefix):
                 seen.add(comment)
+            elif (not _review_scan.is_agent_token(comment)
+                  and rl.getPropertyValue("RedlineAuthor") in review_authors.AGENT_AUTHORS
+                  and rl.getPropertyValue("RedlineType") in _UNTAGGED_PENDING_TYPES):
+                untagged_spans.append((rl.getPropertyValue("RedlineStart"), rl.getPropertyValue("RedlineEnd")))
             return True
 
         reliable = _review_scan.scan_redlines(self.doc, on_item)[0]
+        pending = seen & registered
+        pending |= _pending_without_token([r for r in self.changes if r.token not in pending], untagged_spans)
         if not reliable:
             log.debug("EditReviewSession: pending check enumeration incomplete")
-        return seen & registered, reliable
+        return pending, reliable
 
     def _change_text_at_anchor(self, record: ChangeRecord) -> str | None:
         """Current text of the CHANGE's own region (its anchor cursor span), or None when the
@@ -875,6 +1010,8 @@ class EditReviewSession:
         the still-open entries report ``"pending"`` and ``complete`` is False -- the agent must
         not assume the text's state. *cancel* and *still_reviewing* let the caller abort early
         (e.g. Stop or the review feature toggled off mid-wait); that also returns ``complete=False``.
+        A document whose tracked changes are protected returns at once the same way, with
+        ``changes_protected: True``.
 
         Thread placement: poll from a background/HTTP thread so the main thread stays free for
         the user's accept/reject clicks. UNO is not thread-safe, so callers off the main thread
@@ -899,6 +1036,13 @@ class EditReviewSession:
             # have missed an unresolved registered change (fail closed).
             if reliable and not pending:
                 break
+            if run(lambda: not document_is_disposed(self.doc) and changes_protected(self.doc)):
+                # Nobody can accept or reject while the changes are protected, so waiting would
+                # only run out the timeout. A document closed since the scan is left to the next
+                # poll, because reading a property of a closed model throws DisposedException.
+                payload = run(lambda: self._review_payload(complete=False, timed_out=False))
+                payload["changes_protected"] = True
+                return payload
             # Only explicit False ends the wait (review mode off); other falsy returns keep waiting.
             if is_cancelled(cancel) or (still_reviewing is not None and still_reviewing() is False):
                 return run(lambda: self._review_payload(complete=False, timed_out=False))
@@ -1010,10 +1154,19 @@ def collapsed_anchor(text_range: Any) -> Any | None:
     return uno_read(lambda: text_range.getText().createTextCursorByRange(text_range.getStart()), None)
 
 
-def paragraph_window_text(anchor: Any | None, max_chars: int = _EDITED_CONTEXT_MAX_CHARS) -> str | None:
-    """Plain text of the paragraph around *anchor* plus one neighbor each side, read AFTER the edit."""
+def paragraph_window_text(doc: Any, anchor: Any | None, max_chars: int = _EDITED_CONTEXT_MAX_CHARS) -> str | None:
+    """Plain text of the paragraph around *anchor* plus one neighbor each side, read AFTER the edit.
+
+    Pending tracked deletions are left out, so the window reads as it will after Accept
+    (``_string_skipping_redline``); otherwise struck text is glued to the new text ("Third3rd")
+    and the model takes it for live text. A window with no deletion is the raw ``getString()``,
+    because the portion walk renders an object portion as ``_OBJECT_MARK`` and reads fields
+    portion by portion; without the ``overlaps`` test the echo would change for every document,
+    Track Changes off included.
+    """
     if anchor is None:
         return None
+    deletions = TrackedDeletions(doc)
 
     def window() -> str:
         text = anchor.getText()
@@ -1027,7 +1180,7 @@ def paragraph_window_text(anchor: Any | None, max_chars: int = _EDITED_CONTEXT_M
         end.gotoEndOfParagraph(False)
         span = text.createTextCursorByRange(start.getStart())
         span.gotoRange(end.getEnd(), True)
-        return span.getString()
+        return _string_skipping_redline(span, "Delete") if deletions.overlaps(span) else span.getString()
 
     s = uno_read(window, None)
     if not s or not s.strip():
@@ -1039,9 +1192,9 @@ def paragraph_window_text(anchor: Any | None, max_chars: int = _EDITED_CONTEXT_M
     return s
 
 
-def attach_edited_context(result: Any, anchor: Any | None) -> dict[str, Any]:
+def attach_edited_context(result: Any, doc: Any, anchor: Any | None) -> dict[str, Any]:
     """Add edited_context (the touched paragraph(s) as they now read) to a successful result."""
-    snippet = paragraph_window_text(anchor)
+    snippet = paragraph_window_text(doc, anchor)
     if snippet:
         result["edited_context"] = snippet
     return result
@@ -1066,15 +1219,19 @@ def _raise_batch_failure(outcome: UndoOutcome, mutate_errors: list[Exception]) -
 
 
 def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, new_text: str,
-                            split: bool) -> None:
+                            split: bool) -> bool:
     """Record a format-preserving replace as ONE reviewable change, or -- when *split* (review
     recording is on) and only PART of the block changed -- as several SURGICAL sub-changes,
     each its own tracked Delete+Insert with its own accept/reject outcome.
+
+    Returns False when the formatting of the text around the change is not kept: a recorded
+    whole-block replace over several runs gives the new text one run's formatting.
     """
     split_author = split and bool(config.get_config("doc.agent_edit_split_author_colors"))
 
-    def _whole() -> None:
+    def _whole() -> bool:
         original = found.getString()
+        keeps = not is_recording_changes(doc) or recorded_replace_keeps_formatting(found)
         if split_author:
             whole_exc: list[Exception] = []
 
@@ -1104,7 +1261,7 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
                         doc, found, new_text,
                         in_undo_context=False, split_author=split_author),
                     original_preview=_preview(original), proposed_preview=_preview(new_text))
-                return
+                return keeps
 
             _raise_batch_failure(outcome, whole_exc)
         else:
@@ -1113,12 +1270,13 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
                     doc, found, new_text,
                     in_undo_context=False, split_author=split_author),
                 original_preview=_preview(original), proposed_preview=_preview(new_text))
+        return keeps
 
     result = None
     if split:
         result = split_change(found.getString(), new_text, config.get_config("doc.agent_edit_diff_threshold"))
         if result.is_surgical and not result.sub_edits:
-            return
+            return True
 
     if (
         result is None
@@ -1126,8 +1284,7 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
         or len(result.sub_edits) > config.get_config("doc.agent_edit_max_surgical_runs")
         or not _block_safe_for_surgical(found)
     ):
-        _whole()
-        return
+        return _whole()
 
     text = found.getText()
     anchor = found.getStart()
@@ -1147,8 +1304,7 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
             # split_change offsets count code points, as goRight does (breakiterator_unicode.cxx
             # nextCharacters). A mismatch (field, hidden text) falls back to a whole-block replace.
             log.debug("edit_review: surgical pre-flight offset mismatch; falling back to whole-block")
-            _whole()
-            return
+            return _whole()
 
     undo_title = next_surgical_undo_title()
     surgical_exc: list[Exception] = []
@@ -1183,10 +1339,10 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
     except UndoUnavailable:
         log.debug("edit_review: no usable/unlocked undo manager; surgical edit falls back to whole-block "
                   "for atomicity")
-        _whole()
-        return
+        return _whole()
 
     _raise_batch_failure(outcome, surgical_exc)
+    return True
 
 
 def build_writer_rewrite_prompt(original_text: str, instructions: str) -> str:

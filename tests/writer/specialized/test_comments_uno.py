@@ -4,6 +4,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Native LibreOffice tests for specialized comment tools."""
 
+from plugin.doc.text_helpers import iter_annotations
+from plugin.framework.config import get_config, save
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import TestingFactory, with_native_doc
 from tests.writer.doc_builders import find_first, recording_as, reset_body, set_body_text
@@ -186,3 +188,29 @@ def test_comment_delete_while_recording_warns_uno(ctx, doc):
         doc.setPropertyValue("RecordChanges", False)
     assert res.get("status") == "ok", res
     assert res.get("warnings"), res
+
+
+@native_test
+@with_native_doc("writer")
+def test_comment_tools_say_whether_the_change_is_tracked_uno(ctx, doc):
+    """Record mode: a comment is added directly and the result says so. User recording: a delete is struck, not gone."""
+    set_body_text(doc, "Alpha beta gamma.")
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    prev = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "record"})
+    try:
+        added = AddComment().execute(tool_ctx, content="Check this", search="beta", author="WriterAgent", occurrence=0)
+    finally:
+        save({"doc.agent_edit_review_mode": prev})
+    assert added["status"] == "ok", added
+    assert added.get("tracked") is False and added.get("warning"), added
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        deleted = CommentDelete().execute(tool_ctx, name=added["name"])
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+    assert deleted["status"] == "ok", deleted
+    assert deleted.get("tracked") is True and deleted.get("pending_review") is True, deleted
+    assert "marked for deletion" in deleted["message"], deleted
+    assert added["name"] in [field.getPropertyValue("Name") for field in iter_annotations(doc)]

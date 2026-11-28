@@ -10,12 +10,15 @@
 # ShowChanges forced on.
 import unittest
 
-import uno  # noqa: F401
+import uno
+from com.sun.star.beans import UnknownPropertyException
 
 from plugin.framework.uno_context import execute_dispatch
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
-from plugin.writer.edit_review import EditReviewSession
+from plugin.writer import review_authors
+from plugin.framework.config import get_config, save
+from plugin.writer.edit_review import EditReviewSession, agent_format_author
 from tests.writer.doc_builders import accept_all_changes, find_first, list_redlines, reject_all_changes, reset_body
 
 
@@ -116,6 +119,46 @@ def test_user_redlines_do_not_block_completion_uno(ctx, doc):
     assert [r for r in list_redlines(doc) if not r["RedlineComment"].startswith("wa-review:")], \
         "the user's redline must still be pending (untouched)"
     reset_body(doc, ctx, "reset")  # clear the leftover user redline for the next test
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_uno_error_inside_review_session_keeps_its_cause_uno(ctx, doc):
+    """A UNO exception raised by a recorded edit reaches the caller as itself, with recording and author restored."""
+    reset_body(doc, ctx, "Before.")
+    author = review_authors.office_author(ctx)
+    session = EditReviewSession(doc, ctx, enabled=True)
+    try:
+        with session:
+            session.record_mutation(lambda: doc.getPropertyValue("NoSuchProperty"))
+        raise AssertionError("the UNO exception did not propagate")
+    except Exception as exc:
+        assert isinstance(exc, UnknownPropertyException), repr(exc)
+    assert doc.getPropertyValue("RecordChanges") is False
+    assert review_authors.office_author(ctx) == author
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_uno_error_inside_agent_format_author_keeps_its_cause_uno(ctx, doc):
+    """A UNO exception from a format edit authored as WriterAgent reaches the caller as itself, with the author restored."""
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    author = review_authors.office_author(ctx)
+    save({flag: "record"})
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        try:
+            with agent_format_author(doc, ctx, []):
+                assert review_authors.office_author(ctx) == review_authors.INSERT_AUTHOR
+                doc.getPropertyValue("NoSuchProperty")
+            raise AssertionError("the UNO exception did not propagate")
+        except UnknownPropertyException:
+            pass
+        assert review_authors.office_author(ctx) == author
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)
 
 
 @native_test
@@ -467,6 +510,90 @@ def test_cross_paragraph_change_reports_accepted_and_rejected_uno(ctx, doc):
         assert expected_text == normalize_linebreaks(text.getString())
 
 
+@native_test
+@with_native_doc("writer")
+def test_untagged_pending_change_is_not_reported_resolved_uno(ctx, doc):
+    # Undo then Redo brings the change back without its token, and editing the change comment
+    # replaces the token; in both the change is still pending.
+    def undo_redo():
+        doc.getUndoManager().undo()
+        doc.getUndoManager().redo()
+
+    def edit_comment():
+        redlines = doc.getRedlines()
+        for rl in [redlines.getByIndex(i) for i in range(redlines.getCount())]:
+            rl.setPropertyValue("RedlineComment", "ask Bob")
+
+    for user_action in (undo_redo, edit_comment):
+        reset_body(doc, ctx, "Alpha two three.")
+        with EditReviewSession(doc, ctx, enabled=True) as session:
+            session.record_mutation(_replace_fn(doc, "two", "NEWWORD"))
+        user_action()
+        assert {r["type"] for r in list_redlines(doc)} == {"Delete", "Insert"}, user_action.__name__
+        result = session.wait_for_review(timeout=0.3, poll=0.05)
+        assert result["complete"] is False and result["timed_out"] is True, (user_action.__name__, result)
+        assert result["changes"][0]["outcome"] == "pending", (user_action.__name__, result)
+        accept_all_changes(doc, ctx)
+        result = session.wait_for_review(timeout=2, poll=0.05)
+        assert result["complete"] is True, (user_action.__name__, result)
+        assert result["changes"][0]["outcome"] != "pending", (user_action.__name__, result)
+
+    # A style tool's untagged WriterAgent format redline right after the change is not the change
+    # come back: once the user accepts the change, the wait completes.
+    from com.sun.star.awt.FontWeight import BOLD  # type: ignore
+    from plugin.writer import review_authors
+
+    reset_body(doc, ctx, "Alpha two three.")
+    with EditReviewSession(doc, ctx, enabled=True) as session:
+        session.record_mutation(_replace_fn(doc, "two", "NEWWORD"))
+    prior = review_authors.begin(ctx)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        find_first(doc, " three.").setPropertyValue("CharWeight", BOLD)
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        review_authors.end(ctx, prior)
+    controller = doc.getCurrentController()
+    controller.select(find_first(doc, "NEWWORDtwo"))
+    execute_dispatch(ctx, controller, ".uno:AcceptTrackedChange")
+    assert [(r["type"], r["RedlineAuthor"]) for r in list_redlines(doc)] == [("Format", "WriterAgent")]
+    result = session.wait_for_review(timeout=2, poll=0.05)
+    assert result["complete"] is True, result
+    assert result["changes"][0]["outcome"] == "accepted", result
+    doc.setPropertyValue("RecordChanges", False)
+    reject_all_changes(doc, ctx)
+
+    # Undo of a pure deletion puts the text back: rejected, and the wait completes.
+    reset_body(doc, ctx, "Alpha two three.")
+    with EditReviewSession(doc, ctx, enabled=True) as session:
+        session.record_mutation(_replace_fn(doc, "two ", ""))
+    doc.getUndoManager().undo()
+    result = session.wait_for_review(timeout=2, poll=0.05)
+    assert doc.getText().getString() == "Alpha two three."
+    assert result["complete"] is True, result
+    assert result["changes"][0]["outcome"] == "rejected", result
+
+
+@native_test
+@with_native_doc("writer")
+def test_edited_context_leaves_out_pending_deletions_uno(ctx, doc):
+    """edited_context reads as after Accept: neither the replaced text nor another author's deletion shows."""
+    from plugin.tests.testing_utils import native_writer_tool_context
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from tests.writer.doc_builders import strike_substring
+
+    reset_body(doc, ctx, "Intro keeps DELINLINE word.", "Third paragraph.", "Tail.")
+    strike_substring(doc, doc.getText(), "DELINLINE ", ctx=ctx, author="Alice")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = ApplyDocumentContent().execute(
+            native_writer_tool_context(doc, ctx), target="search", old_content="Third", content="3rd")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+    assert res.get("tracked") is True, res
+    assert res["edited_context"] == "Intro keeps word.\n3rd paragraph.\nTail.", res
+
+
 def _shape(doc):
     """Snapshot paragraph styles, adjustments, bold runs, and embedded object counts."""
     from com.sun.star.awt.FontWeight import BOLD  # type: ignore
@@ -565,6 +692,28 @@ def test_streamed_rewrite_multi_paragraph_reject_restores_uno(ctx, doc):
     assert s_acc.finish() is None
     accept_all_changes(doc, ctx)
     assert doc.getText().getString() == twin_text
+
+
+@native_test
+@with_native_doc("writer")
+def test_wait_returns_at_once_when_changes_are_protected_uno(ctx, doc):
+    def protect(on):
+        key = uno.ByteSequence(b"\x01\x02\x03\x04" if on else b"")
+        uno.invoke(doc, "setPropertyValue", ("RedlineProtectionKey", uno.Any("[]byte", key)))
+
+    reset_body(doc, ctx, "Alpha two three.")
+    with EditReviewSession(doc, ctx, enabled=True) as session:
+        session.record_mutation(_replace_fn(doc, "two", "2"))
+    protect(True)
+    try:
+        result = session.wait_for_review(timeout=3, poll=0.05)
+        assert result.get("changes_protected") is True, result
+        assert result["complete"] is False and result["timed_out"] is False, result
+        assert result["changes"][0]["outcome"] == "pending", result
+    finally:
+        protect(False)
+        doc.setPropertyValue("RecordChanges", False)
+        reject_all_changes(doc, ctx)
 
 
 @native_test
@@ -836,3 +985,31 @@ def test_streamed_rewrite_abort_clears_redo_uno(ctx, doc):
     session.abort_and_restore()
     assert text.getString() == "Original text."
     assert doc.getUndoManager().isRedoPossible() is False
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_record_mutation_with_review_off_is_one_undo_step_and_rolls_back_on_raise_uno(ctx, doc):
+    """An inactive session still groups one logical edit into one Ctrl+Z, and undoes it when the edit raises."""
+    reset_body(doc, ctx, "Alpha.")
+    text = doc.getText()
+
+    def two_writes() -> None:
+        text.insertString(text.getEnd(), " one", False)
+        text.insertControlCharacter(text.getEnd(), 0, False)  # PARAGRAPH_BREAK
+        text.insertString(text.getEnd(), "two", False)
+
+    with EditReviewSession(doc, ctx, enabled=False) as session:
+        session.record_mutation(two_writes)
+    assert text.getString().endswith("two")
+    doc.getUndoManager().undo()
+    assert text.getString() == "Alpha."
+
+    def write_then_fail() -> None:
+        two_writes()
+        raise ValueError("edit failed")
+
+    with EditReviewSession(doc, ctx, enabled=False) as session:
+        with unittest.TestCase().assertRaises(ValueError):
+            session.record_mutation(write_then_fail)
+    assert text.getString() == "Alpha."
