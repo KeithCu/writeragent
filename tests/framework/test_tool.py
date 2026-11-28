@@ -142,6 +142,8 @@ def _make_detects_mutation_cases() -> list[Any]:
     from plugin.calc.errors import DetectErrors
     from plugin.calc.sheet_filter import GetSheetFilter
     from plugin.chatbot.web_research import WebResearchTool
+    from plugin.writer.images.images import ImageDownload
+    from plugin.writer.search import SearchInDocument
 
     return [
         pytest.param(ValidTool, True, id="non_get_prefix"),
@@ -157,6 +159,9 @@ def _make_detects_mutation_cases() -> list[Any]:
         pytest.param(GetSheetFilter, False, id="get_sheet_filter"),
         # WEB-RESEARCH-CARET: name lacks a read verb, so is_mutation=False is required.
         pytest.param(WebResearchTool, False, id="web_research"),
+        # The bare name "search" fits no read-verb rule, so is_mutation=False is required.
+        pytest.param(SearchInDocument, False, id="search"),
+        pytest.param(ImageDownload, False, id="image_download"),
     ]
 
 

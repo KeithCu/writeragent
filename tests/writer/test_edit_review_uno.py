@@ -11,11 +11,14 @@
 import unittest
 
 import uno
+from com.sun.star.beans import UnknownPropertyException
 
 from plugin.framework.uno_context import execute_dispatch
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
-from plugin.writer.edit_review import EditReviewSession
+from plugin.writer import review_authors
+from plugin.framework.config import get_config, save
+from plugin.writer.edit_review import EditReviewSession, agent_format_author
 from tests.writer.doc_builders import accept_all_changes, find_first, list_redlines, reject_all_changes, reset_body
 
 
@@ -116,6 +119,46 @@ def test_user_redlines_do_not_block_completion_uno(ctx, doc):
     assert [r for r in list_redlines(doc) if not r["RedlineComment"].startswith("wa-review:")], \
         "the user's redline must still be pending (untouched)"
     reset_body(doc, ctx, "reset")  # clear the leftover user redline for the next test
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_uno_error_inside_review_session_keeps_its_cause_uno(ctx, doc):
+    """A UNO exception raised by a recorded edit reaches the caller as itself, with recording and author restored."""
+    reset_body(doc, ctx, "Before.")
+    author = review_authors.office_author(ctx)
+    session = EditReviewSession(doc, ctx, enabled=True)
+    try:
+        with session:
+            session.record_mutation(lambda: doc.getPropertyValue("NoSuchProperty"))
+        raise AssertionError("the UNO exception did not propagate")
+    except Exception as exc:
+        assert isinstance(exc, UnknownPropertyException), repr(exc)
+    assert doc.getPropertyValue("RecordChanges") is False
+    assert review_authors.office_author(ctx) == author
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_uno_error_inside_agent_format_author_keeps_its_cause_uno(ctx, doc):
+    """A UNO exception from a format edit authored as WriterAgent reaches the caller as itself, with the author restored."""
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    author = review_authors.office_author(ctx)
+    save({flag: "record"})
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        try:
+            with agent_format_author(doc, ctx, []):
+                assert review_authors.office_author(ctx) == review_authors.INSERT_AUTHOR
+                doc.getPropertyValue("NoSuchProperty")
+            raise AssertionError("the UNO exception did not propagate")
+        except UnknownPropertyException:
+            pass
+        assert review_authors.office_author(ctx) == author
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)
 
 
 @native_test
