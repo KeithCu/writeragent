@@ -302,7 +302,7 @@ def apply_language_change(
                 found_range = doc_cursor
 
         if found_range:
-            found_range.setPropertyValue("CharLocale", new_locale)
+            _set_locale_unrecorded(model, found_range, new_locale)
             log.info("[grammar] Updated CharLocale for sentence to %s", detected_bcp47)
             return True
 
@@ -322,7 +322,7 @@ def apply_language_change(
                     matched_ranges.append(rng)
 
         if len(matched_ranges) == 1:
-            matched_ranges[0].setPropertyValue("CharLocale", new_locale)
+            _set_locale_unrecorded(model, matched_ranges[0], new_locale)
             log.info("[grammar] Updated CharLocale for sentence to %s (via findAll)", detected_bcp47)
             return True
 
@@ -335,6 +335,25 @@ def apply_language_change(
     except Exception as e:
         log.warning("Failed to update language property: %s", e)
         return False
+
+
+def _set_locale_unrecorded(model: Any, rng: Any, locale: Any) -> None:
+    """Write the detected ``CharLocale`` with Track Changes recording suspended.
+
+    The language tag is proofreading metadata, not an edit. Recorded, it would add a Format
+    redline under the user's name, and over another author's pending insertion LibreOffice
+    turns that insertion into the Format redline, so Reject would keep the inserted text
+    (PreAppendFormatRedline in DocumentRedlineManager.cxx). LibreHarper ships this module
+    without plugin.writer.record_changes, so RecordChanges is switched here directly.
+    """
+    recording = bool(model.getPropertyValue("RecordChanges"))
+    if recording:
+        model.setPropertyValue("RecordChanges", False)
+    try:
+        rng.setPropertyValue("CharLocale", locale)
+    finally:
+        if recording:
+            model.setPropertyValue("RecordChanges", True)
 
 
 def _apply_language_retag(

@@ -674,6 +674,9 @@ _OUTSIDE_PAGE_WARNING = "Shape is outside the page bounds."
 _UNTRACKED_SHAPE_INSERT_WARNING = N_(
     "This shape was inserted directly and is not tracked (Ctrl+Z undoes it). Tell the user."
 )
+_SHAPE_EDIT_UNTRACKED_WARNING = N_(
+    "This shape was changed directly and is not tracked (Ctrl+Z undoes it). Tell the user."
+)
 _SHAPE_DELETE_UNTRACKED_WARNING = N_(
     "This shape was deleted directly and is not tracked (Ctrl+Z undoes it). Tell the user."
 )
@@ -974,6 +977,7 @@ def _execute_upsert_shape(ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         if _outside_page(page, shape):
             result["warnings"] = result.get("warnings", []) + [_OUTSIDE_PAGE_WARNING]
 
+        flag_untracked(result, ctx.doc, _(_SHAPE_EDIT_UNTRACKED_WARNING))
         return result
 
     # validate() rejects other actions; keep execute total so the ToolBase

@@ -122,11 +122,12 @@ def _writer_has_math_ole(model: Any) -> bool:
 _WRITER_SNAPSHOT_MAX_OBJECTS = 20
 
 
-def _writer_anchor_note(shape: Any) -> str:
+def _writer_anchor_note(shape: Any, deletions: _text_helpers.TrackedDeletions) -> str:
     """Short anchor description for a Writer draw-page object.
 
     Uses a paragraph excerpt rather than a paragraph index because computing
     a paragraph index requires walking the entire document body on every send.
+    The excerpt leaves out pending tracked deletions, as the body text above it does.
     """
     kind = uno_read(lambda: str(shape.getPropertyValue("AnchorType").value), "")
     if not kind:
@@ -141,7 +142,7 @@ def _writer_anchor_note(shape: Any) -> str:
         cur = anchor.getText().createTextCursorByRange(anchor.getStart())
         cur.gotoStartOfParagraph(False)
         cur.gotoEndOfParagraph(True)
-        return _text_helpers.normalize_linebreaks(cur.getString()).strip()
+        return _text_helpers.normalize_linebreaks(deletions.text_of(cur)).strip()
 
     excerpt = uno_read(read_excerpt, "")
     if excerpt:
@@ -157,8 +158,9 @@ def _writer_objects_section(model: Any) -> str:
         rows = list(islice(iter_shape_addresses(model.getDrawPage()), _WRITER_SNAPSHOT_MAX_OBJECTS + 1))
         if not rows:
             return ""
+        deletions = _text_helpers.TrackedDeletions(model)
         lines = [
-            shape_summary_line(a, s) + _writer_anchor_note(s)
+            shape_summary_line(a, s, deletions) + _writer_anchor_note(s, deletions)
             for a, s, _p in rows[:_WRITER_SNAPSHOT_MAX_OBJECTS]
         ]
         if len(rows) > _WRITER_SNAPSHOT_MAX_OBJECTS:

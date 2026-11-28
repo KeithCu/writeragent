@@ -17,9 +17,8 @@
 
 from __future__ import annotations
 
-import contextlib
 import logging
-from typing import Any, Generator, Iterator
+from typing import Any, Iterator
 
 from plugin.doc.compound_undo import WriterCompoundUndo
 from plugin.doc.text_helpers import bounds_cover, iter_elements_limited, redline_bounds
@@ -49,28 +48,40 @@ def is_recording_changes(model: Any) -> bool:
         return False
 
 
-@contextlib.contextmanager
-def record_changes(doc: Any, on: bool) -> Generator[bool, None, None]:
+class record_changes:  # Named like a function: callers write ``with record_changes(doc, on):``.
     """Temporarily set the document's RecordChanges state, restoring it on exit.
 
-    Yields the prior recording state (was_recording).
+    ``__enter__`` returns the prior recording state (was_recording). A class, not a
+    generator context manager, so a UNO exception from the block reaches the caller
+    unchanged (see ``plugin.doc.compound_undo.UndoStepOrRollback``).
     """
-    was_recording = is_recording_changes(doc)
-    if was_recording != on:
-        try:
-            doc.setPropertyValue("RecordChanges", on)
-        except Exception as exc:
-            reraise_if_disposed(exc)
-            log.warning("record_changes: could not set RecordChanges=%s", on)
-    try:
-        yield was_recording
-    finally:
-        if is_recording_changes(doc) != was_recording:
+
+    _doc: Any
+    _on: bool
+    _was_recording: bool
+
+    def __init__(self, doc: Any, on: bool) -> None:
+        self._doc = doc
+        self._on = on
+        self._was_recording = False
+
+    def __enter__(self) -> bool:
+        self._was_recording = is_recording_changes(self._doc)
+        if self._was_recording != self._on:
             try:
-                doc.setPropertyValue("RecordChanges", was_recording)
+                self._doc.setPropertyValue("RecordChanges", self._on)
             except Exception as exc:
                 reraise_if_disposed(exc)
-                log.warning("record_changes: failed to restore RecordChanges=%s", was_recording)
+                log.warning("record_changes: could not set RecordChanges=%s", self._on)
+        return self._was_recording
+
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: Any) -> None:
+        if is_recording_changes(self._doc) != self._was_recording:
+            try:
+                self._doc.setPropertyValue("RecordChanges", self._was_recording)
+            except Exception as exc_restore:
+                reraise_if_disposed(exc_restore)
+                log.warning("record_changes: failed to restore RecordChanges=%s", self._was_recording)
 
 
 def insert_recorded_content(model: Any, host: Any, cursor: Any, content: Any) -> bool:
@@ -147,19 +158,28 @@ def redline_kinds_overlapping(spans: list[RedlineSpan], text_range: Any) -> set[
 def overlaps_foreign_insertion(doc: Any, ranges: list[Any], author: str) -> bool:
     """True when a tracked insertion by someone other than *author* overlaps one of *ranges*.
 
-    compareRegionStarts compares document positions, so insertions in cells and frames work
-    too; one that cannot be compared (a table insertion) counts as overlapping.
+    compareRegionStarts compares document positions when both arguments are text ranges
+    (``SwXText::compareRegionStarts``, sw/source/core/unocore/unotext.cxx), so insertions in
+    cells and frames work too. ``redline_bounds`` maps an insertion that starts at a table node
+    to the table's anchor; a single insertion that still cannot be read or compared is skipped,
+    so it cannot make every range in the document look overlapped.
     """
-    spans: list[RedlineSpan] = []
+    bounds = [(r.getStart(), r.getEnd()) for r in ranges]
     for rl in _iter_redlines(doc):
         if rl.getPropertyValue("RedlineType") != "Insert" or rl.getPropertyValue("RedlineAuthor") == author:
             continue
         try:
-            spans.append(("Insert", redline_bounds(rl)))
+            text, start, end = redline_bounds(rl)
+            # compareRegionStarts(a, b): 1 when a starts before b.
+            if any(
+                text.compareRegionStarts(start, r_end) > 0 and text.compareRegionStarts(r_start, end) > 0
+                for r_start, r_end in bounds
+            ):
+                return True
         except Exception as exc:
             reraise_if_disposed(exc)
-            return True
-    return any(redline_kinds_overlapping(spans, r) for r in ranges)
+            log.debug("overlaps_foreign_insertion: skipped an unreadable insertion", exc_info=True)
+    return False
 
 
 def tracked_change_before_point(doc: Any, point: Any) -> bool:

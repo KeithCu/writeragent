@@ -105,44 +105,44 @@ def _anchor_at(text, para):
 
 def test_window_is_paragraph_plus_neighbors():
     text = FakeText(["P0", "P1-EDITED", "P2", "P3"])
-    s = paragraph_window_text(_anchor_at(text, 1))
+    s = paragraph_window_text(MagicMock(), _anchor_at(text, 1))
     assert s == "P0\nP1-EDITED\nP2"
 
 
 def test_window_clamps_at_document_edges():
     text = FakeText(["FIRST", "SECOND"])
-    assert paragraph_window_text(_anchor_at(text, 0)) == "FIRST\nSECOND"
-    assert paragraph_window_text(_anchor_at(text, 1)) == "FIRST\nSECOND"
+    assert paragraph_window_text(MagicMock(), _anchor_at(text, 0)) == "FIRST\nSECOND"
+    assert paragraph_window_text(MagicMock(), _anchor_at(text, 1)) == "FIRST\nSECOND"
 
 
 def test_window_truncates_around_the_middle():
     text = FakeText(["A" * 600, "B" * 600, "C" * 600])
-    s = paragraph_window_text(_anchor_at(text, 1))
+    s = paragraph_window_text(MagicMock(), _anchor_at(text, 1))
     assert len(s) <= _EDITED_CONTEXT_MAX_CHARS
     assert " [...] " in s
     assert s.startswith("A") and s.endswith("C")
 
 
 def test_failure_yields_none_not_garbage():
-    assert paragraph_window_text(None) is None
+    assert paragraph_window_text(MagicMock(), None) is None
 
     class Broken:
         def getText(self):
             raise RuntimeError("nested exotic text")
 
-    assert paragraph_window_text(Broken()) is None
+    assert paragraph_window_text(MagicMock(), Broken()) is None
 
 
 def test_blank_window_yields_none():
     text = FakeText(["", "", ""])
-    assert paragraph_window_text(_anchor_at(text, 1)) is None
+    assert paragraph_window_text(MagicMock(), _anchor_at(text, 1)) is None
 
 
 def test_attach_only_when_snippet_exists():
     text = FakeText(["P0", "P1", "P2"])
-    ok = attach_edited_context({"status": "ok"}, _anchor_at(text, 1))
+    ok = attach_edited_context({"status": "ok"}, MagicMock(), _anchor_at(text, 1))
     assert ok["edited_context"] == "P0\nP1\nP2"
-    no = attach_edited_context({"status": "ok"}, None)
+    no = attach_edited_context({"status": "ok"}, MagicMock(), None)
     assert "edited_context" not in no
 
 
@@ -240,12 +240,12 @@ def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
     with pytest.raises(DocumentDisposedError):
         collapsed_anchor(closed)
     with pytest.raises(DocumentDisposedError):
-        paragraph_window_text(closed)
+        paragraph_window_text(MagicMock(), closed)
 
     odd = MagicMock()
     odd.getText.side_effect = RuntimeException("uno")
     assert collapsed_anchor(odd) is None
-    assert paragraph_window_text(odd) is None
+    assert paragraph_window_text(MagicMock(), odd) is None
 
     # An unreadable RedlineType on a redline portion still fails closed.
     node = MagicMock()

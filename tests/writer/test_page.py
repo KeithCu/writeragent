@@ -21,6 +21,7 @@ from plugin.writer.page import (
     _region_shapes,
     _scan_region_content,
     copy_page_style,
+    set_header_footer_auto_height,
 )
 
 
@@ -385,7 +386,28 @@ def test_set_header_footer_imports_html_even_when_a_logo_is_present():
     assert res["status"] == "ok"
     replace_html.assert_called_once()
     text_obj.setString.assert_not_called()
+    # The header is already on: a page-style write would empty the undo stack for nothing.
+    assert all(c.args[0] != "HeaderIsOn" for c in style.setPropertyValue.call_args_list)
+    assert "warning" not in res
+
+
+def test_set_header_footer_text_warns_when_turning_the_region_on_clears_undo():
+    """Turning the header on is a page-style write, which empties LibreOffice's undo stack; the result says so."""
+    from unittest.mock import patch
+
+    text_obj = MagicMock()
+    text_obj.createEnumeration.side_effect = lambda: _enum_of([_paragraph([_portion("Text")])])
+    doc, style = _page_style_doc(text_obj)
+    style.getPropertyValue.side_effect = lambda n: False if n.endswith("IsOn") else (500 if "Height" in n else text_obj)
+
+    with patch("plugin.writer.page.replace_xtext_with_html", return_value=html_import_styles.WriteReport()):
+        res = PageSetHeaderFooterText().execute(
+            TestingFactory.create_context(doc=doc, doc_type="writer"),
+            style="Standard", region="header", content="<p>Header</p>")
+
+    assert res["status"] == "ok", res
     style.setPropertyValue.assert_any_call("HeaderIsOn", True)
+    assert res.get("warning"), res
 
 
 def test_set_header_footer_reports_unapplied_data_lo_para():
@@ -1418,7 +1440,9 @@ def test_replace_header_footer_refused_write_is_not_reported_as_written():
     text_obj.createTextCursorByRange.side_effect = lambda _rng: failing_cursor
     um = doc.getUndoManager.return_value
     um.isLocked.return_value = False
-    um.getAllUndoActionTitles.side_effect = [(), ()]
+    # The write fails before anything lands, so every read of the stack (the tool's group and
+    # record_mutation's nested one) sees it empty.
+    um.getAllUndoActionTitles.return_value = ()
     res = _replace(doc)
     assert res["status"] == "error"
     assert "write boom" in res["message"]
@@ -2367,3 +2391,22 @@ def test_scan_region_content_sees_nested_fields_and_redlines_in_content_control(
     scan = _scan_region_content(doc, text_obj)
     assert scan["fields"] == [{"presentation": "1", "content": "Page"}]
     assert scan["has_struck"] is True
+
+
+@pytest.mark.parametrize(
+    ("current", "expected_writes"),
+    [
+        ({"HeaderIsDynamicHeight": True, "HeaderDynamicSpacing": True}, []),
+        ({"HeaderIsDynamicHeight": False, "HeaderDynamicSpacing": True}, [("HeaderIsDynamicHeight", True)]),
+        ({"HeaderIsDynamicHeight": True, "HeaderDynamicSpacing": False}, [("HeaderDynamicSpacing", True)]),
+    ],
+)
+def test_set_header_footer_auto_height_writes_only_what_differs(current, expected_writes):
+    """Every page-style write empties LibreOffice's undo stack, so unchanged values are not written."""
+    style = MagicMock()
+    style.getPropertyValue.side_effect = current.__getitem__
+
+    wrote = set_header_footer_auto_height(style, "header", True)
+
+    assert [c.args for c in style.setPropertyValue.call_args_list] == expected_writes
+    assert wrote is bool(expected_writes)

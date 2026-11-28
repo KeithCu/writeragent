@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK  # type: ignore
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_CHARACTER, AT_PAGE, AT_PARAGRAPH
 
+from plugin.doc.compound_undo import WriterCompoundUndo
 from plugin.doc.text_helpers import (
     TrackedDeletions,
     clone_text_range,
@@ -44,6 +45,9 @@ from plugin.draw.tree import custom_shape_geometry
 from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_disposed
 from plugin.framework.tool import ToolBase, ToolBaseDummy
 from plugin.framework.tool_schema import page_index_param
+from plugin.framework.i18n import _
+from plugin.writer.edit_review import flag_tracked, flag_untracked
+from plugin.writer.record_changes import is_recording_changes
 from plugin.writer.target_resolver import update_selection_pin
 
 from .search import shape_text_boxes
@@ -390,21 +394,33 @@ class CloneHeadingBlock(ToolBaseDummy):
             cursor = doc_text.createTextCursorByRange(last)
             cursor.gotoEndOfParagraph(False)
 
-        for txt, sty in clones:
-            doc_text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
-            # This cursor is already in the new paragraph after the break
-            # (insertString fills it). gotoNextParagraph would skip that empty
-            # paragraph and write into whatever follows the block. html_export's
-            # temp-doc cursor stays before the break and must step forward;
-            # this one must not. Collapse to the end after styling so the next
-            # break is after the clone, not inside it.
-            doc_text.insertString(cursor, txt, False)
-            cursor.gotoStartOfParagraph(False)
-            cursor.gotoEndOfParagraph(True)
-            cursor.setPropertyValue("ParaStyleName", sty)
-            cursor.gotoEndOfParagraph(False)
+        # Each paragraph is a break, a text insert and a style write; one group keeps the clone one Ctrl+Z.
+        with WriterCompoundUndo(ctx.doc, _("WriterAgent: Clone heading block")):
+            for txt, sty in clones:
+                doc_text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
+                # This cursor is already in the new paragraph after the break
+                # (insertString fills it). gotoNextParagraph would skip that empty
+                # paragraph and write into whatever follows the block. html_export's
+                # temp-doc cursor stays before the break and must step forward;
+                # this one must not. Collapse to the end after styling so the next
+                # break is after the clone, not inside it.
+                doc_text.insertString(cursor, txt, False)
+                cursor.gotoStartOfParagraph(False)
+                cursor.gotoEndOfParagraph(True)
+                cursor.setPropertyValue("ParaStyleName", sty)
+                cursor.gotoEndOfParagraph(False)
 
         suffix = (", %d tables skipped" % skipped_tables) if skipped_tables else ""
         msg = "Cloned heading block '%s' (%d paragraphs%s)." % (node.get("text", ""), total, suffix)
 
-        return {"status": "ok", "message": msg, "heading_text": node.get("text", ""), "block_size": total}
+        result: dict[str, Any] = {"status": "ok", "message": msg, "heading_text": node.get("text", ""), "block_size": total}
+        # The clone does not run in a review session, so only the user's own recording records it.
+        if is_recording_changes(ctx.doc):
+            flag_tracked(result)
+        else:
+            flag_untracked(
+                result,
+                ctx.doc,
+                _("The cloned block was inserted directly and is not tracked (Ctrl+Z undoes it). Tell the user."),
+            )
+        return result

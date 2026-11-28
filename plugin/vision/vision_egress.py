@@ -348,6 +348,9 @@ def insert_vision_result_into_writer(
     def _apply_insert() -> VisionInsertOutcome:
         # One Ctrl+Z for insert plus optional image delete. A failed delete or
         # presence check rolls the insert back, so the image is never lost without its text.
+        # In WriterAgent this group nests inside record_mutation's, which does the rollback;
+        # LibrePy ships without edit_review, so run_writer_mutation_with_optional_review calls
+        # this directly and this group is the only one there.
         with UndoStepOrRollback(doc, _("WriterAgent: Insert OCR")):
             cursor = prepare_vision_writer_insert(doc, ctx, image_name=image_name)
             html_import.insert_html_at_cursor(doc, ctx, cursor, html, apply_styles=False)

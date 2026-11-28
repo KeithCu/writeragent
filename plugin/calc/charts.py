@@ -34,6 +34,7 @@ import math
 import time
 from typing import TYPE_CHECKING, Any, Callable, ClassVar, Iterator, Literal, NamedTuple, NoReturn, cast
 
+from plugin.doc.compound_undo import WriterCompoundUndo
 from plugin.doc.visual_helpers import color_param, parse_color_to_uno_int
 
 if TYPE_CHECKING:
@@ -1077,9 +1078,18 @@ class WriterEmbeds:
         return _list_result(result, errors)
 
     def create(self, ctx: ToolContext, rect: Any, service: str, **kwargs: Any) -> dict[str, Any]:
-        """Insert a chart as inline ``TextEmbeddedObject`` (Writer body text).
-        Using a bounded wait and event pumping to ensure the embedded model is initialized.
+        """Insert a chart as inline ``TextEmbeddedObject`` (Writer body text) as one undo step.
+
+        The group spans the bounded wait for the chart model too: while the embedded model starts,
+        Writer can add a "Change style" step for the object on its own, which would otherwise leave
+        the first Ctrl+Z undoing only that. A keystroke during that wait joins the step as well
+        (the same limitation as streamed edits, see ``WriterCompoundUndo``).
         """
+        with WriterCompoundUndo(ctx.doc, _("WriterAgent: Insert chart")):
+            return self._create(ctx, rect, service, **kwargs)
+
+    def _create(self, ctx: ToolContext, rect: Any, service: str, **kwargs: Any) -> dict[str, Any]:
+        """Insert the chart object, size it, and fill its model; ``create`` owns the undo group."""
         doc = ctx.doc
         text = doc.getText()
 

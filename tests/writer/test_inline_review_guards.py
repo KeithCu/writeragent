@@ -28,6 +28,7 @@ from plugin.writer.inline_review import (
     _build_bounds_from_view,
     _classify_span_conflicts,
     _is_all_redlines_agent,
+    _refusal_for_span,
     _resolve_all_agent_changes,
     _resolve_overlapping_agent_changes,
     _span_contains_point,
@@ -296,7 +297,7 @@ def test_other_agent_overlap_detected():
     target = TOKEN_PREFIX + "s:1"
     sibling = TOKEN_PREFIX + "s:2"
     model = FakeModel(FakeRedlines([FakeRedline(sibling, 15, 25)]))
-    _, has_sibling = _classify_span_conflicts(scan_redline_view(model), FakeText(), span, target)
+    _, has_sibling = _classify_span_conflicts(scan_redline_view(model), FakeText(), span, target, want_siblings=True)
     assert has_sibling is True
 
 
@@ -305,13 +306,39 @@ def test_other_agent_touching_edge_strict_only_when_requested():
     target = TOKEN_PREFIX + "s:1"
     sibling = TOKEN_PREFIX + "s:2"
     touching = FakeModel(FakeRedlines([FakeRedline(sibling, 20, 30)]))
-    _, has_strict = _classify_span_conflicts(scan_redline_view(touching), FakeText(), span, target, strict_sibling_edges=True)
+    _, has_strict = _classify_span_conflicts(
+        scan_redline_view(touching), FakeText(), span, target, strict_sibling_edges=True, want_siblings=True
+    )
     assert has_strict is False
-    _, has_touching = _classify_span_conflicts(scan_redline_view(touching), FakeText(), span, target)
+    _, has_touching = _classify_span_conflicts(scan_redline_view(touching), FakeText(), span, target, want_siblings=True)
     assert has_touching is True
     overlapping = FakeModel(FakeRedlines([FakeRedline(sibling, 15, 25)]))
-    _, has_overlapping = _classify_span_conflicts(scan_redline_view(overlapping), FakeText(), span, target, strict_sibling_edges=True)
+    _, has_overlapping = _classify_span_conflicts(
+        scan_redline_view(overlapping), FakeText(), span, target, strict_sibling_edges=True, want_siblings=True
+    )
     assert has_overlapping is True
+
+
+class _CountingText(FakeText):
+    def __init__(self):
+        super().__init__()
+        self.cursors = 0
+
+    def createTextCursorByRange(self, r):
+        self.cursors += 1
+        return super().createTextCursorByRange(r)
+
+
+def test_paragraph_refusal_reads_only_user_redlines():
+    # Resolve-all asks once per agent change; reading every other agent change on each
+    # pass made it quadratic once the document held one user redline.
+    target = TOKEN_PREFIX + "s:0"
+    siblings = [FakeRedline(TOKEN_PREFIX + "s:%d" % i, 100 * i, 100 * i + 5) for i in range(1, 40)]
+    model = FakeModel(FakeRedlines(siblings + [FakeRedline("", 5000, 5005)]))
+    text = _CountingText()
+    status = _refusal_for_span(scan_redline_view(model), text, FakeRange(0, 5), target, False, "paragraph")
+    assert status is None
+    assert text.cursors <= 2  # the one user redline (and its whitespace-gap probe), not the 39 agent changes
 
 
 def test_foreign_touching_edge_stays_inclusive():
@@ -373,7 +400,7 @@ def test_sibling_whitespace_gap_stays_non_overlap_when_strict():
     span = _GapRange(0, 11, text=text)
     model = FakeModel(FakeRedlines([FakeRedline(sibling, 12, 15)]))
     has_foreign, has_sibling = _classify_span_conflicts(
-        scan_redline_view(model), text, span, target, strict_sibling_edges=True
+        scan_redline_view(model), text, span, target, strict_sibling_edges=True, want_siblings=True
     )
     assert has_foreign is False
     assert has_sibling is False
@@ -383,7 +410,7 @@ def test_other_agent_same_token_not_flagged():
     span = FakeRange(10, 20)
     target = TOKEN_PREFIX + "s:1"
     model = FakeModel(FakeRedlines([FakeRedline(target, 15, 25)]))  # the target itself, not a sibling
-    _, has_sibling = _classify_span_conflicts(scan_redline_view(model), FakeText(), span, target)
+    _, has_sibling = _classify_span_conflicts(scan_redline_view(model), FakeText(), span, target, want_siblings=True)
     assert has_sibling is False
 
 
@@ -926,6 +953,9 @@ class _ClosedDocument:
     def getRedlines(self):
         raise RuntimeError("disposed")
 
+    def getCurrentController(self):
+        return None
+
 
 def test_closed_document_resolve_fails_closed_without_dispatch():
     model = _ClosedDocument()
@@ -1245,20 +1275,20 @@ def test_scan_count_resolve_all_mixed_three_changes_with_user_redline():
     assert model._rl.enums == 4
 
 
-def test_resolve_agent_change_gotorange_raises_before_dispatch():
+def test_resolve_agent_change_select_raises_before_dispatch():
     t = TOKEN_PREFIX + "s:1"
     items = [FakeRedline(t, 10, 20)]
 
-    class ThrowingGotoModel(_ViewModel):
+    class ThrowingSelectModel(_ViewModel):
         def __init__(self, redlines):
             super().__init__(redlines)
             vc = MagicMock()
             vc.getText.return_value = FakeText()
             vc.getStart.return_value = FakeRange(15, 15)
-            vc.gotoRange.side_effect = RuntimeError("gotoRange boom")
             self.controller.getViewCursor.return_value = vc
+            self.controller.select.side_effect = RuntimeError("select boom")
 
-    model = ThrowingGotoModel(FakeRedlines(items))
+    model = ThrowingSelectModel(FakeRedlines(items))
     ctx = MagicMock()
     with patch("plugin.writer.inline_review.execute_dispatch") as dispatch:
         res, _ = resolve_agent_change(model, ctx, t, True)

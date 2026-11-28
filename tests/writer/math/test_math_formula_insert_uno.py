@@ -876,3 +876,29 @@ def test_display_math_in_heading_stays_out_of_outline_uno(ctx: Any, doc: Any) ->
             _restore_and_check(rec, before_snap, before_adj)
         finally:
             doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_insert_formula_is_one_undo_step_uno(ctx: Any, doc: Any) -> None:
+    """One Undo removes an inline or display formula, with or without the user's recording."""
+    text = doc.getText()
+    for user_records in (False, True):
+        for display_block in (False, True):
+            text.setString("AAABBB")
+            cur = text.createTextCursor()
+            cur.gotoStart(False)
+            cur.goRight(3, False)
+            doc.setPropertyValue("RecordChanges", user_records)
+            try:
+                insert_writer_math_formula(doc, cur, "x = y", display_block=display_block)
+            finally:
+                doc.setPropertyValue("RecordChanges", False)
+            assert _embed_count(doc) == 1
+
+            doc.getUndoManager().undo()
+
+            case = (user_records, display_block)
+            assert _embed_count(doc) == 0, case
+            assert body_texts(text) == ["AAABBB"], case
+            assert doc.getRedlines().getCount() == 0, case

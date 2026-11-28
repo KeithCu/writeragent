@@ -364,10 +364,13 @@ def insert_image_into_header_footer(
         style = resolve_page_style(model, style_name)
         before = header_footer_layout(style, region)
         is_on_prop, text_prop = REGION_PROPS[region]
-        if not style.getPropertyValue(is_on_prop):
+        # Every page-style write empties the undo stack (set_header_footer_auto_height), so the
+        # writes happen only when needed and the result says when one did.
+        undo_cleared = not style.getPropertyValue(is_on_prop)
+        if undo_cleared:
             style.setPropertyValue(is_on_prop, True)
-        if auto_height:
-            set_header_footer_auto_height(style, region, True)
+        if auto_height and set_header_footer_auto_height(style, region, True):
+            undo_cleared = True
         after = header_footer_layout(style, region)
 
         region_text = style.getPropertyValue(text_prop)
@@ -390,6 +393,7 @@ def insert_image_into_header_footer(
             "region": region,
             "auto_height": bool(auto_height),
             "layout_changed": before != after,
+            "undo_cleared": undo_cleared,
         }
 
 
@@ -514,8 +518,12 @@ def _insert_writer_graphic(
             log.debug("_insert_writer_graphic: linked dispatch failed, embedding")
         finally:
             if restore_view is not None:
+                # .uno:InsertGraphic leaves the new picture selected, and the view cursor refuses
+                # gotoRange then ("no text selection", SwXTextViewCursor::gotoRange in
+                # sw/source/uibase/uno/unotxvw.cxx). XSelectionSupplier.select of a text range
+                # leaves frame mode first (SwXTextView::select calls EnterStdMode).
                 best_effort(
-                    lambda: model.CurrentController.ViewCursor.gotoRange(restore_view, False),
+                    lambda: model.CurrentController.select(restore_view),
                     "_insert_writer_graphic: could not restore view cursor",
                     default=False,
                 )

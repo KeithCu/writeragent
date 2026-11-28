@@ -32,6 +32,7 @@ from typing import Any, Callable, cast
 import uno
 from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK  # type: ignore
 
+from plugin.doc.compound_undo import WriterCompoundUndo
 from plugin.doc.text_helpers import TrackedDeletions, iter_elements, iter_portions
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.framework.errors import make_tool_error, reraise_if_disposed, uno_read
@@ -43,9 +44,11 @@ from plugin.writer.edit_review import (
     collapsed_anchor,
     edit_is_recorded,
     flag_tracked,
+    flag_tracked_delete,
     flag_untracked,
     next_agent_edit_undo_title,
     range_has_redline,
+    record_write,
 )
 from plugin.writer.html_import import content_has_markup, replace_preserving_format
 from plugin.writer.hyperlink_fixup import (
@@ -59,6 +62,7 @@ from plugin.writer.hyperlink_fixup import (
     write_link_look,
 )
 from plugin.writer.record_changes import is_recording_changes, tracked_change_before_point
+from plugin.writer.review_scan import document_has_tracked_insert_or_delete
 from plugin.writer.specialized_base import (
     ToolWriterIndexBase,
     enum_param,
@@ -289,6 +293,20 @@ def set_bibliography_field_values(field: Any, pairs: dict[str, Any]) -> None:
     uno.invoke(field, "setPropertyValue", cast("Any", ("Fields", typed)))
 
 
+def _pending_changes_warning() -> str:
+    """Warning for an index built while the document holds pending insertions or deletions.
+
+    LibreOffice builds entry text with ``ExpandMode::HideDeletions`` whatever the display mode
+    (``SwTOXPara::GetText_Impl``, ``sw/source/core/tox/txmsrt.cxx``), so the index reads as if
+    every change were accepted and does not follow a later Reject.
+    """
+    return _(
+        "The document holds pending tracked changes, and LibreOffice builds the index as if they "
+        "were accepted: struck text is left out (a wholly struck heading leaves a blank row) and "
+        "pending insertions are included. Run index_update_all again after the user accepts or rejects them."
+    )
+
+
 class IndexesUpdateAll(ToolWriterIndexBase):
     name: str | None = "index_update_all"
     description: str = (
@@ -324,10 +342,15 @@ class IndexesUpdateAll(ToolWriterIndexBase):
                 code="INDEX_HAS_TRACKED_CHANGES",
             )
         refreshed = []
-        for idx, name in entries:
-            idx.update()
-            refreshed.append(name)
+        # Each update() adds its own undo actions; one group keeps the rebuild one Ctrl+Z.
+        with WriterCompoundUndo(doc, _("WriterAgent: Update indexes")):
+            for idx, name in entries:
+                idx.update()
+                refreshed.append(name)
         result: dict[str, Any] = {"status": "ok", "refreshed": refreshed, "count": count}
+        # The indexes themselves hold no Insert/Delete (refused above), so any found are in the indexed text.
+        if count > 0 and document_has_tracked_insert_or_delete(doc):
+            result["warning"] = _pending_changes_warning()
         if count > 0:
             flag_untracked(
                 result,
@@ -458,6 +481,7 @@ def _locate_toc_entry(
 
 def _commit_toc_mutation(
     doc: Any,
+    uno_ctx: Any,
     idx: Any,
     mutate: Callable[[], dict[str, Any] | None],
     preview: dict[str, Any],
@@ -465,6 +489,7 @@ def _commit_toc_mutation(
     *,
     failure_message: str,
     failure_code: str = "TOOL_EXECUTION_ERROR",
+    deletes: bool = False,
 ) -> dict[str, Any]:
     """Unprotect one TOC, run *mutate* in one undo context, then protect again.
 
@@ -472,7 +497,10 @@ def _commit_toc_mutation(
     ``update()`` (that rebuilds every row and drops direct formatting). Clearing
     ``IsProtected`` only for the edit, then restoring it, keeps the flag the
     document had. On failure the undo title is undone so neighbors stay put.
-    *mutate* returns an error payload to roll back, or None on success.
+    *mutate* returns an error payload to roll back, or None on success. It runs
+    through ``record_write``, so in Record/Wait and while the user records the
+    entry text change is a tracked change and the result says so; *deletes*
+    words that result as an entry left in place, struck.
     """
     if dry_run:
         preview["status"] = "ok"
@@ -481,13 +509,15 @@ def _commit_toc_mutation(
 
     # A failed read raises before anything is edited and execute_safe reports it.
     was_protected = bool(idx.getPropertyValue("IsProtected"))
+    recorded = False
 
     def _wrapped_mutate() -> dict[str, Any] | None:
+        nonlocal recorded
         if was_protected:
             idx.setPropertyValue("IsProtected", False)
         restore_err: dict[str, Any] | None = None
         try:
-            res = mutate()
+            res, recorded = record_write(doc, uno_ctx, mutate)
         finally:
             if was_protected:
                 try:
@@ -517,6 +547,10 @@ def _commit_toc_mutation(
         return error
     preview["status"] = "ok"
     preview["dry_run"] = False
+    if recorded and deletes:
+        flag_tracked_delete(preview, "The entry is")
+    elif recorded:
+        flag_tracked(preview)
     return preview
 
 
@@ -614,22 +648,25 @@ def _paragraph_hyperlink(para: Any) -> str:
     return uno_read(lambda: para.getPropertyValue("HyperLinkURL") or "", "")
 
 
-def toc_entry_rows(anchor: Any, *, include_links: bool = False) -> list[dict[str, Any]]:
+def toc_entry_rows(doc: Any, anchor: Any, *, include_links: bool = False) -> list[dict[str, Any]]:
     """Visible text and outline level (plus hyperlink when requested) for each TOC row.
 
     Walks paragraphs inside the index anchor, the same read insert and delete
     already use. Does not call ``ContentIndex.update()`` and does not export
-    the document. The ``Contents Heading`` title is not a row.
+    the document. The ``Contents Heading`` title is not a row, and neither is an
+    entry that a pending tracked deletion strikes whole: the edit tools cannot
+    find it, and Accept removes it.
 
     Links are omitted by default so models do not echo or corrupt them; the
     host rewrites outline URLs on rename and preserves existing hyperlinks.
     """
     rows: list[dict[str, Any]] = []
+    deletions = TrackedDeletions(doc)
     for para in _paragraphs_in_anchor(anchor):
         style = _para_style_name(para)
         if style == "Contents Heading":
             continue
-        text = para.getString()
+        text = deletions.text_of(para)
         if not text.strip():
             continue
         row: dict[str, Any] = {
@@ -927,6 +964,7 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
 
         return _commit_toc_mutation(
             doc,
+            ctx.ctx,
             idx,
             mutate,
             preview,
@@ -989,11 +1027,13 @@ class IndexesDeleteTocEntry(ToolWriterIndexBase):
 
         return _commit_toc_mutation(
             doc,
+            ctx.ctx,
             idx,
             mutate,
             preview,
             bool(kwargs.get("dry_run")),
             failure_message="TOC entry delete failed; the change was rolled back",
+            deletes=True,
         )
 
 
@@ -1167,6 +1207,7 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
 
         return _commit_toc_mutation(
             doc,
+            ctx.ctx,
             idx,
             mutate,
             preview,
@@ -1259,7 +1300,7 @@ class IndexesListTocEntries(ToolWriterIndexBase):
         _unused_idx, anchor, position, err = _resolve_toc_target(doc, index)
         if err is not None:
             return err
-        entries = toc_entry_rows(anchor, include_links=include_links)
+        entries = toc_entry_rows(doc, anchor, include_links=include_links)
         return {
             "status": "ok",
             "index": position,
@@ -1351,6 +1392,8 @@ class IndexesCreate(ToolWriterIndexBase):
             index.CreateFromOutline = create_from_outline
 
         replaced_pending = False
+        # Read before the insert, so only changes in the text the index is built from count.
+        pending_changes = document_has_tracked_insert_or_delete(doc)
 
         def mutate(cursor: Any) -> dict[str, Any] | None:
             nonlocal replaced_pending
@@ -1399,6 +1442,8 @@ class IndexesCreate(ToolWriterIndexBase):
             )
         else:
             warning = _("The index itself is not a tracked change: rejecting changes does not remove it.")
+        if pending_changes:
+            res["warning"] = _pending_changes_warning()
         flag_untracked(res, doc, warning, replaced_pending=replaced_pending)
         return res
 

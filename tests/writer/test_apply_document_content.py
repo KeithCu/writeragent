@@ -14,6 +14,13 @@ from plugin.writer.apply_document_content import ApplyDocumentContent
 from plugin.writer.search import MatchMode
 from plugin.tests.testing_utils import DisposedException
 
+
+@pytest.fixture(autouse=True)
+def _matches_outside_protected_cells():
+    """Mock matches read as protected table cells; the protected-cell refusal has its own UNO test."""
+    with patch("plugin.writer.apply_document_content.protected_cell_error", return_value=None):
+        yield
+
 def _edit_ctx():
     ctx = MagicMock()
     ctx.doc.getUndoManager.return_value.isLocked.return_value = False
@@ -1314,7 +1321,10 @@ def test_all_matches_outline_update_failure_reports_hyperlink_code():
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks", return_value=snapshot), \
          patch("plugin.writer.html_import.replace_single_range_with_content", return_value=html_import_styles.WriteReport()), \
          patch("plugin.writer.apply_document_content.next_agent_edit_undo_title", return_value="Agent Edit"):
-        ctx.doc.getUndoManager.return_value.getAllUndoActionTitles.side_effect = [(), (), ("Agent Edit",)]
+        um = ctx.doc.getUndoManager.return_value
+        # The stack shows the outer "Agent Edit" group from the moment it is entered; the
+        # per-match groups nest inside it.
+        um.getAllUndoActionTitles.side_effect = lambda: ("Agent Edit",) if um.enterUndoContext.called else ()
         res = ApplyDocumentContent().execute(
             ctx, content="new", target="search", old_content="old", all_matches=True
         )
@@ -1667,14 +1677,14 @@ def test_edit_selection_passes_pinned_range_to_html_import():
         return_value=html_import_styles.WriteReport(),
     ) as mock_insert, patch(
         "plugin.writer.apply_document_content.attach_edited_context",
-        side_effect=lambda res, _a: res,
+        side_effect=lambda res, _d, _a: res,
     ) as mock_attach:
         res = ApplyDocumentContent().execute(ctx, content="new", target="selection")
 
     assert res["status"] == "ok"
     mock_insert.assert_called_once_with(ctx.doc, ctx.ctx, "new", "selection", selection=pinned_rng)
     mock_attach.assert_called_once()
-    assert mock_attach.call_args[0][1] is pinned_anchor
+    assert mock_attach.call_args[0][2] is pinned_anchor
 
 
 def test_one_string_and_list_content_reach_import_the_same() -> None:
@@ -1687,7 +1697,7 @@ def test_one_string_and_list_content_reach_import_the_same() -> None:
         return_value=html_import_styles.WriteReport(),
     ) as mock_insert, patch(
         "plugin.writer.apply_document_content.attach_edited_context",
-        side_effect=lambda res, _a: res,
+        side_effect=lambda res, _d, _a: res,
     ):
         res_list = ApplyDocumentContent().execute(ctx, content=["<h1>A</h1>", "<p>B</p>"], target="end")
         res_str = ApplyDocumentContent().execute(ctx, content="<h1>A</h1>\n<p>B</p>", target="end")

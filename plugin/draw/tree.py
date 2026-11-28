@@ -36,7 +36,7 @@ import logging
 import re
 from typing import Any, Iterator
 
-from plugin.doc.text_helpers import normalize_linebreaks
+from plugin.doc.text_helpers import TrackedDeletions, normalize_linebreaks
 from plugin.draw.base import DRAW_AND_IMPRESS, DRAW_PAGE_PROPERTY
 from plugin.framework.errors import is_disposal, uno_read
 from plugin.framework.tool import ToolBase, ToolContext
@@ -215,13 +215,15 @@ def shape_kind(shape: Any) -> str:
     return "EmbeddedObject" if type_name == "FrameShape" else type_name
 
 
-def shape_summary_line(address: int | str, shape: Any) -> str:
+def shape_summary_line(address: int | str, shape: Any, deletions: TrackedDeletions | None = None) -> str:
     """One chat-context object line shared by Draw/Impress and Writer; unreadable fields are omitted.
 
     The address and Name are what ``shape_delete`` and ``chart_delete`` resolve;
-    keep them in that form.
+    keep them in that form. Writer passes *deletions* so a text frame's text leaves out
+    pending tracked deletions; draw-shape text has no redlines.
     """
-    line = "- [%s] %s" % (address, shape_kind(shape))
+    kind = shape_kind(shape)
+    line = "- [%s] %s" % (address, kind)
 
     def read_name() -> str:
         raw = shape.Name
@@ -234,10 +236,14 @@ def shape_summary_line(address: int | str, shape: Any) -> str:
     if geom:
         line += ": pos(%d, %d) size(%dx%d)" % (geom["x"], geom["y"], geom["width"], geom["height"])
     get_string = getattr(shape, "getString", None)
-    if callable(get_string):
+    if deletions is not None and kind == "TextFrame":
+        text = uno_read(lambda: normalize_linebreaks(deletions.text_of(shape)), "")
+    elif callable(get_string):
         text = uno_read(lambda: normalize_linebreaks(str(get_string() or "")), "")
-        if text:
-            line += ' text: "%s"' % text[:200]
+    else:
+        text = ""
+    if text:
+        line += ' text: "%s"' % text[:200]
     return line
 
 

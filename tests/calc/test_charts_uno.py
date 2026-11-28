@@ -373,3 +373,28 @@ def test_writer_chart_position_cursor_uses_pinned_caret_uno(ctx, doc):
     assert embeds.getCount() == 1
     embed = embeds.getByIndex(0)
     assert text.compareRegionStarts(embed.getAnchor().getStart(), pinned_point) == 0
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_writer_chart_insert_is_one_undo_step_uno(ctx, doc):
+    """With review Off, one Undo removes the Writer chart, including the writes made while its model starts."""
+    from plugin.calc.charts import ChartUpsert
+    from plugin.framework.config import get_config, save
+    from plugin.framework.tool import ToolContext
+
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="writer", services=None, caller="test")
+    doc.getText().setString("Alpha one.")
+    prev = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "off"})
+    try:
+        res = ChartUpsert().execute(tctx, chart_type="bar", headers=["A", "B"], rows=[["X", 10], ["Y", 20]])
+    finally:
+        save({"doc.agent_edit_review_mode": prev})
+    assert res["status"] == "ok", res
+    assert len(doc.getEmbeddedObjects().getElementNames()) == 1
+
+    doc.getUndoManager().undo()
+
+    assert len(doc.getEmbeddedObjects().getElementNames()) == 0
+    assert doc.getText().getString() == "Alpha one."

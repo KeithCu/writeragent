@@ -27,12 +27,11 @@ which drop the comment.
 
 from __future__ import annotations
 
-import contextlib
 import json
 import logging
 import os
 import threading
-from typing import Any, Generator
+from typing import Any
 
 from plugin.framework import config
 from plugin.framework.config import atomic_write_text, user_config_dir
@@ -220,15 +219,23 @@ def end(ctx: Any, prior: tuple[str, str] | None) -> None:
         log.warning("review_authors.end: failed to restore office author %r", prior, exc_info=True)
 
 
-@contextlib.contextmanager
-def deletion_author() -> Generator[None, None, None]:
+class deletion_author:  # Named like a function: callers write ``with deletion_author():``.
     """Author the tracked deletion inside this block as the DELETE author, then restore the
-    INSERT author. A no-op unless ``begin()`` armed split authoring on this thread."""
-    ctx = getattr(_state, "ctx", None)
-    if ctx is None or not set_office_author(ctx, DELETE_AUTHOR):
-        yield
-        return
-    try:
-        yield
-    finally:
-        set_office_author(ctx, INSERT_AUTHOR)
+    INSERT author. A no-op unless ``begin()`` armed split authoring on this thread.
+
+    A class, not a generator context manager, so a UNO exception from the deletion reaches
+    the caller unchanged (see ``plugin.doc.compound_undo.UndoStepOrRollback``).
+    """
+
+    _ctx: Any
+
+    def __init__(self) -> None:
+        self._ctx = None
+
+    def __enter__(self) -> None:
+        ctx = getattr(_state, "ctx", None)
+        self._ctx = ctx if ctx is not None and set_office_author(ctx, DELETE_AUTHOR) else None
+
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: Any) -> None:
+        if self._ctx is not None:
+            set_office_author(self._ctx, INSERT_AUTHOR)

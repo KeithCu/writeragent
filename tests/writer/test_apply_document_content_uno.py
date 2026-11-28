@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Native UNO integration tests for view-selection preservation in apply_document_content."""
 
-import uno  # noqa: F401
+import uno
 
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import native_writer_tool_context, pinned_writer_tool_context, with_native_doc
@@ -2511,6 +2511,119 @@ def test_user_recording_with_review_off_reports_tracked_uno(ctx):
                 doc.setPropertyValue("RecordChanges", False)
     finally:
         save({flag: prev})
+
+
+@native_test
+@with_native_doc("writer")
+def test_recorded_whole_block_replace_does_not_claim_formatting_preserved_uno(ctx, doc):
+    """A recorded whole-paragraph plain replace over bold and plain runs gives the new text one run's look; say so."""
+    text = doc.getText()
+    text.setString("The Supplier shall deliver the Goods within thirty days.")
+    for word in ("Supplier", "Goods"):
+        sd = doc.createSearchDescriptor()
+        sd.setSearchString(word)
+        doc.findFirst(sd).setPropertyValue("CharWeight", 150.0)
+    tool_ctx = native_writer_tool_context(doc, ctx)
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = ApplyDocumentContent().execute(
+            tool_ctx,
+            target="search",
+            old_content="The Supplier shall deliver the Goods within thirty days.",
+            content=["The Supplier shall deliver the Goods within forty days."],
+        )
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+    assert res["status"] == "ok", res
+    assert "(formatting preserved)" not in res["message"], res
+    assert "gone after Accept" in res["message"], res
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_search_edit_skips_table_of_contents_entries_uno(ctx, doc):
+    """Renaming a heading by old_content edits the heading, not its TOC entry, which comes first."""
+    from plugin.writer.specialized.indexes import IndexesCreate, IndexesListTocEntries
+    from tests.writer.doc_builders import reset_body
+
+    reset_body(doc, ctx, "Definitions", "Body text.")
+    heading = body_paragraphs(doc.getText())[0]
+    heading.setPropertyValue("ParaStyleName", "Heading 1")
+    tctx = native_writer_tool_context(doc, ctx)
+    assert IndexesCreate().execute(tctx, kind="toc", target="beginning", create_from_outline=True)["status"] == "ok"
+
+    tool = ApplyDocumentContent()
+    # An anchor range inside the TOC is refused, and the advice is about the index, not unprotecting it.
+    anchored = tool.execute(
+        tctx, target="search", start_anchor="Definitions", end_anchor="Definitions", content="Defined Terms")
+    assert anchored.get("code") == "PROTECTED_SECTION", anchored
+    assert "section_set_protection" not in anchored["message"], anchored
+
+    res = tool.execute(tctx, target="search", old_content="Definitions", content="Defined Terms")
+    assert res["status"] == "ok", res
+    assert heading.getString() == "Defined Terms"
+    entries = IndexesListTocEntries().execute(tctx, include_links=False)["entries"]
+    assert [row["text"].split("\t")[0] for row in entries] == ["Definitions"], entries
+
+
+@native_test
+def test_search_edit_refuses_protected_and_linked_sections_uno(ctx):
+    """A match inside a protected or file-linked section is refused and the text stays."""
+    import os
+    import shutil
+    import tempfile
+
+    tmpdir = tempfile.mkdtemp(prefix="wa-linked-section-")
+    try:
+        _check_section_refusals(ctx, uno.systemPathToFileUrl(os.path.join(tmpdir, "source.odt")))
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def _check_section_refusals(ctx, source_url):
+    from plugin.framework.uno_context import create_property_value
+    from plugin.tests.testing_utils import TestingFactory
+    from tests.writer.doc_builders import reset_body
+
+    with TestingFactory.native_doc(ctx, doc_type="writer", reuse=False) as source:
+        source.getText().setString("Linked source text.")
+        source.storeToURL(source_url, (create_property_value("FilterName", "writer8"),))
+
+    with TestingFactory.native_doc(ctx, doc_type="writer", reuse=False) as doc:
+        reset_body(doc, ctx, "Open text.", "Locked text.", "Link holder.", "Tail.")
+        text = doc.getText()
+        paras = body_paragraphs(text)
+        sections = {}
+        for name, para in (("Locked", paras[1]), ("Linked", paras[2])):
+            section = doc.createInstance("com.sun.star.text.TextSection")
+            cur = text.createTextCursorByRange(para.getStart())
+            cur.gotoEndOfParagraph(True)
+            text.insertTextContent(cur, section, True)
+            section.setName(name)
+            sections[name] = section
+        sections["Locked"].setPropertyValue("IsProtected", True)
+        link = uno.createUnoStruct("com.sun.star.text.SectionFileLink")
+        link.FileURL = source_url
+        link.FilterName = "writer8"
+        sections["Linked"].setPropertyValue("FileLink", link)
+        assert "Linked source text." in text.getString()
+
+        tctx = native_writer_tool_context(doc, ctx)
+        tool = ApplyDocumentContent()
+        before = text.getString()
+        for needle, code in (("Locked text", "PROTECTED_SECTION"), ("Linked source", "LINKED_SECTION")):
+            res = tool.execute(tctx, target="search", old_content=needle, content="Changed")
+            assert res.get("code") == code, res
+            preview = tool.execute(tctx, target="search", old_content=needle, content="Changed", dry_run=True)
+            assert [row.get("edit_refused") for row in preview["replaceable"]] == [code], preview
+        assert text.getString() == before
+        assert tool.execute(tctx, target="search", old_content="Open text", content="Free text")["status"] == "ok"
+
+        # all_matches edits the open match and skips the two locked ones, as it skips crossing matches.
+        many = tool.execute(tctx, target="search", old_content="text.", content="words.", all_matches=True)
+        assert many["status"] == "ok" and many["replaced_count"] == 1, many
+        assert [p.getString() for p in body_paragraphs(text)][:3] == ["Free words.", "Locked text.", "Linked source text."]
 
 
 @native_test

@@ -65,6 +65,7 @@ from plugin.doc.paragraph_search import paragraph_entries
 from plugin.doc import visual_helpers
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.writer.edit_review import flag_style_unreviewed, flag_tracked, flag_untracked, record_write
+from plugin.writer.page import PAGE_STYLE_UNDO_CLEARED_WARNING
 from plugin.writer.specialized.textframes import text_content_anchor
 from plugin.writer.target_resolver import request_selection_range
 from .image_tools import (
@@ -1211,7 +1212,7 @@ class ImageCropAndHighlight(ToolWriterImageBase):
         )
         if err is not None:
             return err
-        return {
+        result: dict[str, Any] = {
             "status": "ok",
             "image_name": image_name,
             "width_px": region_w,
@@ -1220,6 +1221,8 @@ class ImageCropAndHighlight(ToolWriterImageBase):
             "height_mm": height_100mm / 100.0,
             "highlights": len(marks),
         }
+        _flag_untracked_replace(result, ctx.doc)
+        return result
 
 
 # ------------------------------------------------------------------
@@ -1231,6 +1234,8 @@ class ImageDownload(ToolWriterImageBase):
     """Download an image from URL to local cache."""
 
     name: str | None = "image_download"
+    # Only fills the local image cache, so MCP does not hold the document gate or refuse it on a read-only target.
+    is_mutation: bool | None = False
     description: str = "Download an image from URL to local cache. Returns local path for image_insert/image_replace."
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -1421,6 +1426,8 @@ class ImageInsert(ToolWriterImageBase):
                 }
                 if placed["layout_changed"]:
                     flag_style_unreviewed(result, doc)
+                if placed["undo_cleared"]:
+                    result["warning"] = _(PAGE_STYLE_UNDO_CLEARED_WARNING)
                 if recorded:
                     flag_tracked(result)
                 return result

@@ -13,6 +13,8 @@ import base64
 import os
 import tempfile
 
+import uno
+
 from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc, writer_services_tool_context
@@ -1385,7 +1387,7 @@ def _insert_at_para_logo(ctx, doc, header, at_end: bool, name: str = "LogoPic") 
         provider = ctx.getServiceManager().createInstanceWithContext("com.sun.star.graphic.GraphicProvider", ctx)
         pv = PropertyValue()
         pv.Name = "URL"
-        pv.Value = "file://" + img_path
+        pv.Value = uno.systemPathToFileUrl(img_path)
         gfx = doc.createInstance("com.sun.star.text.TextGraphicObject")
         gfx.setPropertyValue("Graphic", provider.queryGraphic((pv,)))
         gfx.setPropertyValue("AnchorType", AT_PARAGRAPH)

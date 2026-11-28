@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 import uno
 
-from plugin.doc.text_helpers import iter_elements, textfield_service_name
+from plugin.doc.text_helpers import TrackedDeletions, iter_elements, textfield_service_name
 from plugin.doc.udprops import (
     get_document_property,
     list_user_defined_document_properties,
@@ -33,7 +33,7 @@ from plugin.framework.errors import is_disposal, reraise_if_disposed
 from plugin.framework.tool import ToolBase
 from plugin.framework.uno_context import supports_service
 
-from ..edit_review import flag_tracked, next_agent_edit_undo_title
+from ..edit_review import flag_tracked, flag_tracked_delete, next_agent_edit_undo_title, record_write
 from ..record_changes import insert_recorded_content
 from ..search import LocationLabeler
 from ..specialized_base import ToolWriterFieldBase, target_params
@@ -97,7 +97,7 @@ class FieldsUpdateAll(ToolWriterFieldBase):
 
 class FieldsList(ToolWriterFieldBase):
     name: str | None = "field_list"
-    description: str = "List all text fields in the document. Returns their types and text content, allowing you to identify and inspect fields like page numbers or dates."
+    description: str = "List all text fields in the document. Returns their types and text content, allowing you to identify and inspect fields like page numbers or dates. pending_deletion=true marks a field inside a pending tracked deletion."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
@@ -105,6 +105,7 @@ class FieldsList(ToolWriterFieldBase):
         results = []
         hasher = hashlib.sha256()
         service_props: dict[str, set[str]] = {}
+        deletions = TrackedDeletions(doc)
         for field_id, field, service, presentation, location in _iter_body_field_identity(doc, hasher):
             try:
                 content = field.getPresentation(True)
@@ -131,10 +132,18 @@ class FieldsList(ToolWriterFieldBase):
                     except Exception as e:
                         reraise_if_disposed(e)
 
-            results.append({"id": field_id, "presentation": presentation, "content": content,
-                            "location": location, "properties": props})
+            row: dict[str, Any] = {"id": field_id, "presentation": presentation, "content": content,
+                                   "location": location, "properties": props}
+            # A field inside struck text goes when the deletion is accepted.
+            if deletions.overlaps(field.getAnchor()):
+                row["pending_deletion"] = True
+            results.append(row)
 
         return {"status": "ok", "field_count": len(results), "snapshot": hasher.hexdigest(), "fields": results}
+
+
+def _field_count(doc: Any) -> int:
+    return sum(1 for _field in iter_elements(doc.getTextFields().createEnumeration()))
 
 
 class FieldsDelete(ToolWriterFieldBase):
@@ -210,11 +219,17 @@ class FieldsDelete(ToolWriterFieldBase):
             deleted.append({"content": what, "location": where})
 
         undo_title = next_agent_edit_undo_title()
+        count_before = _field_count(doc)
+        recorded = False
 
-        def mutate() -> dict[str, Any] | None:
+        def delete_all() -> None:
             for anchor in anchors:
                 # setString("") on the anchor removes only the field (same as footnote_delete); see test_fields_uno.py.
                 anchor.setString("")
+
+        def mutate() -> dict[str, Any] | None:
+            nonlocal recorded
+            _unused, recorded = record_write(doc, ctx.ctx, delete_all)
             return None
 
         err = commit_or_rollback_mutation(
@@ -228,7 +243,7 @@ class FieldsDelete(ToolWriterFieldBase):
         if err is not None:
             return err
 
-        return {
+        result: dict[str, Any] = {
             "status": "ok",
             "message": f"Successfully deleted {len(deleted)} field(s).",
             "deleted_count": len(deleted),
@@ -236,6 +251,14 @@ class FieldsDelete(ToolWriterFieldBase):
             "missing_ids": missing_ids,
             "deleted": deleted,
         }
+        # A recorded delete strikes the field and leaves it in the document, except inside the
+        # agent's own pending insertion, where LibreOffice removes it outright.
+        struck = len(deleted) - (count_before - _field_count(doc))
+        if recorded and struck > 0:
+            removed = len(deleted) - struck
+            prefix = f"{removed} field(s) were deleted and " if removed else ""
+            flag_tracked_delete(result, f"{prefix}{struck} field(s) are")
+        return result
 
 
 class FieldsInsert(ToolWriterFieldBase):

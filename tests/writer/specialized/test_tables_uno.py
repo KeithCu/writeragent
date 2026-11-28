@@ -3,11 +3,14 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Native UNO coverage for nested Writer text-table relationships."""
+import contextlib
+
 import uno  # noqa: F401
 
+from plugin.doc.text_helpers import normalize_linebreaks
 from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import pinned_writer_tool_context, TestingFactory, with_native_doc
+from plugin.tests.testing_utils import native_writer_tool_context, pinned_writer_tool_context, TestingFactory, with_native_doc
 from plugin.writer.specialized.tables import (
     ManageTableStructure,
     TableDelete,
@@ -18,11 +21,47 @@ from plugin.writer.specialized.tables import (
     TableSetCell,
     TableSplitCell,
 )
+from plugin.writer.apply_document_content import ApplyDocumentContent
 from tests.writer.doc_builders import (
     accept_all_changes,
     insert_named_table,
+    list_redlines,
+    recording_as,
     reject_all_changes,
+    strike_substring,
 )
+
+
+@native_test
+@with_native_doc("writer")
+def test_table_get_cells_reads_tracked_row_anchor_as_empty_uno(ctx, doc):
+    """A row inserted while recording holds U+200D in its first cell, which reads as "".
+
+    Clearing that cell is a no-op that keeps the anchor LibreOffice tracks the row by, and
+    the anchor stays after the row's insertion is accepted.
+    """
+    doc.getText().setString("")
+    tbl = insert_named_table(doc, "AnchorRow", 2, 2, {"A1": "a1", "B1": "b1", "A2": "a2", "B2": "b2"})
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = ManageTableStructure().execute(tool_ctx, action="insert", axis="row", name="AnchorRow", index=1)
+        assert res["status"] == "ok", res
+        assert tbl.getCellByName("A2").getString() == "\u200d"
+        cells = TableGetCells().execute(tool_ctx, name="AnchorRow")["cells"]
+        assert (cells["A2"], cells["B2"], cells["A3"]) == ("", "", "a2"), cells
+
+        redlines = doc.getRedlines().getCount()
+        cleared = TableSetCell().execute(tool_ctx, name="AnchorRow", cell="A2", text="")
+        assert (cleared["status"], cleared["old_text"]) == ("ok", ""), cleared
+        assert tbl.getCellByName("A2").getString() == "\u200d"
+        assert doc.getRedlines().getCount() == redlines
+
+        accept_all_changes(doc, ctx)
+        assert tbl.getCellByName("A2").getString() == "\u200d"
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        reject_all_changes(doc, ctx)
 
 
 @native_test
@@ -426,7 +465,7 @@ def test_manage_table_structure_delete_tracked_variants_uno(ctx, doc):
         assert res_cs["code"] == "COLUMN_HAS_SPANNING_CELL", res_cs
         assert colspan_tbl.getColumns().getCount() == 2
         assert len(colspan_tbl.getCellNames()) == 5
-        assert colspan_tbl.getCellByName("A1").getString() == "A1\nB1"
+        assert normalize_linebreaks(colspan_tbl.getCellByName("A1").getString()) == "A1\nB1"
     finally:
         doc.setPropertyValue("RecordChanges", False)
 
@@ -456,7 +495,9 @@ def test_manage_table_structure_delete_tracked_variants_uno(ctx, doc):
         re_del = ManageTableStructure().execute(
             tool_ctx, action="delete", axis="row", name="TwoParaTbl", index=0
         )
-        assert re_del["status"] == "ok" and re_del["tracked"] is True
+        assert re_del["status"] == "ok", re_del
+        assert "tracked" not in re_del and re_del["pending_review"] is True, re_del
+        assert "already marked for deletion" in re_del["message"], re_del
         accept_all_changes(doc, ctx)
         assert two_para_tbl.getRows().getCount() == 1
     finally:
@@ -527,10 +568,10 @@ def test_tracked_table_and_band_delete_failures_and_nested_uno(ctx, doc):
             doc.getRedlines().getByIndex(i).getPropertyValue("RedlineType") == "Insert"
             for i in range(doc.getRedlines().getCount())
         )
+        # The refusals dispatched nothing, so the table's own insertion is intact and Reject All removes it.
         reject_all_changes(doc, ctx)
         assert doc.getRedlines().getCount() == 0
-        assert ptbl.getCellByName("A1").getString() == ""
-        assert ptbl.getCellByName("A2").getString() == ""
+        assert not doc.getTextTables().hasByName("PendingTbl")
     finally:
         doc.setPropertyValue("RecordChanges", False)
 
@@ -688,12 +729,12 @@ def test_column_band_cells_matches_libreoffice_delete_uno(ctx, doc):
     t_name = TableInsert().execute(tool_ctx, rows=2, columns=3, data=[["a1", "b1", "c1"], ["a2", "b2", "c2"]])["table_name"]
     TableMergeCells().execute_safe(tool_ctx, name=t_name, cell_range="A1:B1")
     table = doc.getTextTables().getByName(t_name)
-    predicted_texts = {table.getCellByName(n).getString() for n in _column_band_cells(table, 0)}
+    predicted_texts = {normalize_linebreaks(table.getCellByName(n).getString()) for n in _column_band_cells(table, 0)}
     assert predicted_texts == {"a1\nb1", "a2", "b2"}
 
-    before_texts = {table.getCellByName(n).getString() for n in table.getCellNames()}
+    before_texts = {normalize_linebreaks(table.getCellByName(n).getString()) for n in table.getCellNames()}
     table.getColumns().removeByIndex(0, 1)
-    after_texts = {table.getCellByName(n).getString() for n in table.getCellNames()}
+    after_texts = {normalize_linebreaks(table.getCellByName(n).getString()) for n in table.getCellNames()}
     assert before_texts - after_texts == predicted_texts
 
 
@@ -799,12 +840,12 @@ def test_tall_cell_row_delete_untracked_and_middle_tracked_and_after_split_uno(c
     assert refused_untracked["status"] == "error"
     assert refused_untracked["code"] == "ROW_HAS_SPANNING_CELL"
     assert tbl1.getRows().getCount() == 3
-    assert tbl1.getCellByName("A1").getString() == "a1\na2"
+    assert normalize_linebreaks(tbl1.getCellByName("A1").getString()) == "a1\na2"
 
     # Deleting covered row 1 keeps A1's merged content.
     ok_cov = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="row", name=t1, index=1)
     assert ok_cov["status"] == "ok"
-    assert tbl1.getCellByName("A1").getString() == "a1\na2"
+    assert normalize_linebreaks(tbl1.getCellByName("A1").getString()) == "a1\na2"
 
     # Middle tall cell (B1:B2) while recording is also refused; after split, row 0 deletes cleanly.
     t2 = TableInsert().execute(
@@ -1226,7 +1267,7 @@ def test_column_refusal_unequal_widths_says_do_not_split_uno(ctx, doc):
         r_names = list(reloaded.getTextTables().getElementNames())
         assert len(r_names) == 1, r_names
         r_name = r_names[0]
-        assert reloaded.getTextTables().getByName(r_name).getCellByName("A1").getString() == "h1\nh2\nh3\nh4"
+        assert normalize_linebreaks(reloaded.getTextTables().getByName(r_name).getCellByName("A1").getString()) == "h1\nh2\nh3\nh4"
         r_ref = ManageTableStructure().execute_safe(r_ctx, action="delete", axis="column", name=r_name, index=0)
         assert r_ref["status"] == "error" and r_ref["code"] == "COLUMN_HAS_SPANNING_CELL", r_ref
         assert "parts=" not in r_ref["message"], r_ref["message"]
@@ -1728,3 +1769,373 @@ def test_table_set_cell_keeps_picture_uno(ctx, doc):
     assert cap_res["status"] == "ok", cap_res
     assert doc.getGraphicObjects().getCount() == 1
     assert cell.getString() == "Caption"
+
+
+@contextlib.contextmanager
+def _review_mode(doc, mode):
+    """'record': WriterAgent's Record review mode; 'user': review Off while the user records."""
+    from plugin.framework.config import get_config, save
+
+    prev = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "record" if mode == "record" else "off"})
+    doc.setPropertyValue("RecordChanges", mode == "user")
+    try:
+        yield
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        save({"doc.agent_edit_review_mode": prev})
+
+
+def _dispatch_in_cell(doc, ctx, table, cell_name, command):
+    from plugin.framework.uno_context import execute_dispatch
+
+    controller = doc.getCurrentController()
+    controller.select(table.getCellByName(cell_name).getEnd())
+    controller.getSelection()
+    execute_dispatch(ctx, controller, command)
+
+
+def _lettered_table(doc, name="T1"):
+    """'Before.' / 3x3 table aa0..ii8 / 'After.'"""
+    doc.getText().setString("Before.")
+    table = _make_3x3_lettered_table(doc, name)
+    doc.getText().insertString(doc.getText().getEnd(), "After.", False)
+    return table
+
+
+def _cells(table):
+    return {n: table.getCellByName(n).getString() for n in table.getCellNames()}
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_table_set_cell_keeps_tracked_row_insertion_anchor_uno(ctx, doc):
+    """A recorded write into the first cell of a tracked inserted row keeps the row's U+200D Insert."""
+    table = _lettered_table(doc)
+    with recording_as(doc, ctx):
+        _dispatch_in_cell(doc, ctx, table, "A1", ".uno:InsertRowsAfter")
+    assert table.getRows().getCount() == 4
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    assert TableGetCells().execute(tool_ctx, name="T1", cell="A2")["cells"] == {"A2": ""}
+    with _review_mode(doc, "record"):
+        res = TableSetCell().execute_safe(tool_ctx, name="T1", cell="A2", text="new")
+    assert res["status"] == "ok" and res["old_text"] == "" and res["tracked"] is True, res
+    reject_all_changes(doc, ctx)
+    assert table.getRows().getCount() == 3, _cells(table)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_refused_delete_of_own_pending_table_keeps_its_insertion_uno(ctx, doc):
+    """table_delete on the agent's own pending table refuses without dispatching; filling its cells still works."""
+    _lettered_table(doc)
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    with _review_mode(doc, "record"):
+        ins = TableInsert().execute_safe(tool_ctx, rows=2, columns=2, data=[["x1", "x2"], ["", "x4"]])
+        assert ins["status"] == "ok", ins
+        filled = TableSetCell().execute_safe(tool_ctx, name=ins["table_name"], cell="A2", text="x3")
+        changed = TableSetCell().execute_safe(tool_ctx, name=ins["table_name"], cell="A1", text="y1")
+        assert filled["status"] == "ok" and changed["status"] == "ok", (filled, changed)
+        before = list_redlines(doc)
+        res = TableDelete().execute_safe(tool_ctx, name=ins["table_name"])
+    assert res["status"] == "error" and res["code"] == "TABLE_DELETE_NOT_TRACKABLE", res
+    assert list_redlines(doc) == before
+    reject_all_changes(doc, ctx)
+    assert not doc.getTextTables().hasByName(ins["table_name"])
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_delete_of_other_authors_pending_table_and_row_refused_uno(ctx, doc):
+    """Deleting a table or a row that another author inserted is refused; Reject All still removes them."""
+    table = _lettered_table(doc)
+    with recording_as(doc, ctx):
+        insert_named_table(doc, "TA", 2, 2, {"A1": "q1", "B1": "q2", "A2": "q3", "B2": "q4"})
+        _dispatch_in_cell(doc, ctx, table, "A1", ".uno:InsertRowsAfter")
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    before = list_redlines(doc)
+    for mode in ("record", "user"):
+        with _review_mode(doc, mode):
+            res_table = TableDelete().execute_safe(tool_ctx, name="TA")
+            res_row = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="row", name="T1", index=1)
+        assert res_table["status"] == "error" and res_table["code"] == "TABLE_DELETE_NOT_TRACKABLE", res_table
+        assert res_row["status"] == "error" and res_row["code"] == "TABLE_DELETE_NOT_TRACKABLE", res_row
+        assert list_redlines(doc) == before
+    reject_all_changes(doc, ctx)
+    assert not doc.getTextTables().hasByName("TA")
+    assert table.getRows().getCount() == 3, _cells(table)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_struck_row_reported_and_write_refused_uno(ctx, doc):
+    """A row pending deletion is listed in deleted_rows and table_set_cell refuses to write into it."""
+    table = _lettered_table(doc)
+    with recording_as(doc, ctx):
+        _dispatch_in_cell(doc, ctx, table, "A2", ".uno:DeleteRows")
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    cells = TableGetCells().execute(tool_ctx, name="T1")
+    assert cells["deleted_rows"] == [1] and cells["cells"]["B2"] == "", cells
+    listed = {t["name"]: t for t in TableList().execute(tool_ctx)["tables"]}
+    assert listed["T1"]["deleted_rows"] == [1], listed
+    for mode in ("record", "user", "off"):
+        with _review_mode(doc, mode):
+            res = TableSetCell().execute_safe(tool_ctx, name="T1", cell="B2", text="filled")
+        assert res["status"] == "error" and res["code"] == "MATCH_CROSSES_DELETION", res
+    accept_all_changes(doc, ctx)
+    assert table.getRows().getCount() == 2, _cells(table)
+    assert "deleted_rows" not in TableGetCells().execute(tool_ctx, name="T1")
+
+
+@native_test
+def test_recorded_set_cell_keeps_as_character_picture_uno(ctx):
+    """A recorded table_set_cell strikes only the text of a cell, so Accept All keeps its picture."""
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
+
+    for resolve, expected in ((accept_all_changes, "pic text"), (reject_all_changes, "c2")):
+        with TestingFactory.native_doc(ctx, doc_type="writer", hidden=True, reuse=False) as d:
+            cell = _lettered_table(d).getCellByName("C2")
+            graphic = d.createInstance("com.sun.star.text.TextGraphicObject")
+            graphic.setPropertyValue("AnchorType", AS_CHARACTER)
+            cell.insertTextContent(cell.getEnd(), graphic, False)
+            tool_ctx = TestingFactory.create_context(doc=d, ctx=ctx, env="native")
+            with _review_mode(d, "record"):
+                res = TableSetCell().execute_safe(tool_ctx, name="T1", cell="C2", text="pic text")
+            assert res["status"] == "ok" and res["tracked"] is True, res
+            resolve(d, ctx)
+            assert d.getGraphicObjects().getCount() == 1
+            assert cell.getString() == expected
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_recorded_set_cell_refuses_formula_and_value_cells_uno(ctx, doc):
+    """While recording, a formula or number cell is refused because Reject would not bring it back."""
+    table = insert_named_table(doc, "FormulaTable", 3, 1)
+    table.getCellByName("A1").setValue(1)
+    table.getCellByName("A2").setValue(2)
+    total = table.getCellByName("A3")
+    total.setFormula("sum <A1:A2>")
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    for mode in ("record", "user"):
+        for cell_name in ("A1", "A3"):
+            with _review_mode(doc, mode):
+                res = TableSetCell().execute_safe(tool_ctx, name="FormulaTable", cell=cell_name, text="total")
+            assert res["status"] == "error" and res["code"] == "CELL_VALUE_NOT_TRACKABLE", res
+    assert total.getFormula() == "sum <A1:A2>"
+    assert table.getCellByName("A1").getValue() == 1
+    assert doc.getRedlines().getCount() == 0
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_recorded_set_cell_refuses_other_authors_inserted_table_or_row_text_uno(ctx, doc):
+    """Recorded writes over another author's pending table or row insertion are refused; Reject All still removes them."""
+    table = _lettered_table(doc)
+    with recording_as(doc, ctx):
+        insert_named_table(doc, "TA", 2, 2, {"A1": "q1", "B1": "q2", "A2": "q3", "B2": "q4"})
+        _dispatch_in_cell(doc, ctx, table, "A1", ".uno:InsertRowsAfter")
+        b2 = table.getCellByName("B2")
+        b2.insertString(b2.getEnd(), "alice", False)
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    before = list_redlines(doc)
+    for mode in ("record", "user"):
+        with _review_mode(doc, mode):
+            res_table = TableSetCell().execute_safe(tool_ctx, name="TA", cell="A1", text="zz")
+            res_row = TableSetCell().execute_safe(tool_ctx, name="T1", cell="B2", text="zz")
+        assert res_table["status"] == "error" and res_table["code"] == "CELL_IN_PENDING_INSERTION", res_table
+        assert res_row["status"] == "error" and res_row["code"] == "CELL_IN_PENDING_INSERTION", res_row
+        assert list_redlines(doc) == before
+    with _review_mode(doc, "record"):
+        res_empty = TableSetCell().execute_safe(tool_ctx, name="T1", cell="C2", text="zz")
+    assert res_empty["status"] == "ok" and res_empty["tracked"] is True, res_empty
+    reject_all_changes(doc, ctx)
+    assert not doc.getTextTables().hasByName("TA")
+    assert table.getRows().getCount() == 3, _cells(table)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_recorded_set_cell_refuses_word_inserted_row_text_uno(ctx, doc):
+    """A Word row insertion (row_changes.docx) refuses a recorded write over its text."""
+    import tempfile
+    from pathlib import Path
+
+    from tests.writer.corpus_fixture import ROW_CHANGES
+
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
+        path = Path(folder) / "row_changes.docx"
+        ROW_CHANGES.write(path)
+        with TestingFactory.native_doc(ctx, doc_type=uno.systemPathToFileUrl(str(path)), reuse=False) as d:
+            table = d.getTextTables().getByIndex(0)
+            tool_ctx = TestingFactory.create_context(doc=d, ctx=ctx, env="native")
+            with _review_mode(d, "record"):
+                res = TableSetCell().execute_safe(tool_ctx, name=table.getName(), cell="A2", text="Newer")
+            assert res["status"] == "error" and res["code"] == "CELL_IN_PENDING_INSERTION", res
+            reject_all_changes(d, ctx)
+            assert table.getRows().getCount() == 3, _cells(table)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_own_table_stays_writable_beside_foreign_table_inserted_at_document_start_uno(ctx, doc):
+    """Another author's table insertion that starts at a table node does not block the agent's own table."""
+    text = doc.getText()
+    text.setString("After.")
+    with recording_as(doc, ctx):
+        table = doc.createInstance("com.sun.star.text.TextTable")
+        table.initialize(1, 2)
+        text.insertTextContent(text.getStart(), table, False)
+        table.setName("TA")
+        table.getCellByName("A1").setString("q1")
+    doc.getCurrentController().select(text.getEnd())
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    with _review_mode(doc, "record"):
+        ins = TableInsert().execute_safe(tool_ctx, rows=1, columns=2, data=[["x1", ""]])
+        assert ins["status"] == "ok", ins
+        res = TableSetCell().execute_safe(tool_ctx, name=ins["table_name"], cell="B1", text="x2")
+    assert res["status"] == "ok" and res["tracked"] is True, res
+
+
+def _grid(table):
+    return [(name, table.getCellByName(name).getString()) for name in table.getCellNames()]
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_row_insert_in_record_mode_is_tracked_and_merge_is_flagged_uno(ctx, doc):
+    """Record mode: a row insert is recorded and Reject All removes it; a merge says it is not tracked."""
+    table = insert_named_table(doc, "RecBand", 2, 2, {"A1": "a1", "B1": "b1", "A2": "a2", "B2": "b2"})
+    before = _grid(table)
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    with _review_mode(doc, "record"):
+        inserted = ManageTableStructure().execute(tool_ctx, action="insert", axis="row", name="RecBand", index=1)
+        merged = TableMergeCells().execute(tool_ctx, name="RecBand", cell_range="A1:B1")
+    assert inserted["status"] == "ok", inserted
+    assert inserted.get("tracked") is True and inserted.get("pending_review") is True, inserted
+    assert merged["status"] == "ok", merged
+    assert merged.get("tracked") is False and merged.get("warning"), merged
+    assert doc.getPropertyValue("RecordChanges") is False
+
+    doc.getUndoManager().undo()  # the merge, which Reject cannot take back
+    reject_all_changes(doc, ctx)
+    assert _grid(doc.getTextTables().getByName("RecBand")) == before
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_set_cell_to_its_struck_text_is_refused_uno(ctx, doc):
+    """A cell whose text is a pending deletion cannot be "set" back to that text: nothing would be written."""
+    table = insert_named_table(doc, "StruckSet", 1, 2, {"A1": "keep", "B1": "ee4"})
+    strike_substring(doc, table.getCellByName("B1"), "ee4", ctx=ctx, author="Alice")
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    with _review_mode(doc, "record"):
+        res = TableSetCell().execute_safe(tool_ctx, name="StruckSet", cell="B1", text="ee4")
+    assert res["status"] == "error", res
+    assert res.get("code") == "CELL_TEXT_IS_PENDING_DELETION", res
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_deleting_an_already_struck_table_reports_nothing_new_uno(ctx, doc):
+    """Deleting a table that is already a pending tracked deletion is not reported as a new tracked change."""
+    table = insert_named_table(doc, "AliceGone", 1, 2, {"A1": "one", "B1": "two"})
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        first = TableDelete().execute(tool_ctx, name="AliceGone")
+        assert first.get("tracked") is True, first
+        second = TableDelete().execute(tool_ctx, name="AliceGone")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+    assert second["status"] == "ok", second
+    assert "tracked" not in second and second.get("pending_review") is True, second
+    assert "already marked for deletion" in second["message"], second
+    assert doc.getTextTables().hasByName("AliceGone") and table.getCellByName("A1").getString() == "one"
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_band_delete_refuses_a_table_nested_in_a_protected_cell_uno(ctx, doc):
+    """A row of a table nested in a protected host cell is protected too, as for table_set_cell."""
+    outer = insert_named_table(doc, "ProtHostOuter", 1, 1)
+    host = outer.getCellByName("A1")
+    inner = doc.createInstance("com.sun.star.text.TextTable")
+    inner.initialize(2, 1)
+    host.insertTextContent(host.getStart(), inner, False)
+    inner.setName("ProtHostInner")
+    inner.getCellByName("A1").setString("Inner 1")
+    inner.getCellByName("A2").setString("Inner 2")
+    host.setPropertyValue("IsProtected", True)
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    res = ManageTableStructure().execute(tool_ctx, action="delete", axis="row", name="ProtHostInner", index=0)
+    assert res["status"] == "error" and res.get("code") == "CELLS_PROTECTED", res
+    assert inner.getRows().getCount() == 2
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_apply_content_refuses_a_match_in_a_protected_cell_uno(ctx, doc):
+    """apply_content refuses to change text in a protected cell, as table_set_cell does."""
+    table = insert_named_table(doc, "ProtApply", 1, 2, {"A1": "open text", "B1": "locked ee4"})
+    table.getCellByName("B1").setPropertyValue("IsProtected", True)
+    tool_ctx = native_writer_tool_context(doc, ctx)
+    res = ApplyDocumentContent().execute(tool_ctx, target="search", old_content="ee4", content=["ee5"])
+    assert res["status"] == "error" and res.get("code") == "CELLS_PROTECTED", res
+    assert table.getCellByName("B1").getString() == "locked ee4"
+    ok = ApplyDocumentContent().execute(tool_ctx, target="search", old_content="open", content=["free"])
+    assert ok["status"] == "ok", ok
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_split_and_column_insert_in_record_mode_report_what_was_recorded_uno(ctx, doc):
+    """Record mode: a split into rows and a column insert are tracked and Reject All removes them;
+    a split into columns is not recorded and says so."""
+    rows_table = insert_named_table(doc, "RecSplitRows", 2, 2, {"A1": "a1", "B1": "b1", "A2": "a2", "B2": "b2"})
+    insert_named_table(doc, "RecSplitCols", 1, 2, {"A1": "x1", "B1": "y1"})
+    rows_before = _grid(rows_table)
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    with _review_mode(doc, "record"):
+        split_rows = TableSplitCell().execute(tool_ctx, name="RecSplitRows", cell="B2", direction="rows", parts=2)
+        col_insert = ManageTableStructure().execute(tool_ctx, action="insert", axis="column", name="RecSplitRows", index=1)
+        split_cols = TableSplitCell().execute(tool_ctx, name="RecSplitCols", cell="B1", direction="columns", parts=2)
+    assert split_rows["status"] == "ok", split_rows
+    assert split_rows.get("tracked") is True and split_rows.get("pending_review") is True, split_rows
+    assert col_insert["status"] == "ok", col_insert
+    assert col_insert.get("tracked") is True and col_insert.get("pending_review") is True, col_insert
+    assert split_cols["status"] == "ok", split_cols
+    assert split_cols.get("tracked") is False and "not into columns" in split_cols.get("warning", ""), split_cols
+    assert doc.getPropertyValue("RecordChanges") is False
+
+    reject_all_changes(doc, ctx)
+    assert _grid(doc.getTextTables().getByName("RecSplitRows")) == rows_before
+    assert len(doc.getTextTables().getByName("RecSplitCols").getCellNames()) == 3
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_table_insert_with_data_is_one_undo_step_with_review_off_uno(ctx, doc):
+    """With review Off, one Undo removes the table and every filled cell, with or without the user's recording."""
+    from plugin.framework.config import get_config, save
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    prev = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "off"})
+    try:
+        for user_records in (False, True):
+            doc.setPropertyValue("RecordChanges", user_records)
+            try:
+                res = TableInsert().execute(tool_ctx, rows=2, columns=2, data=[["a", "b"], ["c", "d"]])
+            finally:
+                doc.setPropertyValue("RecordChanges", False)
+            assert res.get("status") == "ok", res
+            assert doc.getTextTables().getCount() == 1
+
+            doc.getUndoManager().undo()
+
+            assert doc.getTextTables().getCount() == 0, user_records
+            assert doc.getRedlines().getCount() == 0, user_records
+    finally:
+        save({"doc.agent_edit_review_mode": prev})

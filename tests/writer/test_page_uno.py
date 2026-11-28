@@ -1574,3 +1574,26 @@ def test_replace_header_in_record_mode_is_tracked_and_rejects_uno(ctx, doc):
         assert header.getString() == "Old header ACME text"
     finally:
         save({"doc.agent_edit_review_mode": prev_mode})
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_header_write_while_user_records_reports_tracked_without_review_mode_uno(ctx, doc):
+    """Review Off, user's own Track Changes on: the header write is tracked, pending review, and has no review_mode."""
+    from tests.writer.doc_builders import reject_all_changes
+
+    style, _ = _style(doc)
+    style.setPropertyValue("HeaderIsOn", True)
+    header = style.getPropertyValue("HeaderText")
+    header.setString("Old header ACME")
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        written = _set_text(doc, ctx, "header", "<p>New header line</p>")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+    assert written["status"] == "ok", written
+    assert written.get("tracked") is True and written.get("pending_review") is True, written
+    assert "review_mode" not in written, written
+    reject_all_changes(doc, ctx)
+    assert header.getString() == "Old header ACME"

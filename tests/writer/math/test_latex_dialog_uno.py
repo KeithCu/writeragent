@@ -8,13 +8,14 @@ from __future__ import annotations
 
 
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-from plugin.writer.math.latex_dialog import insert_latex_math_dialog
-from plugin.framework.config import get_config
+from plugin.writer.math.latex_dialog import _apply_latex_to_writer, insert_latex_math_dialog
+from plugin.framework.config import get_config, save
 from plugin.writer.math.math_mml_convert import MATH_CLSID
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
+from tests.writer.doc_builders import list_redlines, reject_all_changes
 from tests.writer.math.test_math_formula_insert_uno import _embed_count
 
 
@@ -234,3 +235,25 @@ def test_update_formula_with_display_block_leaves_config_unchanged(ctx: Any, doc
     formula = _first_math_formula(doc)
     assert "x" in formula and "y" in formula
     assert get_config("last_latex_display_block") is False
+
+
+@native_test
+@with_native_doc("writer")
+def test_latex_dialog_insert_in_record_mode_is_a_tagged_change_uno(ctx: Any, doc: Any) -> None:
+    """Record mode: the dialog's new formula is a WriterAgent tracked insertion, and Reject All removes it."""
+    doc.getText().setString("Before after")
+    doc.getCurrentController().getViewCursor().gotoEnd(False)
+    converted = MagicMock(ok=True, starmath="a^2 + b^2 = c^2", error_message=None)
+    prev = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "record"})
+    try:
+        with patch("plugin.writer.math.latex_dialog.convert_latex_to_starmath", return_value=converted):
+            ok, message = _apply_latex_to_writer(ctx, doc, "a^2+b^2=c^2", False, None)
+    finally:
+        save({"doc.agent_edit_review_mode": prev})
+    assert ok, message
+    redlines = list_redlines(doc)
+    assert redlines and all(rl["RedlineComment"].startswith("wa-review:") for rl in redlines), redlines
+    assert doc.getPropertyValue("RecordChanges") is False
+    reject_all_changes(doc, ctx)
+    assert _embed_count(doc) == 0

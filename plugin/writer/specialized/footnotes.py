@@ -25,7 +25,7 @@ from plugin.writer.specialized_base import (
 )
 from plugin.framework.errors import ToolExecutionError, make_tool_error
 from plugin.framework.i18n import _
-from plugin.writer.edit_review import flag_tracked, flag_untracked, record_write
+from plugin.writer.edit_review import flag_tracked, flag_tracked_delete, flag_untracked, record_write
 from plugin.writer.html_import import raise_if_pending_changes_untracked
 from plugin.writer.search import (
     LADDER_CASE_SENSITIVE_DESCRIPTION,
@@ -139,7 +139,7 @@ class FootnotesInsert(ToolWriterFootnoteBase):
 
 class FootnotesList(ToolWriterFootnoteBase):
     name: str | None = "footnote_list"
-    description: str = "Lists all existing footnotes or endnotes in the document, including their indices, labels (if custom), and text content. Use this index for editing or deleting."
+    description: str = "Lists all existing footnotes or endnotes in the document, including their indices, labels (if custom), and text content. Use this index for editing or deleting. pending_deletion=true marks a note whose mark is inside a pending tracked deletion."
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {"note": enum_param(NOTE_TYPES, "Whether to list footnotes or endnotes.")},
@@ -159,8 +159,11 @@ class FootnotesList(ToolWriterFootnoteBase):
         for i in range(count):
             note = notes.getByIndex(i)
             label = note.getLabel()
-            text = deletions.text_of(note)
-            results.append({"index": i, "label": label, "text": text})
+            row: dict[str, Any] = {"index": i, "label": label, "text": deletions.text_of(note)}
+            # A note whose mark sits in struck text goes when the deletion is accepted.
+            if deletions.overlaps(note.getAnchor()):
+                row["pending_deletion"] = True
+            results.append(row)
 
         return {"status": "ok", "count": count, "notes": results}
 
@@ -249,14 +252,8 @@ class FootnotesDelete(ToolWriterFootnoteBase):
         if after < before:
             return {"status": "ok", "message": f"Successfully deleted {note_type} at index {index}."}
         if recording:
-            result: dict[str, Any] = {
-                "status": "ok",
-                "message": (
-                    f"{note_type} at index {index} is marked for deletion as a tracked change; "
-                    "it stays in the document until the user accepts or rejects it."
-                ),
-            }
-            flag_tracked(result)
+            result: dict[str, Any] = {"status": "ok"}
+            flag_tracked_delete(result, f"{note_type} at index {index} is")
             return result
         return self._tool_error(
             f"Could not delete {note_type} at index {index}: it is still in the document.")

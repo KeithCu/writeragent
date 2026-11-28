@@ -5,7 +5,7 @@
 #
 # Inline review (model layer): accept/reject the tracked change under the cursor as one unit,
 # resolving a replace's delete+insert pair together. Drives native .uno:Accept/RejectTrackedChange
-# on a paragraph-wide selection via the view cursor.
+# on a selection made with the controller's select().
 import uno  # noqa: F401
 
 from plugin.framework.uno_context import enum_has_more
@@ -692,6 +692,81 @@ def test_resolve_one_of_two_agent_row_deletes_in_same_table_uno(ctx, doc):
             assert doc.getTextTables().getByName(t_name).getRows().getCount() == expected_rows
     finally:
         save({"doc.agent_edit_review_mode": prev})
+
+
+@native_test
+@with_native_doc("writer")
+def test_resolve_puts_the_users_caret_back_uno(ctx, doc):
+    # A selection left on the resolved text would be replaced by the user's next keystroke.
+    reset_body(doc, ctx, "The quick brown fox.", "Second para.")
+    _agent_edit(doc, ctx, ("quick", "fast"))
+    view_cursor = doc.getCurrentController().getViewCursor()
+    view_cursor.gotoRange(find_first(doc, "fast").getStart(), False)
+    view_cursor.goRight(1, False)
+    ok, msg = resolve_change_at_cursor(doc, ctx, True)
+    assert ok, msg
+    assert view_cursor.isCollapsed(), repr(view_cursor.getString())
+
+    # The caret sits inside the insertion that Reject removes: it stays a caret where the text was.
+    reset_body(doc, ctx, "The quick brown fox.", "Second para.")
+    _agent_edit(doc, ctx, ("quick", "fast"))
+    view_cursor.gotoRange(find_first(doc, "fast").getStart(), False)
+    view_cursor.goRight(1, False)
+    ok, msg = resolve_change_at_cursor(doc, ctx, False)
+    assert ok, msg
+    assert _para_with(doc, "brown") == "The quick brown fox."
+    assert view_cursor.isCollapsed(), repr(view_cursor.getString())
+
+    reset_body(doc, ctx, "The quick brown fox.", "Second para.")
+    _tracked_replace(doc, "Second", "2nd")
+    _agent_edit(doc, ctx, ("quick", "fast"))
+    _caret_in(doc, "brown")
+    resolved, msg = resolve_all_with_feedback(doc, ctx, False)
+    assert resolved == 1, msg
+    assert view_cursor.isCollapsed(), repr(view_cursor.getString())
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_resolve_all_rejects_ocr_insert_that_deleted_its_image_uno(ctx, doc):
+    # The OCR insert deletes its picture by selecting it, which leaves the view in picture mode;
+    # with another author's redline in the document, resolve-all goes change by change and must
+    # still be able to select the agent change.
+    from plugin.framework.config import get_config, save
+    from plugin.tests.testing_utils import logo_32_path
+    from plugin.vision.vision_egress import insert_vision_result_into_writer
+    from plugin.writer import review_authors
+    from plugin.writer.images.image_tools import insert_image_at_locator
+
+    reset_body(doc, ctx, "Intro para.", "Before image after image text.", "Outro para.")
+    doc.getCurrentController().getViewCursor().gotoRange(find_first(doc, "Before image").getEnd(), False)
+    insert_image_at_locator(ctx, doc, logo_32_path(), width_mm=10, height_mm=10).setName("OcrPic1")
+    prior = review_authors.begin(ctx)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        review_authors.set_office_author(ctx, "Alice")
+        outro = find_first(doc, "Outro")
+        outro.getText().createTextCursorByRange(outro).setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        review_authors.end(ctx, prior)
+    prev = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "record"})
+    try:
+        outcome = insert_vision_result_into_writer(
+            ctx, doc, {"status": "ok", "helper": "extract_structure", "html": "<p>OCR text</p><p>second</p>"},
+            params={"image_name": "OcrPic1", "delete_image_after_insert": True},
+        )
+    finally:
+        save({"doc.agent_edit_review_mode": prev})
+    assert outcome == "image_deleted"
+
+    resolved, msg = resolve_all_with_feedback(doc, ctx, False)
+
+    assert resolved == 1, msg
+    assert "OCR text" not in doc.getText().getString()
+    assert doc.getGraphicObjects().hasByName("OcrPic1")
+    assert _redline_count(doc) == 1, "Alice's deletion stays"
 
 
 @native_test
