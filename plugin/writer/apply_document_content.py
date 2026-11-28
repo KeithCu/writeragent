@@ -1406,13 +1406,12 @@ class ApplyDocumentContent(ToolBase):
         # caret strictly inside a struck span counts as overlapping, yet a caret insert erases nothing.
         if rng is not None and uno_read(lambda: rng.getText().compareRegionStarts(rng.getStart(), rng.getEnd()) != 0, False):
             refused = search_mod.crossing_match_error(
-                ctx.doc, rng, recorded=params.track_reviewable or is_recording_changes(ctx.doc)
+                ctx.doc,
+                rng,
+                recorded=params.track_reviewable or is_recording_changes(ctx.doc),
+                selection=True,
             )
             if refused is not None:
-                refused["message"] += (
-                    " To change the selection, use target='search' on the text on one side of the deletion, "
-                    "or ask the user to turn on Track Changes."
-                )
                 return refused
         anchor = collapsed_anchor(rng) if rng is not None else None
         headings = headings_if_touched(ctx.doc, [rng]) if rng is not None else None
