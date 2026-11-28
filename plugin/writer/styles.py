@@ -1139,7 +1139,9 @@ _TEXT_PROPERTY_PREFIXES = ("Char", "HyperLink", "Ruby", "Visited", "Unvisited")
 _RECORDABLE_PARA_PROPERTIES = frozenset({*_REVERT_PARA_PROPERTIES, "NumberingStyleName"} - {"BreakType", "WritingMode"})
 # SwUnoCursorHelper::SetCursorPropertyValue (sw/source/core/unocore/unoobj.cxx) writes these straight
 # to the text node (SwTextNode::SetAttrListLevel, SetCountedInList) without an undo action, so
-# commit_or_rollback's undo group holds nothing that restores them.
+# commit_or_rollback's undo group holds nothing that restores them. ParaIsNumberingRestart is not
+# listed: it goes through SwDoc::SetNumRuleStart (sw/source/core/doc/docnum.cxx), which appends
+# SwUndoNumRuleStart, so the tool's single undo step restores it.
 _NOT_UNDOABLE_PARA_PROPERTIES = frozenset({"NumberingLevel", "NumberingIsNumber"})
 
 
@@ -1616,6 +1618,22 @@ class StyleGetInfo(ToolWriterStyleBase):
         return {"status": "ok", **info}
 
 
+def _crosses_deletion_error(mode: search_mod.MatchMode | None) -> dict[str, Any]:
+    msg = (
+        search_mod.SELECTION_CROSSES_DELETION_MESSAGE
+        if mode is None
+        else search_mod.CROSSES_DELETION_MESSAGE
+    )
+    err = make_tool_error(
+        msg,
+        code="MATCH_CROSSES_DELETION",
+        top_level={"applied": False, "matched": True},
+    )
+    if mode is not None:
+        err.update(mode.result_fields())
+    return err
+
+
 def target_cursors(
     ctx: ToolContext,
     kwargs: dict[str, Any],
@@ -1632,6 +1650,14 @@ def target_cursors(
                 kwargs.get("old_content"),
                 case_sensitive=kwargs.get("case_sensitive"),
             )
+            if (
+                target == "selection"
+                and check_crossing
+                and not cursor.isCollapsed()
+                and edit_is_recorded(ctx.doc)
+                and TrackedDeletions(ctx.doc).overlaps(cursor)
+            ):
+                return [], _crosses_deletion_error(None), None
             return [cursor], None, None
         except ValueError as ve:
             return [], make_tool_error(str(ve), code="INVALID_PARAM"), None
@@ -1675,17 +1701,12 @@ def target_cursors(
             return [], err, mode
         ranges = [ranges[occ]]
     if check_crossing and edit_is_recorded(ctx.doc):
-        # A recorded character format over a pending Delete becomes a Format redline, and the struck text is live again.
+        # A recorded character format over a pending Delete (whether target="search" or
+        # target="selection") becomes a Format redline, and the struck text is live again.
         deletions = TrackedDeletions(ctx.doc)
         ranges = [r for r in ranges if not deletions.overlaps(r)]
         if not ranges:
-            err = make_tool_error(
-                search_mod.CROSSES_DELETION_MESSAGE,
-                code="MATCH_CROSSES_DELETION",
-                top_level={"applied": False, "matched": True},
-            )
-            err.update(mode.result_fields())
-            return [], err, mode
+            return [], _crosses_deletion_error(mode), mode
     return [cursor_spanning_range(r) for r in ranges], None, mode
 
 

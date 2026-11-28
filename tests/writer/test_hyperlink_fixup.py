@@ -311,6 +311,8 @@ class _Portion:
             return self.sl.text_type
         if name in ("RedlineType", "IsStart") and hasattr(self.sl, name):
             return getattr(self.sl, name)
+        if name == "IsCollapsed" and self.sl.text_type == "Redline":
+            return False
         if self.sl.raise_props:
             raise AttributeError(name)
         if name == "HyperLinkURL":

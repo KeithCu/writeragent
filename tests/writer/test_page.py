@@ -388,6 +388,26 @@ def test_set_header_footer_imports_html_even_when_a_logo_is_present():
     text_obj.setString.assert_not_called()
     # The header is already on: a page-style write would empty the undo stack for nothing.
     assert all(c.args[0] != "HeaderIsOn" for c in style.setPropertyValue.call_args_list)
+    assert "warning" not in res
+
+
+def test_set_header_footer_text_warns_when_turning_the_region_on_clears_undo():
+    """Turning the header on is a page-style write, which empties LibreOffice's undo stack; the result says so."""
+    from unittest.mock import patch
+
+    text_obj = MagicMock()
+    text_obj.createEnumeration.side_effect = lambda: _enum_of([_paragraph([_portion("Text")])])
+    doc, style = _page_style_doc(text_obj)
+    style.getPropertyValue.side_effect = lambda n: False if n.endswith("IsOn") else (500 if "Height" in n else text_obj)
+
+    with patch("plugin.writer.page.replace_xtext_with_html", return_value=html_import_styles.WriteReport()):
+        res = PageSetHeaderFooterText().execute(
+            TestingFactory.create_context(doc=doc, doc_type="writer"),
+            style="Standard", region="header", content="<p>Header</p>")
+
+    assert res["status"] == "ok", res
+    style.setPropertyValue.assert_any_call("HeaderIsOn", True)
+    assert res.get("warning"), res
 
 
 def test_set_header_footer_reports_unapplied_data_lo_para():
@@ -1259,7 +1279,7 @@ def _cursors_for(text_obj, hay):
 def _replace(doc, **kwargs):
     args = {"style": "Standard", "region": "footer", "old_content": "Annex", "content": "Appendix", "all_matches": False}
     args.update(kwargs)
-    return PageReplaceHeaderFooterText().execute(SimpleNamespace(doc=doc), **args)
+    return PageReplaceHeaderFooterText().execute(SimpleNamespace(doc=doc, ctx=None), **args)
 
 
 def test_replace_header_footer_rejects_bad_args():
@@ -1420,7 +1440,9 @@ def test_replace_header_footer_refused_write_is_not_reported_as_written():
     text_obj.createTextCursorByRange.side_effect = lambda _rng: failing_cursor
     um = doc.getUndoManager.return_value
     um.isLocked.return_value = False
-    um.getAllUndoActionTitles.side_effect = [(), ()]
+    # The write fails before anything lands, so every read of the stack (the tool's group and
+    # record_mutation's nested one) sees it empty.
+    um.getAllUndoActionTitles.return_value = ()
     res = _replace(doc)
     assert res["status"] == "error"
     assert "write boom" in res["message"]
@@ -2003,6 +2025,8 @@ def _redline_portion(redline_type: str, is_start: bool) -> MagicMock:
             return redline_type
         if name == "IsStart":
             return is_start
+        if name == "IsCollapsed":
+            return False
         return None
 
     p.getPropertyValue.side_effect = _get_prop
@@ -2232,7 +2256,7 @@ def _cursor_portion(kind: str, text: str = "", *, is_start: bool = False, start:
     p = MagicMock()
     p.getPropertyValue.side_effect = lambda name: (
         kind if name == "TextPortionType"
-        else ("Delete" if name == "RedlineType" else is_start)
+        else ("Delete" if name == "RedlineType" else (False if name == "IsCollapsed" else is_start))
     )
     p.getString.return_value = text
     p.getStart.return_value = start

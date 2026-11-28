@@ -768,7 +768,7 @@ def _enum(items):
 
 def _text_portion(text, ptype="Text", **props):
     p = MagicMock()
-    values = {"TextPortionType": ptype}
+    values = {"TextPortionType": ptype, "IsCollapsed": False}
     values.update(props)
     p.getPropertyValue.side_effect = lambda n: values[n]
     p.getString.return_value = text

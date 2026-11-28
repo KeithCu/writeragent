@@ -385,7 +385,7 @@ def test_edit_review_formula_only_change_reports_accepted_and_rejected_uno(ctx, 
 @native_test
 @with_native_doc("writer")
 def test_refuse_tracked_insert_or_delete_blocks_interior_selection_uno(ctx, doc):
-    from plugin.writer.edit_review import TrackedChangesInSelection, refuse_tracked_insert_or_delete
+    from plugin.writer.edit_review import TrackedChangesInSelection, refuse_streamed_selection
 
     text = doc.getText()
     text.setString("ABCDE")
@@ -404,7 +404,7 @@ def test_refuse_tracked_insert_or_delete_blocks_interior_selection_uno(ctx, doc)
     inner_del.goRight(2, False)
     inner_del.goRight(1, True)
     with unittest.TestCase().assertRaises(TrackedChangesInSelection):
-        refuse_tracked_insert_or_delete(doc, inner_del)
+        refuse_streamed_selection(doc, inner_del)
     assert text.getString() == "ABCDE"
 
     # Interior selection inside a tracked Insert.
@@ -423,14 +423,14 @@ def test_refuse_tracked_insert_or_delete_blocks_interior_selection_uno(ctx, doc)
     inner_ins.goRight(6, False)
     inner_ins.goRight(1, True)
     with unittest.TestCase().assertRaises(TrackedChangesInSelection):
-        refuse_tracked_insert_or_delete(doc, inner_ins)
+        refuse_streamed_selection(doc, inner_ins)
     assert text.getString() == "StartINSEnd"
 
-    # Collapsed caret inside an Insert is not refused by refuse_tracked_insert_or_delete.
+    # Collapsed caret inside an Insert is not refused by refuse_streamed_selection.
     caret_ins = text.createTextCursor()
     caret_ins.gotoStart(False)
     caret_ins.goRight(6, False)
-    refuse_tracked_insert_or_delete(doc, caret_ins)
+    refuse_streamed_selection(doc, caret_ins)
 
 
 @native_test
@@ -465,6 +465,377 @@ def test_cross_paragraph_change_reports_accepted_and_rejected_uno(ctx, doc):
         assert payload["changes"][0]["outcome"] == expected_outcome, payload
         expected_text = change.accepted_text if accept else change.rejected_text
         assert expected_text == normalize_linebreaks(text.getString())
+
+
+def _shape(doc):
+    """Snapshot paragraph styles, adjustments, bold runs, and embedded object counts."""
+    from com.sun.star.awt.FontWeight import BOLD  # type: ignore
+    from plugin.framework.uno_context import enum_has_more
+
+    paras = []
+    enum = doc.getText().createEnumeration()
+    while enum_has_more(enum):
+        el = enum.nextElement()
+        if el.supportsService("com.sun.star.text.TextTable"):
+            paras.append(("TABLE", el.getName(), 0, ()))
+            continue
+        bolds = []
+        p_enum = el.createEnumeration()
+        while enum_has_more(p_enum):
+            part = p_enum.nextElement()
+            if part.getPropertyValue("TextPortionType") == "Text":
+                if part.getPropertyValue("CharWeight") == BOLD:
+                    bolds.append(part.getString())
+        paras.append((
+            el.getString(),
+            el.getPropertyValue("ParaStyleName"),
+            el.getPropertyValue("ParaAdjust"),
+            tuple(bolds),
+        ))
+    return {
+        "paras": paras,
+        "footnotes": doc.getFootnotes().getCount(),
+        "fields": len(list(_iter_fields(doc))),
+        "frames": doc.getTextFrames().getCount(),
+        "bookmarks": doc.getBookmarks().getCount(),
+        "tables": doc.getTextTables().getCount(),
+    }
+
+
+def _iter_fields(doc):
+    from plugin.framework.uno_context import enum_has_more
+
+    enum = doc.getTextFields().createEnumeration()
+    while enum_has_more(enum):
+        yield enum.nextElement()
+
+
+def _build_multi_para(doc, ctx):
+    from com.sun.star.awt.FontWeight import BOLD  # type: ignore
+    from com.sun.star.style.ParagraphAdjust import CENTER  # type: ignore
+
+    reset_body(doc, ctx, "Intro para one.", "Second quote.", "Third para centered.", "Outro para.")
+    text = doc.getText()
+    c2 = find_first(doc, "Second quote.")
+    assert c2 is not None
+    c2.setPropertyValue("ParaStyleName", "Quotations")
+    c3 = find_first(doc, "Third para centered.")
+    assert c3 is not None
+    c3.setPropertyValue("ParaAdjust", CENTER)
+    bw = find_first(doc, "quote")
+    assert bw is not None
+    bw.setPropertyValue("CharWeight", BOLD)
+    start = find_first(doc, "para one.")
+    end = find_first(doc, "Third para")
+    assert start is not None and end is not None
+    rng = text.createTextCursorByRange(start.getStart())
+    rng.gotoRange(end.getEnd(), True)
+    return rng
+
+
+@native_test
+@with_native_doc("writer")
+def test_streamed_rewrite_multi_paragraph_reject_restores_uno(ctx, doc):
+    from plugin.writer.edit_review import WriterStreamedRewriteSession
+
+    for track_reviewable, rec in ((True, False), (False, True)):
+        rng = _build_multi_para(doc, ctx)
+        orig_shape = _shape(doc)
+        doc.setPropertyValue("RecordChanges", rec)
+        try:
+            session = WriterStreamedRewriteSession(doc, rng, rng.getString(), track_reviewable=track_reviewable)
+            session.append_chunk("Replaced ")
+            session.append_chunk("span")
+            assert session.finish() is None
+            reject_all_changes(doc, ctx)
+            assert _shape(doc) == orig_shape
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+
+    # Compare Accept against untracked twin.
+    rng_twin = _build_multi_para(doc, ctx)
+    s_twin = WriterStreamedRewriteSession(doc, rng_twin, rng_twin.getString(), track_reviewable=False)
+    s_twin.append_chunk("Replaced span")
+    assert s_twin.finish() is None
+    twin_text = doc.getText().getString()
+
+    rng_acc = _build_multi_para(doc, ctx)
+    s_acc = WriterStreamedRewriteSession(doc, rng_acc, rng_acc.getString(), track_reviewable=True)
+    s_acc.append_chunk("Replaced span")
+    assert s_acc.finish() is None
+    accept_all_changes(doc, ctx)
+    assert doc.getText().getString() == twin_text
+
+
+@native_test
+@with_native_doc("writer")
+def test_streamed_rewrite_objects_reject_restores_uno(ctx, doc):
+    from com.sun.star.awt.FontWeight import BOLD  # type: ignore
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER  # type: ignore
+    from plugin.writer.edit_review import WriterStreamedRewriteSession
+
+    reset_body(doc, ctx, "Before link text bold after.")
+    text = doc.getText()
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.goRight(7, False)
+    fn = doc.createInstance("com.sun.star.text.Footnote")
+    fn.setLabel("1")
+    text.insertTextContent(cur, fn, False)
+    fld = doc.createInstance("com.sun.star.text.TextField.PageNumber")
+    text.insertTextContent(cur, fld, False)
+    fr = doc.createInstance("com.sun.star.text.TextFrame")
+    fr.AnchorType = AS_CHARACTER
+    fr.Width = 1000
+    fr.Height = 500
+    text.insertTextContent(cur, fr, False)
+    bm = doc.createInstance("com.sun.star.text.Bookmark")
+    bm.Name = "bm_obj"
+    text.insertTextContent(cur, bm, False)
+    ann = doc.createInstance("com.sun.star.text.TextField.Annotation")
+    ann.Content = "note"
+    text.insertTextContent(cur, ann, False)
+
+    link_rng = find_first(doc, "link")
+    assert link_rng is not None
+    link_rng.setPropertyValue("HyperLinkURL", "https://example.org/")
+    bold_rng = find_first(doc, "bold")
+    assert bold_rng is not None
+    bold_rng.setPropertyValue("CharWeight", BOLD)
+
+    orig_shape = _shape(doc)
+    sel = text.createTextCursor()
+    sel.gotoStart(False)
+    sel.gotoEnd(True)
+    session = WriterStreamedRewriteSession(doc, sel, sel.getString(), track_reviewable=True)
+    session.append_chunk("Clean text")
+    assert session.finish() is None
+    reject_all_changes(doc, ctx)
+    assert _shape(doc) == orig_shape
+    link_after = find_first(doc, "link")
+    assert link_after is not None
+    assert link_after.getPropertyValue("HyperLinkURL") == "https://example.org/"
+
+    # Bold-run selection at paragraph start: Accept keeps bold like the untracked twin.
+    reset_body(doc, ctx, "bold after.")
+    b_sel = find_first(doc, "bold")
+    assert b_sel is not None
+    b_sel.setPropertyValue("CharWeight", BOLD)
+    s_rec = WriterStreamedRewriteSession(doc, b_sel, b_sel.getString(), track_reviewable=True)
+    s_rec.append_chunk("strong")
+    assert s_rec.finish() is None
+    accept_all_changes(doc, ctx)
+    strong_rng = find_first(doc, "strong")
+    assert strong_rng is not None
+    rec_weight = strong_rng.getPropertyValue("CharWeight")
+
+    reset_body(doc, ctx, "bold after.")
+    bold_twin = find_first(doc, "bold")
+    assert bold_twin is not None
+    bold_twin.setPropertyValue("CharWeight", BOLD)
+    s_twin = WriterStreamedRewriteSession(doc, bold_twin, bold_twin.getString(), track_reviewable=False)
+    s_twin.append_chunk("strong")
+    assert s_twin.finish() is None
+    twin_rng = find_first(doc, "strong")
+    assert twin_rng is not None
+    assert rec_weight == BOLD and rec_weight == twin_rng.getPropertyValue("CharWeight")
+
+
+@native_test
+@with_native_doc("writer")
+def test_streamed_append_never_writes_selection_uno(ctx, doc):
+    from plugin.writer.edit_review import WriterStreamedAppendSession
+
+    for track_reviewable, rec in ((True, False), (False, True), (False, False)):
+        rng = _build_multi_para(doc, ctx)
+        orig_shape = _shape(doc)
+        doc.setPropertyValue("RecordChanges", rec)
+        try:
+            session = WriterStreamedAppendSession(doc, rng, rng.getString(), track_reviewable=track_reviewable)
+            session.append_chunk(" MORE")
+            assert session.finish() is None
+            assert "Third para MORE" in doc.getText().getString()
+            if track_reviewable or rec:
+                reject_all_changes(doc, ctx)
+                assert _shape(doc) == orig_shape
+            else:
+                assert _shape(doc)["paras"][1][1] == "Quotations"
+                assert _shape(doc)["paras"][1][3] == ("quote",)
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_streamed_sessions_refuse_table_and_any_redline_uno(ctx, doc):
+    from plugin.writer.edit_review import (
+        TableInSelection,
+        TrackedChangesInSelection,
+        WriterStreamedAppendSession,
+        WriterStreamedRewriteSession,
+    )
+
+    reset_body(doc, ctx, "Before table", "After table")
+    text = doc.getText()
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(2, 2)
+    cur = find_first(doc, "After table")
+    assert cur is not None
+    text.insertTextContent(cur.getStart(), tbl, False)
+
+    whole = text.createTextCursor()
+    whole.gotoStart(False)
+    whole.gotoEnd(True)
+    undo_before = doc.getUndoManager().getAllUndoActionTitles()
+    for cls in (WriterStreamedRewriteSession, WriterStreamedAppendSession):
+        with unittest.TestCase().assertRaises(TableInSelection):
+            cls(doc, whole, whole.getString(), track_reviewable=True)
+
+    # Partial body selection spanning the table (non-whole-body range).
+    before_hit = find_first(doc, "Before table")
+    after_hit = find_first(doc, "After table")
+    assert before_hit is not None and after_hit is not None
+    span_cur = text.createTextCursorByRange(before_hit.getStart())
+    span_cur.gotoRange(after_hit.getEnd(), True)
+    for cls in (WriterStreamedRewriteSession, WriterStreamedAppendSession):
+        with unittest.TestCase().assertRaises(TableInSelection):
+            cls(doc, span_cur, span_cur.getString(), track_reviewable=True)
+
+    assert doc.getTextTables().getCount() == 1
+    assert doc.getUndoManager().getAllUndoActionTitles() == undo_before
+    assert doc.getPropertyValue("RecordChanges") is False
+
+    # Format redline inside selection is refused for both sessions.
+    reset_body(doc, ctx, "Plain formatted text.")
+    fmt = find_first(doc, "formatted")
+    assert fmt is not None
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        fmt.setPropertyValue("CharWeight", 150.0)
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+    sel = text.createTextCursor()
+    sel.gotoStart(False)
+    sel.gotoEnd(True)
+    for cls in (WriterStreamedRewriteSession, WriterStreamedAppendSession):
+        with unittest.TestCase().assertRaises(TrackedChangesInSelection):
+            cls(doc, sel, sel.getString())
+    assert [r["type"] for r in list_redlines(doc)] == ["Format"]
+
+
+@native_test
+@with_native_doc("writer")
+def test_streamed_rewrite_preserve_breaks_untracked_uno(ctx, doc):
+    from plugin.writer.edit_review import WriterStreamedRewriteSession
+
+    reset_body(doc, ctx, "Old one.", "Old two.")
+    text = doc.getText()
+    sel = text.createTextCursor()
+    sel.gotoStart(False)
+    sel.gotoEnd(True)
+    session = WriterStreamedRewriteSession(
+        doc, sel, sel.getString(), track_reviewable=False, preserve_paragraph_breaks=True,
+    )
+    session.append_chunk("New one.\nNew two.\nNew three\nNew tail.")
+    assert session.finish() is None
+    assert [p[0] for p in _shape(doc)["paras"]] == ["New one.", "New two.", "New three", "New tail."]
+    assert list_redlines(doc) == []
+    doc.getUndoManager().undo()
+    assert [p[0] for p in _shape(doc)["paras"]] == ["Old one.", "Old two."]
+
+
+@native_test
+@with_native_doc("writer")
+def test_streamed_rewrite_scaffold_only_output_leaves_document_uno(ctx, doc):
+    from plugin.writer.edit_review import WriterStreamedRewriteSession
+
+    for track_reviewable in (False, True):
+        reset_body(doc, ctx, "Untouched text.")
+        text = doc.getText()
+        sel = text.createTextCursor()
+        sel.gotoStart(False)
+        sel.gotoEnd(True)
+        undo_before = doc.getUndoManager().getAllUndoActionTitles()
+        session = WriterStreamedRewriteSession(doc, sel, sel.getString(), track_reviewable=track_reviewable)
+        session.append_chunk("END OF ")
+        session.append_chunk("DOCUMENT")
+        assert session.finish() is None
+        assert text.getString() == "Untouched text."
+        assert list_redlines(doc) == []
+        assert doc.getUndoManager().getAllUndoActionTitles() == undo_before
+
+
+@native_test
+@with_native_doc("writer")
+def test_streamed_rewrite_user_typing_midstream_is_recorded_uno(ctx, doc):
+    from plugin.writer.edit_review import WriterStreamedRewriteSession
+    from plugin.writer.review_scan import is_agent_token
+
+    reset_body(doc, ctx, "Target line.", "Outro para.")
+    text = doc.getText()
+    sel = find_first(doc, "Target line.")
+    assert sel is not None
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        session = WriterStreamedRewriteSession(doc, sel, sel.getString(), track_reviewable=False)
+        session.append_chunk("First ")
+        assert doc.getPropertyValue("RecordChanges") is True
+        end_cur = text.createTextCursor()
+        end_cur.gotoEnd(False)
+        text.insertString(end_cur, " USERTYPED", False)
+        session.append_chunk("Second")
+        assert session.finish() is None
+        assert "Outro para. USERTYPED" in text.getString()
+        redlines = doc.getRedlines()
+        insert_texts = []
+        for idx in range(redlines.getCount()):
+            rl = redlines.getByIndex(idx)
+            if rl.getPropertyValue("RedlineType") == "Insert":
+                rs = rl.getPropertyValue("RedlineStart")
+                re_end = rl.getPropertyValue("RedlineEnd")
+                rcur = rs.getText().createTextCursorByRange(rs)
+                rcur.gotoRange(re_end, True)
+                insert_texts.append(rcur.getString())
+        assert " USERTYPED" in insert_texts
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    # Review Record + user toggles Record on mid-stream: stays on, one agent token, Reject restores.
+    reset_body(doc, ctx, "Target line.", "Outro para.")
+    sel2 = find_first(doc, "Target line.")
+    assert sel2 is not None
+    session2 = WriterStreamedRewriteSession(doc, sel2, sel2.getString(), track_reviewable=True)
+    session2.append_chunk("One ")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        session2.append_chunk("Two")
+        assert session2.finish() is None
+        assert doc.getPropertyValue("RecordChanges") is True
+        redlines = list_redlines(doc)
+        comments = {r["RedlineComment"] for r in redlines}
+        assert len(comments) == 1 and all(is_agent_token(c) for c in comments)
+        reject_all_changes(doc, ctx)
+        assert [p[0] for p in _shape(doc)["paras"]] == ["Target line.", "Outro para."]
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_streamed_rewrite_abort_clears_redo_uno(ctx, doc):
+    from plugin.writer.edit_review import WriterStreamedRewriteSession
+
+    reset_body(doc, ctx, "Original text.")
+    text = doc.getText()
+    sel = text.createTextCursor()
+    sel.gotoStart(False)
+    sel.gotoEnd(True)
+    session = WriterStreamedRewriteSession(doc, sel, sel.getString(), track_reviewable=True)
+    session.append_chunk("One ")
+    session.append_chunk("Two")
+    session.abort_and_restore()
+    assert text.getString() == "Original text."
+    assert doc.getUndoManager().isRedoPossible() is False
 
 
 @native_test

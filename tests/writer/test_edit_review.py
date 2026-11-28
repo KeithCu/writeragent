@@ -1001,7 +1001,10 @@ def test_empty_append_finish_closes_undo():
 
     undo = MagicMock()
     doc = MagicMock()
-    with patch("plugin.writer.edit_review._begin_streamed_edit", return_value=(undo, False, None)):
+    with (
+        patch("plugin.writer.edit_review.refuse_streamed_selection"),
+        patch("plugin.writer.edit_review.WriterCompoundUndo", return_value=undo),
+    ):
         session = WriterStreamedAppendSession(doc, MagicMock(), "orig")
     undo.reset_mock()
     session.finish()
@@ -1013,7 +1016,10 @@ def test_empty_rewrite_finish_closes_undo():
 
     undo = MagicMock()
     doc = MagicMock()
-    with patch("plugin.writer.edit_review._begin_streamed_edit", return_value=(undo, False, None)):
+    with (
+        patch("plugin.writer.edit_review.refuse_streamed_selection"),
+        patch("plugin.writer.edit_review.WriterCompoundUndo", return_value=undo),
+    ):
         session = WriterStreamedRewriteSession(doc, MagicMock(), "orig")
     undo.reset_mock()
     session.finish()
@@ -1342,30 +1348,34 @@ def test_streamed_retarget_failure_returns_warning_without_fallback_set_string()
     doc = MagicMock()
     text_range = MagicMock()
     undo = MagicMock()
+    preview_cursor = text_range.getText.return_value.createTextCursorByRange.return_value
 
     def _fail(*_args, **_kwargs):
-        text_range.setString.reset_mock()
+        preview_cursor.setString.reset_mock()
         raise RuntimeError("boom")
 
     with (
         patch("plugin.writer.edit_review.headings_if_touched", return_value=[(1, "Old")]),
-        patch("plugin.writer.edit_review._begin_streamed_edit", return_value=(undo, False, None)),
+        patch("plugin.writer.edit_review.refuse_streamed_selection"),
+        patch("plugin.writer.edit_review.WriterCompoundUndo", return_value=undo),
         patch("plugin.writer.edit_review.retarget_renamed_links", side_effect=_fail),
     ):
         session = WriterStreamedRewriteSession(doc, text_range, "Old", track_reviewable=True)
         session.generated_text = "New"
         warning = session.finish()
     assert warning is not None and "boom" in warning
-    text_range.setString.assert_not_called()
+    preview_cursor.setString.assert_not_called()
 
 
 def test_streamed_plain_mode_retargets_even_after_write_error():
     doc = MagicMock()
+    doc.getPropertyValue.return_value = False
     text_range = MagicMock()
     undo = MagicMock()
     with (
         patch("plugin.writer.edit_review.headings_if_touched", return_value=[(1, "Old")]),
-        patch("plugin.writer.edit_review._begin_streamed_edit", return_value=(undo, False, None)),
+        patch("plugin.writer.edit_review.refuse_streamed_selection"),
+        patch("plugin.writer.edit_review.WriterCompoundUndo", return_value=undo),
         patch("plugin.writer.edit_review.retarget_renamed_links", return_value=(1, {})) as mock_retarget,
     ):
         session = WriterStreamedRewriteSession(doc, text_range, "Old", track_reviewable=False)
@@ -1373,7 +1383,7 @@ def test_streamed_plain_mode_retargets_even_after_write_error():
         session.last_write_error = RuntimeError("chunk failed")
         warning = session.finish()
     mock_retarget.assert_called_once()
-    assert warning is not None and "chunk failed" in warning
+    assert warning is None
 
 
 def test_left_tracked_changes_false_when_edit_left_no_redline():

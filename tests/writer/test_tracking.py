@@ -24,7 +24,7 @@ def _create_mock_ctx():
     doc = MagicMock()
 
     # Mock property value getter/setter
-    props = {"RecordChanges": False}
+    props = {"RecordChanges": False, "RedlineDisplayType": 2}
     def _set_prop(name, val):
         props[name] = val
     def _get_prop(name):

@@ -10,6 +10,7 @@ import pytest
 
 from plugin.writer.review_scan import (
     TOKEN_PREFIX,
+    RedlinesShown,
     document_has_tracked_deletions,
     is_agent_token,
     read_redline_comment,
@@ -20,7 +21,7 @@ from plugin.writer.review_scan import (
     session_token_prefix,
     snapshot_redline_ids,
 )
-from plugin.tests.testing_utils import FakeUnoEnum
+from plugin.tests.testing_utils import DisposedException, FakeUnoEnum
 
 
 def test_make_agent_token_and_prefix():
@@ -482,3 +483,46 @@ def test_redline_identity_key_uses_given_comment():
     key_default = redline_identity_key(rl)
     assert key_default[4] == "from_prop"
     assert rl.reads["RedlineComment"] == 1
+
+
+class _DisplayDoc:
+    """Document fake holding RedlineDisplayType; *fail_set* raises from the next setPropertyValue."""
+
+    def __init__(self, display_type, fail_set=None):
+        self.display_type = display_type
+        self.fail_set = fail_set
+        self.writes = []
+
+    def getPropertyValue(self, name):
+        assert name == "RedlineDisplayType", name
+        return self.display_type
+
+    def setPropertyValue(self, name, value):
+        assert name == "RedlineDisplayType", name
+        if self.fail_set is not None:
+            raise self.fail_set
+        self.writes.append(value)
+        self.display_type = value
+
+
+def test_redlines_shown_shows_deleted_text_then_restores_hidden_type():
+    doc = _DisplayDoc(1)
+    with RedlinesShown(doc) as shown:
+        assert shown.changed is True
+        assert doc.display_type == 2
+    assert doc.writes == [2, 1]
+
+
+def test_redlines_shown_leaves_shown_type_untouched():
+    doc = _DisplayDoc(2)
+    with RedlinesShown(doc) as shown:
+        assert shown.changed is False
+    assert doc.writes == []
+
+
+def test_redlines_shown_tolerates_closed_document_but_raises_other_errors():
+    with RedlinesShown(_DisplayDoc(1, fail_set=DisposedException("closed"))) as shown:
+        assert shown.changed is False
+    with pytest.raises(ValueError):
+        with RedlinesShown(_DisplayDoc(1, fail_set=ValueError("bad value"))):
+            pass

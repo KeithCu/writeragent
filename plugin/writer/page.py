@@ -47,11 +47,12 @@ from plugin.framework.errors import (
     resolve_exception_message,
     uno_read,
 )
+from plugin.framework.i18n import N_, _
 from plugin.framework.uno_context import supports_service, uno_same
-from .edit_review import flag_style_unreviewed, next_agent_edit_undo_title
+from .edit_review import flag_style_unreviewed, flag_tracked, next_agent_edit_undo_title, record_write
 from .html_export import PAGE_NUMBER_NUMBERING_TYPE_NAMES, xtext_to_content
-from .html_import import replace_xtext_with_html
-from .html_import_styles import attach_write_report
+from .html_import import raise_if_pending_changes_untracked, replace_xtext_with_html
+from .html_import_styles import WriteReport, attach_write_report
 from .range_copy import copy_flow_into_xtext, iter_nested_texts, table_is_struck
 from .search import (
     LADDER_CASE_SENSITIVE_DESCRIPTION,
@@ -442,6 +443,14 @@ def header_footer_layout(style: Any, region: str) -> tuple[bool, bool | None]:
     return is_on, auto_height
 
 
+# Result warning for a tool that had to write a page-style property, which empties the undo stack.
+PAGE_STYLE_UNDO_CLEARED_WARNING = N_(
+    "Turning on the header or footer or its auto height cleared the document's undo history "
+    "(LibreOffice does that on every page style change), so Ctrl+Z cannot undo this change "
+    "or earlier edits. Tell the user."
+)
+
+
 def set_header_footer_auto_height(style: Any, region: str, enabled: bool) -> bool:
     """Let the region grow with its content (or pin it to a fixed height); True when a property was written.
 
@@ -458,11 +467,12 @@ def set_header_footer_auto_height(style: Any, region: str, enabled: bool) -> boo
         wrote = True
     spacing = uno_read(lambda: style.getPropertyValue(props[1]), None)
     if spacing is not None and spacing != enabled:
-        best_effort(
-            lambda: style.setPropertyValue(props[1], enabled),
-            "set_header_footer_auto_height: could not set %s" % props[1],
-        )
-        wrote = True
+
+        def set_spacing() -> bool:
+            style.setPropertyValue(props[1], enabled)
+            return True
+
+        wrote = best_effort(set_spacing, "set_header_footer_auto_height: could not set %s" % props[1], False) or wrote
     return wrote
 
 
@@ -1020,19 +1030,30 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
 
         try:
             # Write only when off: every page-style write empties the undo stack (set_header_footer_auto_height).
-            if not was_on:
+            undo_cleared = not was_on
+            if undo_cleared:
                 style.setPropertyValue(is_on_prop, True)
-            if auto_height is not None:
-                set_header_footer_auto_height(style, region, auto_height)
+            if auto_height is not None and set_header_footer_auto_height(style, region, auto_height):
+                undo_cleared = True
             after = header_footer_layout(style, region)
 
             text_obj = style.getPropertyValue(text_prop)
             if not text_obj:
                 raise RuntimeError(f"Could not retrieve text object for {region} on style '{style_name}'.")
 
-            report = replace_xtext_with_html(
-                text_obj, content, model=ctx.doc,
-            )
+            def write() -> WriteReport:
+                raise_if_pending_changes_untracked(
+                    ctx.doc,
+                    text_obj,
+                    rewrite="rewriting the header or footer",
+                    advice=(
+                        "To change one piece of it, use page_replace_header_footer_text, which leaves tracked changes alone. "
+                        "To rewrite all of it, ask the user to turn on Track Changes or the record/wait review mode first, or to resolve those changes."
+                    ),
+                )
+                return replace_xtext_with_html(text_obj, content, model=ctx.doc)
+
+            report, recording = record_write(ctx.doc, ctx.ctx, write)
             result: dict[str, Any] = {
                 "status": "ok",
                 "style_name": style_name,
@@ -1042,10 +1063,16 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
             }
             if auto_height is not None:
                 result["auto_height"] = auto_height
-            # Writer records header/footer text changes itself when RecordChanges is on,
-            # but enabling the region or changing auto_height is a page-style layout change.
-            flag_style_unreviewed(result, ctx.doc if before != after else None)
-            return attach_write_report(result, report)
+            # Enabling the region or changing auto_height is a page-style layout change;
+            # the text rewrite itself is recorded by Writer when recording is active.
+            if before != after:
+                flag_style_unreviewed(result, ctx.doc)
+            if undo_cleared:
+                result["warning"] = _(PAGE_STYLE_UNDO_CLEARED_WARNING)
+            res = attach_write_report(result, report)
+            if recording:
+                flag_tracked(res)
+            return res
         except Exception as e:
             if is_disposal(e):
                 raise
@@ -1367,14 +1394,14 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
             if hits:
                 break
         res = self._replace_in_region_text(
-            ctx.doc, style_name, region, text_obj, old_content, new_text, occurrence, all_matches, cs, hits, notes
+            ctx, style_name, region, text_obj, old_content, new_text, occurrence, all_matches, cs, hits, notes
         )
         res.update(MatchMode(cs, False).result_fields())
         return res
 
     def _replace_in_region_text(
         self,
-        doc: Any,
+        ctx: ToolContext,
         style_name: str,
         region: str,
         text_obj: Any,
@@ -1386,6 +1413,7 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
         hits: list[tuple[Any, int]],
         notes: list[str],
     ) -> dict[str, Any]:
+        doc = ctx.doc
         if not hits:
             message = "'%s' was not found in the %s of page style '%s'." % (old_content, region, style_name)
             if notes:
@@ -1426,8 +1454,8 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
             )
 
         try:
-            fields_preserved, shapes_preserved = _apply_match_cursors(
-                doc, text_obj, cursors, new_text,
+            (fields_preserved, shapes_preserved), recording = record_write(
+                doc, ctx.ctx, lambda: _apply_match_cursors(doc, text_obj, cursors, new_text)
             )
         except ToolExecutionError as e:
             return self._tool_error(
@@ -1443,8 +1471,8 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
         }
         if notes:
             result["warning"] = notes[0]
-        # Writer records header/footer text changes itself when RecordChanges is on.
-        flag_style_unreviewed(result)
+        if recording:
+            flag_tracked(result)
         return result
 
 

@@ -521,5 +521,7 @@ def test_image_insert_header_keeps_undo_history_unless_it_turns_the_header_on_un
             )
             assert res_on["status"] == "ok", res_on
             assert res_on.get("warning"), res_on
+            # What the warning describes: the page-style write emptied the whole stack.
+            assert um.getAllUndoActionTitles() == ()
     finally:
         save({"doc.agent_edit_review_mode": prev})
