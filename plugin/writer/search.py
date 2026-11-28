@@ -1109,7 +1109,19 @@ def _text_and_cursor(found: Any) -> tuple[Any, Any]:
     return text, text.createTextCursorByRange(found.getStart())
 
 
-def describe_match_location(found: Any, doc: Any, label_cache: dict[int, str] | None = None) -> str:
+def document_has_indexes(doc: Any) -> bool:
+    """True when *doc* has a document index such as a TOC (``is True`` keeps a test mock from counting)."""
+    return uno_read(lambda: doc.getDocumentIndexes().hasElements() is True, False)
+
+
+def describe_match_location(
+    found: Any, doc: Any, label_cache: dict[int, str] | None = None, *, has_indexes: bool | None = None,
+) -> str:
+    """Where *found* sits: a table cell, text box, index, footnote or endnote, header or footer, or body.
+
+    *has_indexes* is ``document_has_indexes(doc)``, passed by ``LocationLabeler`` so a long hit
+    list reads it once; without it each call reads it.
+    """
     got = uno_read(lambda: _text_and_cursor(found), None)
     if got is None:
         return "body"
@@ -1125,12 +1137,22 @@ def describe_match_location(found: Any, doc: Any, label_cache: dict[int, str] | 
     if tf is not None:
         name = _safe_name(tf)
         return "text box '%s'" % name if name else "a text box"
-    # A note's text is the SwXFootnote itself; an endnote supports both services
-    # (g_ServicesFootnote, sw/source/core/unocore/unoftn.cxx), so Endnote is tested first.
-    for service, kind in (("com.sun.star.text.Endnote", "endnote"), ("com.sun.star.text.Footnote", "footnote")):
-        if supports_service(text, service):
-            mark = uno_read(lambda: text.getAnchor().getString().strip(), "")
-            return "%s %s" % (kind, mark) if mark else "a %s" % kind
+    # search lists index rows, but apply_content does not count them as occurrences; the label
+    # tells the model which hits those are.
+    if has_indexes is None:
+        has_indexes = document_has_indexes(doc)
+    if has_indexes:
+        index = html_import.enclosing_index(cur)
+        if index is not None:
+            name = _safe_name(index)
+            return "index '%s'" % name if name else "an index"
+    # A note's text is the SwXFootnote itself (SwXFootnote::getImplementationName,
+    # sw/source/core/unocore/unoftn.cxx), so one read tells a note from body text. An endnote
+    # also supports com.sun.star.text.Endnote (g_ServicesFootnote in the same file).
+    if uno_read(lambda: text.getImplementationName() == "SwXFootnote", False):
+        kind = "endnote" if supports_service(text, "com.sun.star.text.Endnote") else "footnote"
+        mark = uno_read(lambda: text.getAnchor().getString().strip(), "")
+        return "%s %s" % (kind, mark) if mark else "a %s" % kind
     hf = _header_footer_label(text, doc, label_cache=label_cache)
     if hf:
         return hf
@@ -1138,17 +1160,21 @@ def describe_match_location(found: Any, doc: Any, label_cache: dict[int, str] | 
 
 
 class LocationLabeler:
-    """Labels match locations (body, table cell, text box, footnote, header/footer) with cached page-style lookups."""
+    """Labels match locations (body, table cell, text box, index, footnote, header/footer) with cached lookups."""
 
     doc: Any
     _cache: dict[int, str]
+    _has_indexes: bool | None
 
     def __init__(self, doc: Any) -> None:
         self.doc = doc
         self._cache = {}
+        self._has_indexes = None
 
     def describe(self, found: Any) -> str:
-        return describe_match_location(found, self.doc, label_cache=self._cache)
+        if self._has_indexes is None:
+            self._has_indexes = document_has_indexes(self.doc)
+        return describe_match_location(found, self.doc, label_cache=self._cache, has_indexes=self._has_indexes)
 
 
 def enclosing_paragraph_text(found: Any, deletions: TrackedDeletions) -> str:

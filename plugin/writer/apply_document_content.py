@@ -292,10 +292,10 @@ def build_search_replace_response(
 
 
 def _outside_indexes(found: Any) -> bool:
-    return not html_import.in_index(found)
+    return html_import.enclosing_index(found) is None
 
 
-def _section_lock(doc: Any, found: Any) -> tuple[str, str] | None:
+def _section_lock(doc: Any, found: Any) -> html_import.SectionLock | None:
     """``html_import.section_lock`` for *found*; a document without sections skips the per-match read."""
     if doc.getTextSections().hasElements() is not True:
         return None
@@ -310,7 +310,7 @@ def _find_ranges(
     An index entry such as a TOC row repeats its heading, and the next index update
     rebuilds it, so an edit there is lost and renaming a heading would land in the TOC.
     """
-    keep = _outside_indexes if doc.getDocumentIndexes().hasElements() is True else None
+    keep = _outside_indexes if search_mod.document_has_indexes(doc) else None
     if regex:
         resolved_cs = search_mod.resolve_case_sensitive(cs)
         hits = search_mod.find_ranges_regex_case(doc, pattern, True, resolved_cs, all_matches=limit > 1, keep=keep)
@@ -500,7 +500,7 @@ class ApplyDocumentContent(ToolBase):
             "start_anchor": {"type": "string", "description": "Literal substring marking the start of a range to replace (target='search'); requires end_anchor. The replaced range includes both anchors and the text between them, so the middle is not copied into the call; it ends at the first end_anchor match that begins at or after the start match in the same text. Multi-line plain text becomes new paragraphs; single-line plain text replaces the span inline and keeps the host paragraph and its style; a renamed heading's links follow it."},
             "end_anchor": {"type": "string", "description": "Literal substring marking the end of a range to replace; requires start_anchor, matching the first occurrence that begins at or after the start match in the same text and the middle is not copied."},
             "all_matches": {"type": "boolean", "default": False, "description": "Replace all occurrences (true) or first only. Only for target='search' with position='replace' and old_content."},
-            "occurrence": {"type": "integer", "minimum": 0, "description": "For target='search': 0-based index into replaceable Writer text matches (body/table/frame) or the start_anchor match (not dry_run shape/comment rows). Omit for the existing first-match behavior."},
+            "occurrence": {"type": "integer", "minimum": 0, "description": "For target='search': 0-based index into replaceable Writer text matches (body/table/frame) or the start_anchor match (not dry_run shape/comment rows). Index rows (TOC) are not counted, though search lists them; dry_run shows the numbering. Omit for the existing first-match behavior."},
             "position": enum_param(
                 ["replace", "before", "after"],
                 "For target='search': 'replace' replaces the match; 'before'/'after' INSERT the content next to the match and leave the matched text untouched, so content must not repeat the matched text (result reports inserted=true instead of replaced_count). Inline content (plain text, <b>, <i>, math, ...) goes at the exact match edge; block content (<p>, headings, lists, tables) goes before/after the whole paragraph that holds the match (result reports snapped_to_paragraph=true when that moved it).",
@@ -910,7 +910,7 @@ class ApplyDocumentContent(ToolBase):
             if refuse_crossing and deletions.overlaps(found):
                 row["edit_refused"] = "MATCH_CROSSES_DELETION"
             elif (lock := _section_lock(ctx.doc, found)) is not None:
-                row["edit_refused"] = lock[0]
+                row["edit_refused"] = lock.code
             if rewrites_outline:
                 # The override is one destination for the match execute would edit.
                 # Other rows show automatic substitution only.
@@ -1602,7 +1602,7 @@ class ApplyDocumentContent(ToolBase):
             elif (refused := search_mod.crossing_match_error(doc, found, recorded=recorded)) is not None:
                 res = refused
             elif (lock := _section_lock(doc, found)) is not None:
-                res = self._tool_error(lock[1], code=lock[0])
+                res = self._tool_error(lock.message, code=lock.code)
             else:
                 res = self._edit_replace_one(ctx, session, params, found)
             res.update(mode.result_fields())
@@ -1621,11 +1621,21 @@ class ApplyDocumentContent(ToolBase):
         deletions = TrackedDeletions(doc) if params.position == "replace" and not params.regex and not recorded else None
         first = params.occurrence or 0
         picked = ranges if params.all_matches else ranges[first : first + 1]
-        editable = [r for r in picked if not deletions or not deletions.overlaps(r)]
-        lock = next((hit for r in editable if (hit := _section_lock(doc, r)) is not None), None)
+        # A match that crosses a deletion or sits in a protected or linked section is not edited.
+        # all_matches skips it and edits the rest; a single match is refused with its reason.
+        editable: list[Any] = []
+        crossing = 0
+        locks: list[html_import.SectionLock] = []
+        for r in picked:
+            if deletions and deletions.overlaps(r):
+                crossing += 1
+            elif (lock := _section_lock(doc, r)) is not None:
+                locks.append(lock)
+            else:
+                editable.append(r)
         # Empty ranges fall through to the existing miss / drawing-shape path (models often send occurrence=0).
-        if lock is not None:
-            res = make_tool_error(lock[1], code=lock[0], top_level={"replaced_count": 0})
+        if picked and not editable and locks:
+            res = make_tool_error(locks[0].message, code=locks[0].code, top_level={"replaced_count": 0})
         elif picked and not editable:
             res = make_tool_error(
                 search_mod.UNRECORDED_CROSSES_DELETION_MESSAGE,
@@ -1642,11 +1652,17 @@ class ApplyDocumentContent(ToolBase):
                 editable,
                 max_limit_hit=len(ranges) >= search_mod.MAX_SEARCH_REPLACEMENTS,
             )
-            if res.get("status") == "ok" and len(editable) < len(picked):
-                skipped = len(picked) - len(editable)
+            if res.get("status") == "ok" and crossing:
                 res["message"] = (
                     res["message"].rstrip()
-                    + f" {skipped} more match(es) run across a pending tracked deletion and were not changed."
+                    + f" {crossing} more match(es) run across a pending tracked deletion and were not changed."
+                )
+            if res.get("status") == "ok" and locks:
+                names = ", ".join(repr(n) for n in dict.fromkeys(lock.section for lock in locks))
+                res["message"] = (
+                    res["message"].rstrip()
+                    + f" {len(locks)} more match(es) are inside the protected or linked section(s) {names}"
+                    " and were not changed."
                 )
         elif params.occurrence is not None and params.occurrence >= len(ranges):
             res = self._occurrence_oor(params.occurrence, len(ranges))

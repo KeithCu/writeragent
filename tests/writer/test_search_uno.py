@@ -886,3 +886,20 @@ def test_footnote_and_endnote_hits_and_changes_are_labelled_uno(ctx, doc):
     assert [m["location"] for m in _run_search(tctx, pattern="keeps")["matches"]] == ["footnote 1", "endnote i"]
     listed = TestingFactory.execute_tool(doc, ctx, "tracking_list", {}, doc_type="writer")
     assert [c["location"] for c in listed["changes"]] == ["endnote i"], listed
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_search_labels_table_of_contents_rows_as_index_uno(ctx, doc):
+    """search names a TOC row's index, so the model can tell it from the occurrences apply_content counts."""
+    from plugin.tests.testing_utils import native_writer_tool_context
+    from plugin.writer.specialized.indexes import IndexesCreate
+    from tests.writer.doc_builders import body_paragraphs, reset_body
+
+    reset_body(doc, ctx, "Definitions", "Body text.")
+    body_paragraphs(doc.getText())[0].setPropertyValue("ParaStyleName", "Heading 1")
+    tctx = native_writer_tool_context(doc, ctx)
+    assert IndexesCreate().execute(tctx, kind="toc", target="beginning", create_from_outline=True)["status"] == "ok"
+    toc_name = doc.getDocumentIndexes().getByIndex(0).getName()
+    labels = [m["location"] for m in _run_search(tctx, pattern="Definitions")["matches"]]
+    assert labels == ["index '%s'" % toc_name, "body"], labels

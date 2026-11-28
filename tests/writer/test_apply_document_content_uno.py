@@ -2526,7 +2526,14 @@ def test_search_edit_skips_table_of_contents_entries_uno(ctx, doc):
     tctx = native_writer_tool_context(doc, ctx)
     assert IndexesCreate().execute(tctx, kind="toc", target="beginning", create_from_outline=True)["status"] == "ok"
 
-    res = ApplyDocumentContent().execute(tctx, target="search", old_content="Definitions", content="Defined Terms")
+    tool = ApplyDocumentContent()
+    # An anchor range inside the TOC is refused, and the advice is about the index, not unprotecting it.
+    anchored = tool.execute(
+        tctx, target="search", start_anchor="Definitions", end_anchor="Definitions", content="Defined Terms")
+    assert anchored.get("code") == "PROTECTED_SECTION", anchored
+    assert "section_set_protection" not in anchored["message"], anchored
+
+    res = tool.execute(tctx, target="search", old_content="Definitions", content="Defined Terms")
     assert res["status"] == "ok", res
     assert heading.getString() == "Defined Terms"
     entries = IndexesListTocEntries().execute(tctx, include_links=False)["entries"]
@@ -2585,3 +2592,8 @@ def _check_section_refusals(ctx, source_url):
             assert [row.get("edit_refused") for row in preview["replaceable"]] == [code], preview
         assert text.getString() == before
         assert tool.execute(tctx, target="search", old_content="Open text", content="Free text")["status"] == "ok"
+
+        # all_matches edits the open match and skips the two locked ones, as it skips crossing matches.
+        many = tool.execute(tctx, target="search", old_content="text.", content="words.", all_matches=True)
+        assert many["status"] == "ok" and many["replaced_count"] == 1, many
+        assert [p.getString() for p in body_paragraphs(text)][:3] == ["Free words.", "Locked text.", "Linked source text."]

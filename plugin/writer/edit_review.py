@@ -1022,7 +1022,10 @@ def paragraph_window_text(doc: Any, anchor: Any | None, max_chars: int = _EDITED
 
     Pending tracked deletions are left out, so the window reads as it will after Accept
     (``_string_skipping_redline``); otherwise struck text is glued to the new text ("Third3rd")
-    and the model takes it for live text. A window with no deletion is the raw string.
+    and the model takes it for live text. A window with no deletion is the raw ``getString()``,
+    because the portion walk renders an object portion as ``_OBJECT_MARK`` and reads fields
+    portion by portion; without the ``overlaps`` test the echo would change for every document,
+    Track Changes off included.
     """
     if anchor is None:
         return None
