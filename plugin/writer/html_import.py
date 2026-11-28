@@ -42,6 +42,7 @@ from plugin.doc.text_helpers import (
     reset_properties_to_default,
     set_paragraph_background,
     uniform_font,
+    writable_char_names,
 )
 from plugin.framework.constants import HTML_WRITER_FILTER
 from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_disposed, uno_read
@@ -1073,6 +1074,17 @@ def _without_trailing_break(rng: Any) -> Any:
     return start
 
 
+def _content_ends_with_table(content: str) -> bool:
+    """True when *content* ends with ``</table>`` (ignoring wrapper close tags, comments, and whitespace)."""
+    return bool(
+        re.search(
+            r"</table>(?:\s|<!--[\s\S]*?-->|</(?:div|body|html|section|article|main|aside)>)*$",
+            content,
+            re.IGNORECASE,
+        )
+    )
+
+
 def _import_and_drop_leftover(
     model: Any,
     ctx: Any,
@@ -1167,10 +1179,165 @@ def _restore_host_para_props(
                 continue
             if name not in shared_with_explicit and states[name] == "DIRECT_VALUE":
                 continue
-            if name == "ParaTabStops":
-                uno.invoke(first_para, "setPropertyValue", cast("Any", (name, uno_any("[]com.sun.star.style.TabStop", value))))
-            else:
-                first_para.setPropertyValue(name, value)
+            _set_para_prop(first_para, name, value)
+
+
+_NUMBERING_PROPS = (
+    "NumberingStyleName",
+    "NumberingLevel",
+    "ParaIsNumberingRestart",
+    "NumberingStartValue",
+)
+
+# Properties in lcl_CopyStyle's ranges (DocumentRedlineManager.cxx:433-436) outside
+# _ABSORB_PARA_PROPERTIES; hand-kept against that range so restored paragraphs do not keep predecessor attrs.
+_EXTRA_COPY_STYLE_PARA_PROPS = (
+    "ParaWidows",
+    "ParaOrphans",
+    "ParaIsHyphenation",
+    "ParaHyphenationNoCaps",
+    "ParaHyphenationNoLastWord",
+    "ParaHyphenationMaxLeadingChars",
+    "ParaHyphenationMaxTrailingChars",
+    "ParaHyphenationCompoundMinLeadingChars",
+    "ParaHyphenationCompoundMinTrailingChars",
+    "ParaHyphenationMaxHyphens",
+    "ParaHyphenationMinWordLength",
+    "ParaHyphenationZone",
+    "ParaHyphenationZoneAlways",
+    "ParaHyphenationZoneColumn",
+    "ParaHyphenationZonePage",
+    "ParaHyphenationZoneSpread",
+    "ParaHyphenationKeep",
+    "ParaHyphenationKeepType",
+    "ParaHyphenationKeepLine",
+    "ParaRegisterModeActive",
+    "ParaVertAlignment",
+    "SnapToGrid",
+    "OutlineLevel",
+    "WritingMode",
+    "WritingModeAutomatic",
+    "DropCapFormat",
+    "DropCapWholeWord",
+    "ParaShadowFormat",
+    "LeftBorderDistance",
+    "RightBorderDistance",
+    "TopBorderDistance",
+    "BottomBorderDistance",
+    "ParaExpandSingleWord",
+    "ParaLastLineAdjust",
+    "ParaIsHangingPunctuation",
+    "ParaIsCharacterDistance",
+    "ParaIsForbiddenRules",
+    "ParaIsConnectBorder",
+)
+
+
+_SKIP_DIRECT_CHAR_PROPS = frozenset({
+    "CharAutoStyleName",
+    "CharInteropGrabBag",
+    "CharStyleNames",
+})
+
+
+def _copy_style_extra_names(para: Any) -> tuple[str, ...]:
+    info = para.getPropertySetInfo()
+    return tuple(n for n in _EXTRA_COPY_STYLE_PARA_PROPS if info.hasPropertyByName(n))
+
+
+def _set_para_prop(target: Any, name: str, value: Any) -> None:
+    if name == "ParaTabStops":
+        uno.invoke(target, "setPropertyValue", cast("Any", (name, uno_any("[]com.sun.star.style.TabStop", value))))
+    else:
+        target.setPropertyValue(name, value)
+
+
+def _paragraph_format(cursor: Any, rng: Any | None = None) -> dict[str, Any]:
+    """Capture style, numbering, and direct paragraph (and whole-range char) properties."""
+    fmt: dict[str, Any] = {"ParaStyleName": cursor.getPropertyValue("ParaStyleName")}
+    para = next(iter_elements(cursor.createEnumeration()), None)
+    target = para if para is not None else cursor
+    if target.getPropertyValue("NumberingStyleName") or target.getPropertyValue("ListId"):
+        fmt["NumberingIsNumber"] = bool(target.getPropertyValue("NumberingIsNumber"))
+    for name in _NUMBERING_PROPS:
+        if target.getPropertyState(name).value == "DIRECT_VALUE":
+            fmt[name] = target.getPropertyValue(name)
+    if para is not None:
+        extra_names = _copy_style_extra_names(para)
+        if extra_names:
+            for name, state in zip(extra_names, para.getPropertyStates(extra_names)):
+                if state.value == "DIRECT_VALUE":
+                    fmt[name] = para.getPropertyValue(name)
+    # Whole-node Char* attributes set across a paragraph report DIRECT_VALUE on SwXParagraph
+    # (para) even when a SwXTextRange (rng) reports DEFAULT_VALUE.
+    for source in (para, rng):
+        if source is None:
+            continue
+        char_names = tuple(
+            n for n in (writable_char_names(source) or ())
+            if n not in _SKIP_DIRECT_CHAR_PROPS and n not in fmt
+        )
+        if char_names:
+            for name, state in zip(char_names, source.getPropertyStates(char_names)):
+                if state.value == "DIRECT_VALUE":
+                    fmt[name] = source.getPropertyValue(name)
+    fmt.update(_direct_para_props(cursor))
+    return fmt
+
+
+def _restore_numbering(cursor: Any, fmt: dict[str, Any]) -> None:
+    """Restore saved direct numbering properties and ``NumberingIsNumber`` on *cursor*'s paragraph."""
+    for name in _NUMBERING_PROPS:
+        if name in fmt:
+            cursor.setPropertyValue(name, fmt[name])
+    # Only False has an effect in LibreOffice (SwXTextCursor::setPropertyValue,
+    # sw/source/core/unocore/unoobj.cxx:506, calls SetCountedInList(false), which
+    # writes RES_PARATR_LIST_ISCOUNTED=false), so fmt only records it for list paragraphs.
+    if "NumberingIsNumber" in fmt:
+        cursor.setPropertyValue("NumberingIsNumber", fmt["NumberingIsNumber"])
+
+
+def _restore_paragraph_format(cursor: Any, fmt: dict[str, Any]) -> None:
+    """Restore style, direct paragraph properties, and numbering captured by ``_paragraph_format``."""
+    # SetTextFormatColl (unoobj.cxx:259) resets whole-node direct char attributes; skip when unchanged.
+    if cursor.getPropertyValue("ParaStyleName") != fmt["ParaStyleName"]:
+        cursor.setPropertyValue("ParaStyleName", fmt["ParaStyleName"])
+    _drop_absorb_paragraph_props(cursor)
+    para = next(iter_elements(cursor.createEnumeration()), None)
+    for name, value in fmt.items():
+        if name == "ParaStyleName" or name == "NumberingIsNumber" or name in _NUMBERING_PROPS or name.startswith("Char"):
+            continue
+        if name == "ParaBackColor":
+            if para is not None:
+                set_paragraph_background(para, value)
+            continue
+        _set_para_prop(cursor, name, value)
+    _restore_numbering(cursor, fmt)
+
+
+def _deletion_shape(model: Any, text_obj: Any, rng: Any, *, ends_with_table: bool = False) -> tuple[str, Any]:
+    """Choose ``('previous' | 'following' | 'text', doomed_range)`` for a recorded whole-paragraph deletion."""
+    spans = record_changes.redline_spans(model)
+    if not ends_with_table:
+        prev = text_obj.createTextCursorByRange(rng.getStart())
+        if prev.goLeft(1, True) and prev.getString() in _PARAGRAPH_BREAKS:
+            # SwRangeRedline::HasValidRange (sw/source/core/doc/docredln.cxx) rejects a deletion whose ends lie in different sections.
+            same_section = (
+                [s.getName() for s in _sections_at(prev.getStart())]
+                == [s.getName() for s in _sections_at(rng.getStart())]
+            )
+            if same_section and not record_changes.redline_kinds_covering(spans, prev):
+                doomed = text_obj.createTextCursorByRange(prev.getStart())
+                doomed.gotoRange(rng.getEnd(), True)
+                return "previous", doomed
+    following = text_obj.createTextCursorByRange(rng.getEnd())
+    if following.goRight(1, True) and following.getString() in _PARAGRAPH_BREAKS:
+        following_para = text_obj.createTextCursorByRange(following.getEnd())
+        if not _starts_new_page(following_para) and not record_changes.redline_kinds_overlapping(spans, rng):
+            doomed = text_obj.createTextCursorByRange(rng.getStart())
+            doomed.gotoRange(following.getEnd(), True)
+            return "following", doomed
+    return "text", rng
 
 
 def _direct_para_props(cursor: Any) -> dict[str, Any]:
@@ -1200,29 +1367,47 @@ def _replace_whole_paragraphs(
     """Replace whole-paragraph *rng* with block *content*, recorded or not.
 
     ``SwHTMLParser::CallParser`` (``sw/source/filter/html/swhtml.cxx``) places
-    every imported block before the target paragraph. While recording, we extend
-    the tracked deletion across the following paragraph break so its mark is
-    deleted with the text: Accept leaves nothing and keeps the following
-    paragraph's style (``sw_GetJoinFlags`` in ``sw/source/core/doc/docedt.cxx``
-    when the follower is non-empty, or ``lcl_AcceptRedline`` calling
-    ``lcl_CopyStyle`` in ``sw/source/core/doc/DocumentRedlineManager.cxx`` when
-    empty), while Reject keeps both styles because ``AppendRedline`` skips its
-    tdf#119571 restyle when the deletion starts at offset 0. We then open a
-    fresh paragraph before the struck text and reset the copied direct character
-    formatting on it. Because a Word clause's numbering, indents, justification,
-    and font are direct formatting, a reset would drop them; ``keep_layout``
-    preserves them (and any uniform font family/size) when the first imported
-    block is plain ``<p>``/text for that same paragraph, while headings, lists,
-    and differently styled blocks reset layout so they do not inherit the old
-    clause's formatting. If the first block explicitly names the host's own
-    ``data-lo-style``, direct paragraph properties saved before the import are
-    restored afterward for any property not set by ``data-lo-para``. The leftover
-    synthetic paragraph is dropped untracked because that break is our own new
-    insertion. Where no following break exists (document end, before a table,
-    section edge), the old paragraph stays empty after Accept; the preceding
-    break is not used because ``DocumentRedlineManager::AppendRedline``
-    (``sw/source/core/doc/DocumentRedlineManager.cxx``) would restyle the
-    struck paragraph.
+    every imported block before the target paragraph. While recording, we choose
+    one of three deletion shapes:
+
+    1. ``"previous"`` (preferred): strike the preceding paragraph break plus
+       the old text (``¶old``) when a live, untracked break precedes *rng* in
+       the same section and *content* does not end with a table (a trailing
+       table leaves a leftover empty paragraph after it that
+       ``_drop_leftover_paragraph`` must merge forward into the struck
+       paragraph rather than into a live follower). Because the deletion starts
+       mid-paragraph, the join on Accept keeps the predecessor and leaves the
+       follower untouched, and it survives ODF ``SwXMLExport`` hide/show of
+       deletions. Because ``DocumentRedlineManager::AppendRedline``
+       (``sw/source/core/doc/DocumentRedlineManager.cxx``) copies the
+       predecessor's style and direct paragraph attributes onto the struck
+       paragraph (and resets whole-node character attributes via
+       ``SetTextFormatColl``), and ``CallParser`` captures the import target's
+       ``GetParaAttr``, we restore the struck paragraph's style, direct
+       properties, numbering, and whole-range character properties untracked,
+       then split at the end of the struck text into a fresh paragraph for the
+       import—leaving the struck text first and the new blocks after while
+       pending.
+    2. ``"following"`` (first-paragraph / trailing-table fallback): strike
+       ``old¶`` when ``"previous"`` is unavailable or *content* ends with a
+       table, the follower does not start a new page, and no pending redline
+       overlaps *rng*, then open the fresh paragraph before the struck text.
+    3. ``"text"``: strike only *rng* when neither break is safe; one empty
+       paragraph remains after Accept (for a text's first paragraph before a
+       table, section edge, or document end), and it keeps its numbering.
+
+    After splitting, ``_restore_numbering`` restores direct numbering and
+    ``NumberingIsNumber`` untracked on the struck paragraph under
+    ``"following"`` and ``"text"`` (and on the import target when
+    ``keep_layout`` is True), countering ``SwTextNode::MakeNewTextNode``
+    (``sw/source/core/txtnode/ndtxt.cxx``) forcing ``SetCountedInList(true)`` and
+    resetting restart flags on the tail. ``keep_layout`` preserves layout and
+    uniform font when the first imported block is plain ``<p>``/text for the
+    same paragraph, while headings, lists, and differently styled blocks reset
+    layout. If the first block explicitly names the host's own ``data-lo-style``,
+    direct paragraph properties saved before the import are restored afterward
+    for any property not set by ``data-lo-para``. The leftover synthetic
+    paragraph is dropped untracked because that break is our own new insertion.
     """
     text_obj = rng.getText()
     cursor = text_obj.createTextCursorByRange(rng.getStart())
@@ -1235,30 +1420,83 @@ def _replace_whole_paragraphs(
     kept_char = language_at_start(rng)
     if keep_layout:
         kept_char |= uniform_font(text_obj.createTextCursorByRange(rng))
+    shape = "text"
+    end_cur = text_obj.createTextCursorByRange(rng.getEnd())
+    fmt: dict[str, Any] = {}
     if recording:
-        following = text_obj.createTextCursorByRange(rng.getEnd())
-        if following.goRight(1, True) and following.getString() in _PARAGRAPH_BREAKS:
-            doomed = text_obj.createTextCursorByRange(rng.getStart())
-            doomed.gotoRange(following.getEnd(), True)
+        fmt = _paragraph_format(cursor, rng)
+        kept_para = (
+            {k: v for k, v in fmt.items() if k in _ABSORB_PARA_PROPERTIES or k == "ParaBackColor"}
+            if keep_layout and apply_styles
+            else {}
+        )
+        # A trailing table leaves a leftover empty paragraph after it that _drop_leftover_paragraph
+        # merges forward into the next paragraph; that follower must be the struck paragraph, not a live one.
+        shape, doomed = _deletion_shape(
+            model, text_obj, rng, ends_with_table=_content_ends_with_table(content)
+        )
     else:
+        kept_para = _direct_para_props(cursor) if keep_layout and apply_styles else {}
         # Before the delete: on the emptied paragraph this reset cannot be undone, and
         # Undo would bring the old text back without its font, size and language.
         reset_direct_char_formatting(text_obj.createTextCursorByRange(rng), kept_char)
     with _deletion_author():
         doomed.setString("")
     if recording:
-        text_obj.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
-        cursor.goLeft(1, False)
-        # Untracked: the fresh paragraph copies the struck paragraph's formatting, and a
-        # recorded reset would add a Format redline. The struck paragraph keeps its own for Reject.
-        with record_changes.record_changes(model, False):
-            if not keep_layout:
-                _drop_absorb_paragraph_props(cursor)
-            reset_direct_char_formatting(cursor, kept_char)
+        if shape == "previous":
+            # Untracked: AppendRedline (tdf#119571, DocumentRedlineManager.cxx) restyled the struck
+            # paragraph from the predecessor, and CallParser reads GetParaAttr from the import target.
+            with record_changes.record_changes(model, False):
+                _restore_paragraph_format(cursor, fmt)
+                # Unlike kept_char (language + uniform font for the import target), lcl_RstAttr
+                # clears every node-level Char* attribute on the struck paragraph.
+                char_items = [(n, v) for n, v in fmt.items() if n.startswith("Char")]
+                if char_items:
+                    struck = text_obj.createTextCursorByRange(cursor.getStart())
+                    struck.gotoRange(end_cur.getStart(), True)
+                    names = tuple(n for n, _val in char_items)
+                    values = tuple(v for _name, v in char_items)
+                    try:
+                        struck.setPropertyValues(names, values)
+                    except Exception as exc:
+                        reraise_if_disposed(exc)
+                        for name, value in char_items:
+                            try:
+                                struck.setPropertyValue(name, value)
+                            except Exception as item_exc:
+                                reraise_if_disposed(item_exc)
+                                log.debug("restore char prop %s failed", name, exc_info=True)
+            text_obj.insertControlCharacter(end_cur, PARAGRAPH_BREAK, False)
+            cursor = end_cur
+            with record_changes.record_changes(model, False):
+                if not keep_layout:
+                    _drop_absorb_paragraph_props(cursor)
+                else:
+                    _restore_numbering(cursor, fmt)
+                reset_direct_char_formatting(cursor, kept_char)
+        else:
+            text_obj.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
+            cursor.goLeft(1, False)
+            # Untracked: the fresh paragraph copies the struck paragraph's formatting, and a
+            # recorded reset would add a Format redline. The struck paragraph keeps its own for Reject.
+            with record_changes.record_changes(model, False):
+                _restore_numbering(text_obj.createTextCursorByRange(rng.getEnd()), fmt)
+                if not keep_layout:
+                    _drop_absorb_paragraph_props(cursor)
+                else:
+                    _restore_numbering(cursor, fmt)
+                reset_direct_char_formatting(cursor, kept_char)
     elif not keep_layout:
         _drop_absorb_paragraph_props(cursor)
-    kept_para = _direct_para_props(cursor) if keep_layout and apply_styles else {}
     anchor = _insert_start_anchor(text_obj, cursor)
+    if recording and shape == "previous":
+        para = next(iter_elements(cursor.createEnumeration()), None)
+        if para is not None and para.getPropertyValue("ParaStyleName") != host_style:
+            # Splitting into a different follow style (e.g. Heading 1 -> Text body) leaves the
+            # old style's CharHeight as direct formatting; SwXParagraph::setPropertyToDefault
+            # (unoparagraph.cxx) clears it via SwDoc::ResetAttrs (docfmt.cxx).
+            with record_changes.record_changes(model, False):
+                para.setPropertyToDefault("CharHeight")
     report = _import_and_drop_leftover(model, ctx, cursor, content, apply_styles=apply_styles)
     _restore_host_para_props(model, text_obj, anchor, cursor, host_style, kept_para, content)
     return report
@@ -1626,6 +1864,16 @@ def _drop_absorb_paragraph_props(cursor: Any) -> None:
     remains the clear-direct subset for Ctrl+M / `clear_direct`.
     """
     reset_properties_to_default(cursor, _ABSORB_PARA_PROPERTIES)
+    para = next(iter_elements(cursor.createEnumeration()), None)
+    if para is not None:
+        extra_names = _copy_style_extra_names(para)
+        if extra_names:
+            extra = [
+                name for name, state in zip(extra_names, para.getPropertyStates(extra_names))
+                if state.value == "DIRECT_VALUE"
+            ]
+            if extra:
+                reset_properties_to_default(cursor, extra)
     clear_direct_numbering(cursor)
 
 
@@ -1697,6 +1945,11 @@ def replace_full_document(
         cursor.gotoStart(False)
         one_paragraph = not text.createTextCursorByRange(cursor).gotoNextParagraph(False)
         cursor.gotoEnd(True)
+        # When the body is empty (either blank or only struck leading tables), an insert ending at
+        # offset 0 of the empty node makes sw_GetJoinFlags keep the first imported node on Reject;
+        # place it in a fresh paragraph after the empty one (leaving one leading empty paragraph on Accept).
+        if recording and one_paragraph and cursor.getString() == "":
+            return _insert_into_empty_paragraph(model, ctx, cursor, content, apply_styles=True, recording=True)
         # A reset on an emptied paragraph cannot be undone exactly (SwUndoResetAttr::UndoImpl,
         # sw/source/core/undo/unattr.cxx, calls DontExpandFormat, which turns paragraph attributes
         # into text attributes via FormatToTextAttr), so Undo would bring a lone paragraph back

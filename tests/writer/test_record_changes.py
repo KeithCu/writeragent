@@ -393,3 +393,17 @@ def test_tracked_change_spans_past(kind, start_pos, end_pos, span_start, span_en
     )
     doc = _FakeRedlineDoc([rl])
     assert tracked_change_spans_past(doc, span) is expected
+
+
+def test_redline_kinds_overlapping_checks_bounds_and_fails_closed():
+    from plugin.writer.record_changes import redline_kinds_overlapping
+
+    text = _FakeText()
+    other_text = _FakeText(raise_on_compare=True)
+    target = _FakeRange(4, 8, text=text)
+    spans = [
+        ("Insert", (text, _FakePoint(2, 5, text=text), _FakePoint(5, 5, text=text))),
+        ("Delete", (text, _FakePoint(0, 0, text=text), _FakePoint(4, 4, text=text))),
+        ("Format", (other_text, _FakePoint(0, 0, text=other_text), _FakePoint(1, 1, text=other_text))),
+    ]
+    assert redline_kinds_overlapping(spans, target) == {"Insert", "Format"}

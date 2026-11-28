@@ -206,11 +206,25 @@ made in `record_preserve_replace` in
   text after the longest run so the new text inherits that run's formatting, and carries the common
   link only when the whole range shares one URL. Whole-paragraph block replaces
   (whether Track Changes is recording or not)
-  are owned by `_replace_whole_paragraphs`, which while recording deletes across the following
-  paragraph break, imports new blocks into a fresh paragraph before the struck `old¶` (resetting the fresh paragraph's copied direct character formatting untracked—and its direct paragraph formatting and numbering too when the replacement changes block type or style, while keeping layout and uniform font for plain `<p>` replacements—leaving
-  new blocks first, then the struck paragraph while pending), and drops the synthetic leftover
-  paragraph untracked. Where no following break exists (document end, before a table, section
-  edge), one trailing empty paragraph remains after Accept. In `full_document` replace, any
+  are owned by `_replace_whole_paragraphs`, which while recording chooses one of three deletion shapes:
+  (1) when an untracked paragraph break precedes the range in the same section and the replacement
+  does not end with a table (a trailing table leaves a leftover empty paragraph that
+  `_drop_leftover_paragraph` must merge forward into the struck paragraph rather than a live
+  follower), it deletes that break plus the old text (`¶old`), restores the struck paragraph's style,
+  direct properties, numbering, and whole-range character properties untracked, and opens the import
+  paragraph after the struck text (leaving struck text first, then new blocks while pending); (2)
+  when ``"previous"`` is unavailable or the replacement ends with a table, the follower does not
+  start a new page, and no pending redline overlaps the paragraph, it falls back to deleting across
+  the following break (`old¶`) and imports before the struck text; (3) otherwise it deletes only the
+  text, leaving one empty paragraph (keeping its numbering) after Accept. In all cases, direct
+  numbering and `NumberingIsNumber` are restored untracked after the split (for `"following"` and
+  `"text"`, and on the import target when keeping layout), direct character formatting is reset on
+  the import target (and direct paragraph formatting and numbering too when the replacement changes block
+  type or style, while keeping layout and uniform font for plain `<p>` replacements), and the leftover
+  synthetic paragraph is dropped untracked. In `full_document` replace, an empty body (either blank
+  or only struck leading tables) imports after its empty paragraph (leaving one leading empty
+  paragraph after Accept and keeping it `Standard` on Reject), while non-empty bodies delete and open
+  a fresh paragraph before the struck text, leaving one trailing empty paragraph after Accept; any
   synthetic leftover paragraph opened before the import is also dropped untracked (`RecordChanges`
   temporarily off) via `_drop_leftover_paragraph` — merging forward after a trailing table — so
   the paragraph break is not a tracked delete, keeping separate paragraphs intact without word
@@ -238,7 +252,7 @@ Optional internal configuration keys (set in `writeragent.json`, no Settings UI;
 |-----|---------|---------|
 | `doc.agent_edit_diff_threshold` | `0.6` | Max changed-word fraction (0–1) before falling back to whole-block replace |
 | `doc.agent_edit_max_surgical_runs` | `40` | Cap on sub-edits per replace |
-| `doc.agent_edit_split_author_colors` | `true` | Set `false` to disable split insert/delete authors on whole-block edits |
+| `doc.agent_edit_split_author_colors` | `true` | Set `false` to disable the separate deletion author on every recorded agent edit (surgical, whole-block, HTML block, `full_document`) |
 
 ## Outcomes
 
@@ -436,7 +450,7 @@ When the user turns on Track Changes > Record while agent review is Off, operati
   * Typing into a paragraph while recording accepts its `ParagraphFormat` redline.
   * A second style change on the same paragraph reuses the first redline and its author, so Reject undoes both changes.
   * Reject restores the direct paragraph properties listed in `_REVERT_PARA_PROPERTIES` (`styles.py`). Any other hand-set one (for example `DropCapCharStyleName`, `FillBitmapSizeX/Y`) is dropped by `lcl_RejectRedline`'s `ResetAttrs`; the result sets `style_unreviewed: true` and the warning names it. Import metadata (`ParaInteropGrabBag`, `ParRsid`, foreign XML attributes) is dropped without a warning.
-* **Recorded inserts at an empty paragraph:** When recording is on, inserting at a caret in an empty paragraph or at `beginning` when the first paragraph is empty places the imported content after that empty paragraph (so Reject restores the paragraph's style and direct formatting); content ending in a table keeps one extra empty paragraph after the table. The whole insert is one Ctrl+Z step.
+* **Recorded inserts at an empty paragraph:** When recording is on, inserting at a caret in an empty paragraph, at `beginning` when the first paragraph is empty, or at `end` when the last paragraph is empty places the imported content after that empty paragraph (so Reject restores the paragraph's style and direct formatting); content ending in a table keeps one extra empty paragraph after the table. The whole insert is one Ctrl+Z step.
 * **One Ctrl+Z per edit in every review mode:** `EditReviewSession.record_mutation` opens one undo
   group per logical change whether or not a review session is active, so footnote, table, form
   control, image and Run Python Script inserts are one step with review Off too. When the edit raises,
@@ -504,7 +518,7 @@ When the user turns on Track Changes > Record while agent review is Off, operati
 * **`frame_insert target="search"` whole-body match (anchor 0 or 4):** when a recorded match spans
   an entire text (body, cell, or frame), Accept also removes the frame (`undobj.cxx`:
   `IsSelectFrameAnchoredAtPara` / `IsDestroyFrameAnchoredAtChar`).
-* **Undo then Redo of a review-session edit:** Redo brings the redline back untagged and splits an
+* **Undo then Redo of a review-session edit (or while recording with review Off):** Redo brings the redline back untagged and splits an
   `Unknown Author` Insert piece (`RedlineComment` is not an undoable action). A wait still reports
   the change `pending` (see the outcome table), but inline review and the toolbar no longer see it
   as an agent change.
