@@ -42,12 +42,13 @@ from plugin.chatbot.selection import (
 from plugin.doc.agent_undo import record_agent_turn_after, record_agent_turn_before
 from plugin.doc.text_helpers import normalize_linebreaks, selected_text_range, visible_range_text
 from plugin.writer.edit_review import (
-    TRACKED_SELECTION_MESSAGE,
-    TrackedChangesInSelection,
+    StreamedSelectionRefused,
+    TableInSelection,
+    WHOLE_DOCUMENT_TABLE_MESSAGE,
     WriterStreamedAppendSession,
     WriterStreamedRewriteSession,
     build_writer_rewrite_prompt,
-    refuse_tracked_insert_or_delete,
+    refuse_streamed_selection,
     review_recording_enabled,
 )
 
@@ -65,17 +66,17 @@ def _selection_target(
         if not silent_empty:
             msgbox(ctx, title, _("Select text first"))
         return None
-    # Stop Extend/Edit Selection when the range already has an Insert or Delete.
+    # Stop Extend/Edit Selection when the range already has a tracked change or a table.
     #
     # The message box is the user-visible path. The streamed session raises the same
-    # way before ``setString``, so skipping this wrapper still cannot wipe the redlines.
-    # refuse_tracked_insert_or_delete runs before the empty-selection return so
+    # way before any write, so skipping this wrapper still cannot wipe redlines or tables.
+    # refuse_streamed_selection runs before the empty-selection return so
     # deletion-only ranges that read as empty still block Extend/Edit with the
     # tracked-changes message instead of reaching setString silently.
     try:
-        refuse_tracked_insert_or_delete(model, text_range)
-    except TrackedChangesInSelection:
-        msgbox(ctx, title, _(TRACKED_SELECTION_MESSAGE))
+        refuse_streamed_selection(model, text_range)
+    except StreamedSelectionRefused as exc:
+        msgbox(ctx, title, _(str(exc)))
         return None
     # Read visible text without tracked deletions so deleted text is not sent in the prompt.
     original_text = visible_range_text(model, text_range)
@@ -204,9 +205,12 @@ def _whole_body_target(ctx: Any, model: Any, title: str) -> tuple[Any, str] | No
     cursor.gotoStart(False)
     cursor.gotoEnd(True)
     try:
-        refuse_tracked_insert_or_delete(model, cursor)
-    except TrackedChangesInSelection:
-        msgbox(ctx, title, _(TRACKED_SELECTION_MESSAGE))
+        refuse_streamed_selection(model, cursor)
+    except TableInSelection:
+        msgbox(ctx, title, _(WHOLE_DOCUMENT_TABLE_MESSAGE))
+        return None
+    except StreamedSelectionRefused as exc:
+        msgbox(ctx, title, _(str(exc)))
         return None
     # Read visible text without tracked deletions so deleted text is not sent in the prompt.
     original_text = normalize_linebreaks(visible_range_text(model, cursor))

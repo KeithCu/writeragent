@@ -13,6 +13,7 @@ class _MockUndoManager:
         self.entered = False
         self.left = False
         self.undone = False
+        self.redo_cleared = False
         self.titles = []
         self.discard_empty_context = False
         self.locked = False
@@ -39,6 +40,9 @@ class _MockUndoManager:
         self.undone = True
         if self.titles:
             self.titles.pop(0)
+
+    def clearRedo(self) -> None:
+        self.redo_cleared = True
 
 
 class _MockDoc:
@@ -229,11 +233,13 @@ def test_writer_compound_undo_rollback_if_top():
     # Still open -> returns False, does not undo
     assert cu.rollback_if_top() is False
     mgr.undo.assert_not_called()
+    mgr.clearRedo.assert_not_called()
 
-    # Closed -> top title matches and changed -> undoes
+    # Closed -> top title matches and changed -> undoes and clears redo
     assert cu.close() is True
     assert cu.rollback_if_top() is True
     mgr.undo.assert_called_once()
+    mgr.clearRedo.assert_called_once()
 
     # Never entered -> returns False
     cu_unentered = WriterCompoundUndo(object(), "WriterAgent: unentered")
@@ -251,6 +257,7 @@ def test_writer_compound_undo_rollback_if_top():
     assert cu_unchanged.close() is True
     assert cu_unchanged.rollback_if_top() is False
     mgr2.undo.assert_not_called()
+    mgr2.clearRedo.assert_not_called()
 
 
 def test_undo_titles_returns_tuple_newest_first():

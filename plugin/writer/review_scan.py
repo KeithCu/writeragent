@@ -5,17 +5,22 @@
 """Fail-closed redline enumeration and agent identity (token and author) helpers.
 
 ``edit_review`` owns tagging/session wait; ``inline_review`` owns accept/reject/goto.
-This module is the shared scan + identity layer only — not tracking.py tools.
+This module is the shared scan + identity layer only — not tracking.py tools — plus
+``RedlinesShown``, which both resolve paths (``inline_review`` and ``tracking_manage``) enter.
 """
 
 from __future__ import annotations
 
 import datetime
+import logging
 import re
 from typing import Any, Callable
 
 from plugin.doc.text_helpers import iter_elements_limited
+from plugin.framework.errors import is_disposal
 from plugin.writer.review_authors import AGENT_AUTHORS
+
+log = logging.getLogger(__name__)
 
 TOKEN_PREFIX = "wa-review:"
 _TOKEN_RE = re.compile(r"\A" + re.escape(TOKEN_PREFIX) + r"[^\s:]+:\d+\Z")
@@ -87,6 +92,62 @@ def redline_is_agent_change(redline: Any) -> tuple[bool, bool]:
     except Exception:
         return False, False
     return author in AGENT_AUTHORS, True
+
+
+# RedlineDisplayType INSERTED_AND_REMOVED (offapi com/sun/star/document/RedlineDisplayType.idl).
+_SHOW_INSERTED_AND_REMOVED = 2
+
+
+class RedlinesShown:
+    """Show deleted text (``RedlineDisplayType`` 2) for the ``with`` body, then put the document's own type back.
+
+    Type 1 hides deletions and type 3 insertions in the model (``SwRangeRedline::Hide`` /
+    ``ShowOriginal``, ``sw/source/core/doc/docredln.cxx``): a hidden redline has no end,
+    so a selection over a replace covers only its visible half. Writer switches to type 2
+    before it resolves anything (``DocumentRedlineManager::AcceptRedline`` /
+    ``RejectRedline``, ``sw/source/core/doc/DocumentRedlineManager.cxx``), so a resolve that
+    selected in hidden mode resolves only the half it selected. Redline positions and order
+    change with the type (``SetRedlineFlags`` resorts the table), so read redlines again
+    inside the body. ``changed`` is True when the body runs with a type the caller did not
+    see. A class rather than ``@contextmanager``: see ``text_helpers.KeepViewSelection``.
+    """
+
+    def __init__(self, doc: Any) -> None:
+        self._doc: Any = doc
+        self._saved: Any = None
+        self.changed: bool = False
+
+    def __enter__(self) -> RedlinesShown:
+        try:
+            saved = self._doc.getPropertyValue("RedlineDisplayType")
+            if saved != _SHOW_INSERTED_AND_REMOVED:
+                self._doc.setPropertyValue("RedlineDisplayType", _SHOW_INSERTED_AND_REMOVED)
+                self._saved = saved
+                self.changed = True
+        except Exception as exc:
+            if not is_disposal(exc):
+                raise
+            # Closed since the caller's last scan: the scan in the body fails closed next, so a
+            # resolve still reports "nothing was changed" instead of raising out of the menu action.
+            log.debug("deleted text not shown: document closed")
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: Any,
+    ) -> None:
+        if not self.changed:
+            return
+        try:
+            self._doc.setPropertyValue("RedlineDisplayType", self._saved)
+        except Exception as restore_exc:
+            if is_disposal(restore_exc):
+                # Closed while resolving: there is no display left to restore.
+                log.debug("RedlineDisplayType not restored: document closed")
+                return
+            log.exception("could not restore RedlineDisplayType")
 
 
 def scan_redlines(doc: Any, on_item: Callable[[Any], bool]) -> tuple[bool, int, int]:

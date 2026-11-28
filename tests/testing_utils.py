@@ -733,11 +733,24 @@ def _clear_writeragent_udprops(doc, ctx=None) -> None:
         pass
 
 
+def _remove_all_calc_pivots(doc) -> None:
+    # A pivot left on Sheet1 is written out again over later tests' cells when the doc is
+    # reloaded, and LibreOffice 26.8 shows #SPILL! there (ScDPObject::Output).
+    sheets = doc.getSheets()
+    for i in range(sheets.getCount()):
+        pivots = sheets.getByIndex(i).getDataPilotTables()
+        for name in list(pivots.getElementNames()):
+            pivots.removeByName(name)
+
+
 def _reset_calc_doc(doc, ctx) -> None:  # ctx unused; same signature as writer reset
     _native_teardown_progress("native_doc: _reset_calc_doc start")
     _native_teardown_progress("native_doc: _reset_calc_doc remove_charts start")
     _remove_all_calc_charts(doc)
     _native_teardown_progress("native_doc: _reset_calc_doc remove_charts done")
+    _native_teardown_progress("native_doc: _reset_calc_doc remove_pivots start")
+    _remove_all_calc_pivots(doc)
+    _native_teardown_progress("native_doc: _reset_calc_doc remove_pivots done")
     sheets = doc.getSheets()
     while sheets.getCount() > 1:
         name = sheets.getByIndex(sheets.getCount() - 1).Name
@@ -1919,6 +1932,9 @@ class FakeUndoManager:
             self.titles.pop(0)
             self.undone += 1
 
+    def clearRedo(self) -> None:
+        return None
+
 
 def fill_five_paragraphs(text: Any) -> list[Any]:
     """Populate *text* with 5 same-style paragraphs and return the paragraph objects."""
@@ -2124,12 +2140,14 @@ class FakeUnoPortion:
         *,
         redline_type: str | None = None,
         is_start: bool = False,
+        collapsed: bool = False,
         inner: list[Any] | None = None,
     ) -> None:
         self._ptype = ptype
         self._text = text
         self._redline_type = redline_type
         self._is_start = is_start
+        self._collapsed = collapsed
         self._inner = inner
 
     def getPropertyValue(self, name: str) -> Any:
@@ -2138,6 +2156,8 @@ class FakeUnoPortion:
         if name == "IsStart":
             # IsStart is MAYBEVOID in GetTextPortionExtensionPropertyMap (unomap1.cxx); void -> None off Redline portions.
             return self._is_start if self._ptype == "Redline" else None
+        if name == "IsCollapsed" and self._ptype == "Redline":
+            return self._collapsed
         if name == "RedlineType" and self._ptype == "Redline":
             return self._redline_type
         if name == self._ptype and self._inner is not None:

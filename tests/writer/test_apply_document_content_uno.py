@@ -2511,3 +2511,117 @@ def test_user_recording_with_review_off_reports_tracked_uno(ctx):
                 doc.setPropertyValue("RecordChanges", False)
     finally:
         save({flag: prev})
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_apply_content_regex_refuses_crossing_deletion_unless_recorded_uno(ctx, doc):
+    from plugin.framework.config import get_config, save
+    from plugin.writer import review_authors
+    from tests.writer.doc_builders import list_redlines, reject_all_changes, strike_substring
+
+    prev_mode = get_config("doc.agent_edit_review_mode")
+    prev_author = review_authors.begin(ctx)
+    save({"doc.agent_edit_review_mode": "off"})
+    try:
+        review_authors.set_office_author(ctx, "Alice")
+        text = doc.getText()
+        text.setString("Intro keeps DELINLINE word here.\nSecond keeps clean word here.")
+        strike_substring(doc, text, "DELINLINE ")
+
+        tctx = native_writer_tool_context(doc, ctx)
+        tool = ApplyDocumentContent()
+
+        res = tool.execute(tctx, target="search", old_content="keeps.*word", regex=True, content="REPLACED")
+        assert res.get("status") == "error", res
+        assert res.get("code") == "MATCH_CROSSES_DELETION", res
+        assert "DELINLINE " in text.getString()
+        assert [(r["type"], r["RedlineAuthor"]) for r in list_redlines(doc)] == [("Delete", "Alice")]
+
+        dry = tool.execute(
+            tctx, target="search", old_content="keeps.*word", regex=True, content="REPLACED", dry_run=True
+        )
+        assert dry.get("status") == "ok", dry
+        assert dry["replaceable"][0].get("edit_refused") == "MATCH_CROSSES_DELETION", dry
+
+        all_res = tool.execute(
+            tctx, target="search", old_content="keeps.*word", regex=True, all_matches=True, content="REPLACED"
+        )
+        assert all_res.get("status") == "ok", all_res
+        assert all_res.get("replaced_count") == 1, all_res
+        assert "pending tracked deletion" in all_res.get("message", ""), all_res
+        assert "Second REPLACED here." in text.getString()
+        assert "Intro keeps DELINLINE word here." in text.getString()
+
+        doc.setPropertyValue("RecordChanges", True)
+        try:
+            rec = tool.execute(tctx, target="search", old_content="keeps.*word", regex=True, content="REPLACED")
+            assert rec.get("status") == "ok", rec
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+
+        reject_all_changes(doc, ctx)
+        assert _visible_paras(doc)[0].startswith("Intro keeps DELINLINE word here."), _visible_paras(doc)
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        review_authors.end(ctx, prev_author)
+        save({"doc.agent_edit_review_mode": prev_mode})
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_apply_content_selection_refuses_crossing_deletion_unless_recorded_uno(ctx, doc):
+    from plugin.framework.config import get_config, save
+    from plugin.writer import review_authors
+    from tests.writer.doc_builders import list_redlines, reject_all_changes, strike_substring
+
+    prev_mode = get_config("doc.agent_edit_review_mode")
+    prev_author = review_authors.begin(ctx)
+    save({"doc.agent_edit_review_mode": "off"})
+    try:
+        review_authors.set_office_author(ctx, "Alice")
+        text = doc.getText()
+        text.setString("Intro keeps DELINLINE word here.")
+        strike_substring(doc, text, "DELINLINE ")
+
+        def _select_span(needle: str) -> None:
+            raw = text.getString()
+            idx = raw.index(needle)
+            cur = text.createTextCursor()
+            cur.gotoStart(False)
+            cur.goRight(idx, False)
+            cur.goRight(len(needle), True)
+            doc.getCurrentController().select(cur)
+
+        _select_span("keeps DELINLINE word")
+        tctx = native_writer_tool_context(doc, ctx)
+        tool = ApplyDocumentContent()
+
+        res = tool.execute(tctx, target="selection", content="REPLACED")
+        assert res.get("status") == "error", res
+        assert res.get("code") == "MATCH_CROSSES_DELETION", res
+        assert text.getString() == "Intro keeps DELINLINE word here."
+        assert [(r["type"], r["RedlineAuthor"]) for r in list_redlines(doc)] == [("Delete", "Alice")]
+
+        # Collapsed caret inside the same paragraph still inserts.
+        caret = text.createTextCursor()
+        caret.gotoStart(False)
+        doc.getCurrentController().select(caret)
+        caret_res = tool.execute(tctx, target="selection", content="Lead ")
+        assert caret_res.get("status") == "ok", caret_res
+        assert text.getString().startswith("Lead Intro "), text.getString()
+
+        _select_span("keeps DELINLINE word")
+        doc.setPropertyValue("RecordChanges", True)
+        try:
+            rec = tool.execute(tctx, target="selection", content="REPLACED")
+            assert rec.get("status") == "ok", rec
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+
+        reject_all_changes(doc, ctx)
+        assert text.getString() == "Lead Intro keeps DELINLINE word here.", text.getString()
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        review_authors.end(ctx, prev_author)
+        save({"doc.agent_edit_review_mode": prev_mode})

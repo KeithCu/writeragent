@@ -8,34 +8,12 @@ from __future__ import annotations
 
 import base64
 from contextlib import contextmanager
-import os
-import sys
-import tempfile
-from unittest.mock import patch
 
-import uno
-
-from plugin._manifest import MODULES
-from plugin.chatbot import module_config_dialog
 from plugin.chatbot.dialogs import get_optional
 from plugin.chatbot.module_config_dialog import ModuleConfigDialog, PreviewImage, _active_dialogs
 from plugin.framework.send_cancellation import SendCancellation
 from plugin.testing_runner import native_test
 from plugin.writer.images.image_tools import graphic_from_bytes
-
-
-def _generate_standalone_config_dialog(module: dict) -> str:
-    try:
-        from scripts.manifest_xdl import generate_standalone_config_dialog
-    except ImportError:
-        # release_verify runs this in a stripped tree with no scripts/; it sets
-        # WRITERAGENT_PROJECT_ROOT to the real checkout.
-        root = os.environ.get("WRITERAGENT_PROJECT_ROOT", "").strip()
-        if not root:
-            raise
-        sys.path.append(root)
-        from scripts.manifest_xdl import generate_standalone_config_dialog
-    return generate_standalone_config_dialog(module)
 
 
 # 1x1 transparent PNG
@@ -50,28 +28,16 @@ _PNG_RED_1X1 = base64.b64decode(
 
 @contextmanager
 def _open_vision_dialog(ctx):
-    vision_mod = next(m for m in MODULES if m["name"] == "vision")
-    xdl = _generate_standalone_config_dialog(vision_mod)
-    fd, xdl_path = tempfile.mkstemp(prefix="wa_vision_dlg_", suffix=".xdl")
-    os.close(fd)
     dialog = None
     try:
-        with open(xdl_path, "w", encoding="utf-8") as f:
-            f.write(xdl)
-        provider = ctx.ServiceManager.createInstanceWithContext("com.sun.star.awt.DialogProvider", ctx)
-        real_dlg = provider.createDialog(uno.systemPathToFileUrl(xdl_path))
-
         _active_dialogs.pop("vision", None)
         dialog = ModuleConfigDialog(ctx, "vision", preview_job=lambda *_a: None)
-        with patch.object(module_config_dialog, "load_writeragent_dialog_detail", return_value=(real_dlg, "")):
-            dialog._open()
-        yield dialog, real_dlg
+        dialog._open()
+        yield dialog, dialog._dlg
     finally:
         if dialog is not None:
             dialog.close()
         _active_dialogs.pop("vision", None)
-        if os.path.exists(xdl_path):
-            os.remove(xdl_path)
 
 
 def _sample_pane_bgr(pane) -> bytes:
@@ -105,6 +71,11 @@ def test_module_config_dialog_preview_resize_and_scroll_uno(ctx):
 
         dlg_sz = real_dlg.getPosSize()
         real_dlg.setPosSize(0, 0, dlg_sz.Width + 200, dlg_sz.Height + 150, 12)  # PosSize.SIZE = 12
+        # The window manager may cap the size, for example on a 768 px-high Windows runner.
+        grown = real_dlg.getPosSize()
+        dw = grown.Width - dlg_sz.Width
+        dh = grown.Height - dlg_sz.Height
+        assert dw > 0 and dh > 0, (dw, dh)
         pane.relayout()
 
         c_after = pane._container.getPosSize()
@@ -114,15 +85,15 @@ def test_module_config_dialog_preview_resize_and_scroll_uno(ctx):
         close_after = get_optional(real_dlg, "btn_close").getPosSize()
         img_after = pane._image.getPosSize()
 
-        assert c_after.Width == c_before.Width + 200
-        assert c_after.Height == c_before.Height + 150
-        assert sb_after.X == sb_before.X + 200
-        assert run_after.X == run_before.X + 200
-        assert run_after.Y == run_before.Y + 150
-        assert preview_after.X == preview_before.X + 200
-        assert preview_after.Y == preview_before.Y + 150
-        assert close_after.X == close_before.X + 200
-        assert close_after.Y == close_before.Y + 150
+        assert c_after.Width == c_before.Width + dw
+        assert c_after.Height == c_before.Height + dh
+        assert sb_after.X == sb_before.X + dw
+        assert run_after.X == run_before.X + dw
+        assert run_after.Y == run_before.Y + dh
+        assert preview_after.X == preview_before.X + dw
+        assert preview_after.Y == preview_before.Y + dh
+        assert close_after.X == close_before.X + dw
+        assert close_after.Y == close_before.Y + dh
         assert img_after.Width == c_after.Width
         expected_h = round(c_after.Width * 1100 / 800)
         assert img_after.Height == expected_h

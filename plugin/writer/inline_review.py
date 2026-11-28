@@ -190,6 +190,10 @@ def resolve_change_at_cursor(
 
     Only agent changes (wa-review session tokens) are eligible -- the user's own tracked
     changes are left to LibreOffice's native review UI. Returns ``(ok, message)``.
+    The token is found in the current display type (it names the change, not a position, and
+    the cursor can only sit in a visible half), so a click that resolves nothing never toggles the
+    display. The resolve itself runs with deleted text shown (``review_scan.RedlinesShown``); a
+    *view* read while it was hidden is read again, because its positions cover only the visible half.
     """
     if view is None:
         view = scan_redline_view(model)
@@ -202,13 +206,16 @@ def resolve_change_at_cursor(
             return False, _("No agent changes to review in this document.")
         return False, _("Put the cursor on a highlighted agent change first.")
 
-    # The resolve selects the change to dispatch on it; the user's caret comes back afterwards,
-    # otherwise their next keystroke would replace the resolved text.
-    with KeepViewSelection(model.getCurrentController()):
-        res, after_view = resolve_agent_change(model, ctx, token, accept, before=view)
-        group_res = None
-        if res.status == ResolveStatus.REFUSED_SIBLING:
-            group_res = _resolve_overlapping_agent_changes(model, ctx, token, accept, before=after_view)
+    with review_scan.RedlinesShown(model) as shown:
+        if shown.changed:
+            view = scan_redline_view(model)
+        # The resolve selects the change to dispatch on it; the user's caret comes back afterwards,
+        # otherwise their next keystroke would replace the resolved text.
+        with KeepViewSelection(model.getCurrentController()):
+            res, after_view = resolve_agent_change(model, ctx, token, accept, before=view)
+            group_res = None
+            if res.status == ResolveStatus.REFUSED_SIBLING:
+                group_res = _resolve_overlapping_agent_changes(model, ctx, token, accept, before=after_view)
     if res.status == ResolveStatus.RESOLVED:
         return True, _review_message(ResolveStatus.RESOLVED, accept=accept)
     if group_res is not None:
@@ -948,94 +955,105 @@ def _resolve_overlapping_agent_changes(
 
 
 def _resolve_all_agent_changes(model: Any, ctx: Any, accept: bool) -> ResolveAllResult:
-    """Accept/reject all agent changes; returns ResolveAllResult."""
+    """Accept/reject all agent changes; returns ResolveAllResult.
+
+    The "nothing to resolve" checks run in the current display type, so they never toggle it;
+    the dispatches run with deleted text shown (``review_scan.RedlinesShown``), from a view read
+    again when that changed the display type.
+    """
     entry_view = scan_redline_view(model)
     if not entry_view.reliable:
         log.warning("inline_review: resolve-all aborted -- redline snapshot unreliable")
         return ResolveAllResult(status=ResolveStatus.UNRELIABLE, resolved=0, total=0)
-    entry_tokens = agent_tokens(entry_view)
-    total = len(entry_tokens)
+    total = len(agent_tokens(entry_view))
     if total == 0:
         return ResolveAllResult(status=ResolveStatus.RESOLVED, resolved=0, total=0)
 
-    if _is_all_redlines_agent(entry_view):
-        try:
-            controller = model.getCurrentController()
-            command = ".uno:AcceptAllTrackedChanges" if accept else ".uno:RejectAllTrackedChanges"
-            execute_dispatch(ctx, controller, command)
-        except Exception:
-            log.exception("inline_review: resolve-all global dispatch failed")
-            return ResolveAllResult(status=ResolveStatus.PARTIAL, resolved=0, total=total)
+    with review_scan.RedlinesShown(model) as shown:
+        if shown.changed:
+            entry_view = scan_redline_view(model)
+            if not entry_view.reliable:
+                log.warning("inline_review: resolve-all aborted -- redline snapshot unreliable after showing deleted text")
+                return ResolveAllResult(status=ResolveStatus.UNRELIABLE, resolved=0, total=0)
 
-        after = scan_redline_view(model)
-        if not after.reliable:
-            return ResolveAllResult(status=ResolveStatus.PARTIAL, resolved=0, total=total)
-        after_tokens = agent_tokens(after)
-        resolved = max(0, total - len(after_tokens))
-        if not after_tokens:
+        if _is_all_redlines_agent(entry_view):
+            try:
+                controller = model.getCurrentController()
+                command = ".uno:AcceptAllTrackedChanges" if accept else ".uno:RejectAllTrackedChanges"
+                execute_dispatch(ctx, controller, command)
+            except Exception:
+                log.exception("inline_review: resolve-all global dispatch failed")
+                return ResolveAllResult(status=ResolveStatus.PARTIAL, resolved=0, total=total)
+
+            after = scan_redline_view(model)
+            if not after.reliable:
+                return ResolveAllResult(status=ResolveStatus.PARTIAL, resolved=0, total=total)
+            after_tokens = agent_tokens(after)
+            resolved = max(0, total - len(after_tokens))
+            if not after_tokens:
+                return ResolveAllResult(status=ResolveStatus.RESOLVED, resolved=total, total=total)
+            if len(after_tokens) == total:
+                return ResolveAllResult(status=ResolveStatus.NO_OP, resolved=0, total=total)
+            return ResolveAllResult(status=ResolveStatus.PARTIAL, resolved=resolved, total=total)
+
+        skip_reasons: dict[str, ResolveStatus] = {}
+        dispatched = False
+        cur_view = entry_view
+        exact_unsupported = False
+
+        with _grouped_resolve_undo(model):
+            # Tip: no fixed cap. Each pass resolves the head change or adds it to `skip_reasons`, so pending
+            # strictly shrinks. An unreliable re-read aborts (PARTIAL once dispatched, else UNRELIABLE)
+            # instead of silently leaving changes pending.
+            while True:
+                cur_tokens = agent_tokens(cur_view)
+                pending = sorted(t for t in cur_tokens if t not in skip_reasons)
+                if not pending:
+                    break
+                token = pending[0]
+                before_count = len(cur_tokens)
+                # Resolve-all wants sibling agent changes resolved together; only a user redline blocks it.
+                res, next_view = resolve_agent_change(
+                    model, ctx, token, accept, policy=ResolvePolicy.PARAGRAPH_ONLY, before=cur_view
+                )
+                if res.status == ResolveStatus.REFUSED_FOREIGN and not exact_unsupported:
+                    # Tip: retry exact bounds; valid only while paragraph REFUSED_FOREIGN is pre-dispatch.
+                    exact_res, exact_view = resolve_agent_change(
+                        model,
+                        ctx,
+                        token,
+                        accept,
+                        policy=ResolvePolicy.EXACT_ONLY,
+                        before=cur_view,
+                    )
+                    if exact_res.status == ResolveStatus.NO_OP:
+                        exact_unsupported = True
+                    else:
+                        res, next_view = exact_res, exact_view
+                # A dispatch was attempted once status is in this set.
+                if res.status in (ResolveStatus.RESOLVED, ResolveStatus.NO_OP, ResolveStatus.PARTIAL):
+                    dispatched = True
+                cur_view = next_view
+                if not cur_view.reliable:
+                    return ResolveAllResult(
+                        status=ResolveStatus.PARTIAL if dispatched else ResolveStatus.UNRELIABLE,
+                        resolved=0,
+                        total=total,
+                    )
+                after_tokens = agent_tokens(cur_view)
+                if res.status != ResolveStatus.RESOLVED or len(after_tokens) >= before_count:
+                    # Tip: skip refused/failed/no-progress changes so the rest resolve and nothing spins.
+                    log.debug("inline_review: skipping %s in resolve-all (%s)", token, res.status)
+                    skip_reasons[token] = res.status
+
+        final_tokens = agent_tokens(cur_view)
+        # Tip: count tokens that disappeared; one dispatch can clear several siblings.
+        resolved = max(0, total - len(final_tokens))
+
+        if resolved == total:
             return ResolveAllResult(status=ResolveStatus.RESOLVED, resolved=total, total=total)
-        if len(after_tokens) == total:
+        if skip_reasons and all(s == ResolveStatus.REFUSED_FOREIGN for s in skip_reasons.values()):
+            return ResolveAllResult(status=ResolveStatus.REFUSED_FOREIGN, resolved=resolved, total=total)
+        if resolved == 0 and not any(s == ResolveStatus.REFUSED_FOREIGN for s in skip_reasons.values()):
             return ResolveAllResult(status=ResolveStatus.NO_OP, resolved=0, total=total)
         return ResolveAllResult(status=ResolveStatus.PARTIAL, resolved=resolved, total=total)
-
-    skip_reasons: dict[str, ResolveStatus] = {}
-    dispatched = False
-    cur_view = entry_view
-    exact_unsupported = False
-
-    with _grouped_resolve_undo(model):
-        # Tip: no fixed cap. Each pass resolves the head change or adds it to `skip_reasons`, so pending
-        # strictly shrinks. An unreliable re-read aborts (PARTIAL once dispatched, else UNRELIABLE)
-        # instead of silently leaving changes pending.
-        while True:
-            cur_tokens = agent_tokens(cur_view)
-            pending = sorted(t for t in cur_tokens if t not in skip_reasons)
-            if not pending:
-                break
-            token = pending[0]
-            before_count = len(cur_tokens)
-            # Resolve-all wants sibling agent changes resolved together; only a user redline blocks it.
-            res, next_view = resolve_agent_change(
-                model, ctx, token, accept, policy=ResolvePolicy.PARAGRAPH_ONLY, before=cur_view
-            )
-            if res.status == ResolveStatus.REFUSED_FOREIGN and not exact_unsupported:
-                # Tip: retry exact bounds; valid only while paragraph REFUSED_FOREIGN is pre-dispatch.
-                exact_res, exact_view = resolve_agent_change(
-                    model,
-                    ctx,
-                    token,
-                    accept,
-                    policy=ResolvePolicy.EXACT_ONLY,
-                    before=cur_view,
-                )
-                if exact_res.status == ResolveStatus.NO_OP:
-                    exact_unsupported = True
-                else:
-                    res, next_view = exact_res, exact_view
-            # A dispatch was attempted once status is in this set.
-            if res.status in (ResolveStatus.RESOLVED, ResolveStatus.NO_OP, ResolveStatus.PARTIAL):
-                dispatched = True
-            cur_view = next_view
-            if not cur_view.reliable:
-                return ResolveAllResult(
-                    status=ResolveStatus.PARTIAL if dispatched else ResolveStatus.UNRELIABLE,
-                    resolved=0,
-                    total=total,
-                )
-            after_tokens = agent_tokens(cur_view)
-            if res.status != ResolveStatus.RESOLVED or len(after_tokens) >= before_count:
-                # Tip: skip refused/failed/no-progress changes so the rest resolve and nothing spins.
-                log.debug("inline_review: skipping %s in resolve-all (%s)", token, res.status)
-                skip_reasons[token] = res.status
-
-    final_tokens = agent_tokens(cur_view)
-    # Tip: count tokens that disappeared; one dispatch can clear several siblings.
-    resolved = max(0, total - len(final_tokens))
-
-    if resolved == total:
-        return ResolveAllResult(status=ResolveStatus.RESOLVED, resolved=total, total=total)
-    if skip_reasons and all(s == ResolveStatus.REFUSED_FOREIGN for s in skip_reasons.values()):
-        return ResolveAllResult(status=ResolveStatus.REFUSED_FOREIGN, resolved=resolved, total=total)
-    if resolved == 0 and not any(s == ResolveStatus.REFUSED_FOREIGN for s in skip_reasons.values()):
-        return ResolveAllResult(status=ResolveStatus.NO_OP, resolved=0, total=total)
-    return ResolveAllResult(status=ResolveStatus.PARTIAL, resolved=resolved, total=total)

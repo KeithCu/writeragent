@@ -151,6 +151,11 @@ class FakeModel:
     def getRedlines(self):
         return self._rl
 
+    def getPropertyValue(self, name):
+        # RedlineDisplayType 2: deleted text shown, so RedlinesShown has nothing to change.
+        assert name == "RedlineDisplayType", name
+        return 2
+
 
 class _ViewModel(FakeModel):
     def __init__(self, redlines):
@@ -1588,3 +1593,18 @@ def test_overlapping_resolve_ignores_multi_text_token_elsewhere():
         res = _resolve_overlapping_agent_changes(model, MagicMock(), t1, accept=True)
     assert res.status == ResolveStatus.RESOLVED
     assert res.resolved_count == 2
+
+
+def test_nothing_to_resolve_never_toggles_hidden_markup():
+    """With deletions hidden, a click off any agent change and resolve-all with none pending
+    return before RedlinesShown, so the display type is never written."""
+    model = MagicMock()
+    model.getPropertyValue.return_value = 1
+    user_only = RedlineView(reliable=True, total=1, rows=(RedlineRow(token=None, start=MagicMock(), end=MagicMock()),))
+    with patch("plugin.writer.inline_review.scan_redline_view", return_value=user_only), \
+         patch("plugin.writer.inline_review.execute_dispatch") as dispatch:
+        ok, _msg = resolve_change_at_cursor(model, MagicMock(), True)
+        assert ok is False
+        assert _resolve_all_agent_changes(model, MagicMock(), True).total == 0
+    dispatch.assert_not_called()
+    model.setPropertyValue.assert_not_called()
