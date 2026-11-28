@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 
+from plugin.framework.config import save
 from plugin.draw.shapes import (
     AlignShapes,
     ConnectShapes,
@@ -886,12 +887,9 @@ def test_upsert_shape_edit_in_record_mode_says_it_is_not_tracked():
     shape.getPosition.return_value = MagicMock(X=100, Y=100)
     shape.getSize.return_value = MagicMock(Width=100, Height=100)
     page.getByIndex.return_value = shape
+    save({"doc.agent_edit_review_mode": "record"})
 
-    with (
-        patch("plugin.draw.shapes.DrawBridge") as bridge_cls,
-        patch("plugin.writer.edit_review.is_writer", return_value=True),
-        patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="record"),
-    ):
+    with patch("plugin.draw.shapes.DrawBridge") as bridge_cls:
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
         out = UpsertShape().execute(ctx, action="edit", index=0, text="New text")
 

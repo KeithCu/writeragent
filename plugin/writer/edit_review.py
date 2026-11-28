@@ -128,20 +128,25 @@ def edit_is_recorded(doc: Any) -> bool:
     return review_recording_enabled() or is_recording_changes(doc)
 
 
+def _agent_authors_format(doc: Any, ranges: list[Any]) -> bool:
+    """True when a character format recorded now on *ranges* is authored WriterAgent.
+
+    That is Record/Wait mode while the document records, unless *ranges* overlap an insertion
+    that is not WriterAgent's: LibreOffice folds a format into a pending insertion only when
+    both have the same author, otherwise rejecting keeps the inserted text
+    (PreAppendFormatRedline in DocumentRedlineManager.cxx), so the office author stays then.
+    """
+    return (
+        review_recording_enabled()
+        and is_recording_changes(doc)
+        and not overlaps_foreign_insertion(doc, ranges, review_authors.INSERT_AUTHOR)
+    )
+
+
 @contextlib.contextmanager
 def agent_format_author(doc: Any, ctx: Any, ranges: list[Any]) -> Generator[None, None, None]:
-    """Author redlines recorded on *ranges* in this block as WriterAgent in record/wait mode.
-
-    LibreOffice folds a format into a pending insertion only when both have the same author;
-    otherwise rejecting keeps the inserted text (PreAppendFormatRedline in
-    DocumentRedlineManager.cxx). So the office author stays when *ranges* overlap an insertion
-    that is not WriterAgent's.
-    """
-    if (
-        not review_recording_enabled()
-        or not is_recording_changes(doc)
-        or overlaps_foreign_insertion(doc, ranges, review_authors.INSERT_AUTHOR)
-    ):
+    """Author redlines recorded on *ranges* in this block as WriterAgent when ``_agent_authors_format`` says so."""
+    if not _agent_authors_format(doc, ranges):
         yield
         return
     prior = review_authors.begin(ctx)
@@ -154,11 +159,11 @@ def agent_format_author(doc: Any, ctx: Any, ranges: list[Any]) -> Generator[None
 def format_overlaps_foreign_insertion(doc: Any, ctx: Any, ranges: list[Any]) -> bool:
     """True when a character format recorded now on *ranges* covers a pending insertion it cannot fold into.
 
-    The format's author is the one ``agent_format_author`` picks. An insertion by anyone else
-    becomes the Format redline (PreAppendFormatRedline in DocumentRedlineManager.cxx), so
-    Reject keeps the inserted text. Call before the write, which changes the insertion.
+    The format's author follows ``_agent_authors_format``. An insertion by anyone else becomes
+    the Format redline, so Reject keeps the inserted text. Call before the write, which
+    changes the insertion.
     """
-    if review_recording_enabled() and not overlaps_foreign_insertion(doc, ranges, review_authors.INSERT_AUTHOR):
+    if _agent_authors_format(doc, ranges):
         return False  # WriterAgent authors the format and every insertion it covers is its own
     return overlaps_foreign_insertion(doc, ranges, review_authors.office_author(ctx))
 

@@ -28,6 +28,7 @@ from plugin.doc.text_helpers import TrackedDeletions, iter_annotations
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.framework.tool import ToolBase
 from plugin.framework.errors import name_miss_details
+from plugin.framework.i18n import N_, _
 from plugin.framework.uno_context import uno_same
 from ..edit_review import flag_tracked, flag_tracked_delete, flag_untracked, next_agent_edit_undo_title
 from ..record_changes import is_recording_changes
@@ -45,9 +46,13 @@ log = logging.getLogger("writeragent.writer.comments")
 # The comment tools do not run in a review session, so Record/Wait mode does not record them and
 # the result warns. A user's own Track Changes > Record still records inserting or deleting a
 # comment (not editing or resolving one), and the result then reports it as tracked.
-_COMMENT_UNTRACKED_WARNING = (
+_COMMENT_UNTRACKED_WARNING = N_(
     "This comment change is not a tracked change, so rejecting changes does not undo it "
     "(Ctrl+Z does). Tell the user."
+)
+_RESOLVED_MARK_UNTRACKED_WARNING = N_(
+    "The reply is a tracked change, but the resolved mark is not: it stays after rejecting "
+    "changes (Ctrl+Z undoes it). Tell the user."
 )
 
 
@@ -56,7 +61,7 @@ def _flag_comment_write(result: dict[str, Any], doc: Any, recorded: bool) -> Non
     if recorded:
         flag_tracked(result)
     else:
-        flag_untracked(result, doc, _COMMENT_UNTRACKED_WARNING)
+        flag_untracked(result, doc, _(_COMMENT_UNTRACKED_WARNING))
 
 
 def _prop(field: Any, name: str, default: Any = "") -> Any:
@@ -355,7 +360,7 @@ class CommentDelete(ToolWriterCommentBase):
         if is_recording_changes(doc):
             flag_tracked_delete(result, "%d comment(s) are" % len(to_delete))
         else:
-            flag_untracked(result, doc, _COMMENT_UNTRACKED_WARNING)
+            flag_untracked(result, doc, _(_COMMENT_UNTRACKED_WARNING))
         return result
 
 
@@ -415,7 +420,9 @@ class CommentResolve(ToolWriterCommentBase):
         # The reply is recorded while the user records; the Resolved mark never is.
         if reply_name and is_recording_changes(doc):
             flag_tracked(result)
-        flag_untracked(result, doc, _COMMENT_UNTRACKED_WARNING)
+            flag_untracked(result, doc, _(_RESOLVED_MARK_UNTRACKED_WARNING))
+        else:
+            flag_untracked(result, doc, _(_COMMENT_UNTRACKED_WARNING))
         return result
 
 
@@ -462,7 +469,7 @@ class CommentEdit(ToolWriterCommentBase):
             return err
 
         result: dict[str, Any] = {"status": "ok", "comment_name": comment_name, "content": content}
-        flag_untracked(result, doc, _COMMENT_UNTRACKED_WARNING)
+        flag_untracked(result, doc, _(_COMMENT_UNTRACKED_WARNING))
         return result
 
 

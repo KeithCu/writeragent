@@ -28,7 +28,6 @@ from typing import Any
 import uno
 
 from plugin.writer.locale import grammar_settings
-from plugin.writer.record_changes import record_changes
 from . import grammar_proofread_cache, grammar_proofread_json, grammar_proofread_locale, grammar_persistence
 from .grammar_ignore_rules import IgnoreSet, collect_ignored_reasons
 from .grammar_obs import (
@@ -344,10 +343,17 @@ def _set_locale_unrecorded(model: Any, rng: Any, locale: Any) -> None:
     The language tag is proofreading metadata, not an edit. Recorded, it would add a Format
     redline under the user's name, and over another author's pending insertion LibreOffice
     turns that insertion into the Format redline, so Reject would keep the inserted text
-    (PreAppendFormatRedline in DocumentRedlineManager.cxx).
+    (PreAppendFormatRedline in DocumentRedlineManager.cxx). LibreHarper ships this module
+    without plugin.writer.record_changes, so RecordChanges is switched here directly.
     """
-    with record_changes(model, False):
+    recording = bool(model.getPropertyValue("RecordChanges"))
+    if recording:
+        model.setPropertyValue("RecordChanges", False)
+    try:
         rng.setPropertyValue("CharLocale", locale)
+    finally:
+        if recording:
+            model.setPropertyValue("RecordChanges", True)
 
 
 def _apply_language_retag(

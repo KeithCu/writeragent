@@ -1837,3 +1837,32 @@ def test_apply_content_refuses_a_match_in_a_protected_cell_uno(ctx, doc):
     assert table.getCellByName("B1").getString() == "locked ee4"
     ok = ApplyDocumentContent().execute(tool_ctx, target="search", old_content="open", content=["free"])
     assert ok["status"] == "ok", ok
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_split_and_column_insert_in_record_mode_report_what_was_recorded_uno(ctx, doc):
+    """Record mode: a split into rows and a column insert are tracked and Reject All removes them;
+    a split into columns is not recorded and says so."""
+    rows_table = insert_named_table(doc, "RecSplitRows", 2, 2, {"A1": "a1", "B1": "b1", "A2": "a2", "B2": "b2"})
+    insert_named_table(doc, "RecSplitCols", 1, 2, {"A1": "x1", "B1": "y1"})
+    rows_before = _grid(rows_table)
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    restore = _review_mode("record")
+    try:
+        split_rows = TableSplitCell().execute(tool_ctx, name="RecSplitRows", cell="B2", direction="rows", parts=2)
+        col_insert = ManageTableStructure().execute(tool_ctx, action="insert", axis="column", name="RecSplitRows", index=1)
+        split_cols = TableSplitCell().execute(tool_ctx, name="RecSplitCols", cell="B1", direction="columns", parts=2)
+    finally:
+        restore()
+    assert split_rows["status"] == "ok", split_rows
+    assert split_rows.get("tracked") is True and split_rows.get("pending_review") is True, split_rows
+    assert col_insert["status"] == "ok", col_insert
+    assert col_insert.get("tracked") is True and col_insert.get("pending_review") is True, col_insert
+    assert split_cols["status"] == "ok", split_cols
+    assert split_cols.get("tracked") is False and "not into columns" in split_cols.get("warning", ""), split_cols
+    assert doc.getPropertyValue("RecordChanges") is False
+
+    reject_all_changes(doc, ctx)
+    assert _grid(doc.getTextTables().getByName("RecSplitRows")) == rows_before
+    assert len(doc.getTextTables().getByName("RecSplitCols").getCellNames()) == 3

@@ -15,6 +15,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from plugin.framework.config import save
 from plugin.tests.testing_utils import DisposedException, TestingFactory
 
 
@@ -1215,6 +1216,7 @@ def test_image_crop_bake_failure_is_tool_execution_error():
 
 def test_image_crop_and_highlight_in_record_mode_says_it_is_not_tracked():
     """Baking replaces the picture in place, which LibreOffice cannot record; Record mode must flag it."""
+    save({"doc.agent_edit_review_mode": "record"})
     ctx = TestingFactory.create_context(doc_type="writer")
     obj = MagicMock()
     obj.getSize.return_value = MagicMock(Width=1000, Height=500)
@@ -1224,8 +1226,6 @@ def test_image_crop_and_highlight_in_record_mode_says_it_is_not_tracked():
         patch("plugin.doc.visual_helpers.pixel_size", return_value=(100, 80)),
         patch("plugin.writer.images.images.image_mark.bake", return_value=MagicMock()),
         patch("plugin.writer.images.images.commit_or_rollback_mutation", return_value=None),
-        patch("plugin.writer.edit_review.is_writer", return_value=True),
-        patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="record"),
         patch.object(sys.modules["com.sun.star.text"], "GraphicCrop", MagicMock, create=True),
         patch.object(sys.modules["com.sun.star.awt"], "Size", MagicMock, create=True),
     ):

@@ -1232,7 +1232,7 @@ class ManageTableStructure(ToolWriterTableBase):
         "refuses to delete a row or column that holds a protected cell; "
         "refuses to delete a row in which a non-empty cell spanning several rows starts (as a tracked change, also an empty one that is first or last in the row); "
         "refuses to delete a column that a wider (merged) cell covers together with other columns; "
-        "when Track Changes or review mode is on, delete is recorded as a tracked change."
+        "when Track Changes or review mode is on, insert and delete are recorded as tracked changes."
     )
     is_mutation: bool | None = True
     parameters: dict[str, Any] | None = {
@@ -1313,7 +1313,6 @@ class ManageTableStructure(ToolWriterTableBase):
             uno_ctx = resolve_uno_context(ctx)
             struck_before: int | None = None
             if insert:
-
                 # While recording, SwTable::InsertRow_ (sw/source/core/doc/tblrwcl.cxx) and NewInsertCol
                 # (sw/source/core/table/swnewtable.cxx) record the new band as a tracked insertion,
                 # with a U+200D dummy character in its cells.
@@ -1432,8 +1431,8 @@ class TableSplitCell(ToolWriterTableBase):
         "Split one Writer table cell into 2-20 parts, as rows or as columns. The cell's text and "
         "any nested table stay in the first part; the new parts are empty. Splitting a merged cell "
         "into as many parts as it spans undoes the merge. Cell names are renumbered afterwards, so "
-        "use the returned cell_names. Ctrl+Z undoes it in one step. Not a tracked change even when "
-        "review mode is on."
+        "use the returned cell_names. Ctrl+Z undoes it in one step. While changes are recorded, a split "
+        "into rows is a tracked change; a split into columns never is."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -1470,14 +1469,29 @@ class TableSplitCell(ToolWriterTableBase):
         cursor = table.createCursorByCellName(cell_name)
         # Count is the number of new cells, and Horizontal=True adds horizontal dividing lines
         # (more rows): SwXTextTableCursor::splitRange passes !Horizontal as bVert to SwDoc::SplitTable.
-        # SwDoc::SplitTable records no redline, so it is not wrapped in record_write.
-        if not cursor.splitRange(parts - 1, direction == "rows"):
+        # While recording, a split into rows goes through SwTable::NewSplitRow -> InsertSpannedRow ->
+        # InsertRow_ (sw/source/core/table/swnewtable.cxx, doc/tblrwcl.cxx), which records the new rows
+        # and Reject All removes them; SwTable::SplitCol (tblrwcl.cxx) records nothing.
+        split, recorded = record_write(
+            ctx.doc, resolve_uno_context(ctx), lambda: cursor.splitRange(parts - 1, direction == "rows")
+        )
+        if not split:
             return self._tool_error(
                 "LibreOffice could not split cell %s in table '%s'. "
                 "Leave the cells as they are and edit their text with table_set_cell."
                 % (cell_name, name)
             )
-        return _writer_grid_ok(table, name, cell=cell_name, direction=direction, parts=parts)
+        result = _writer_grid_ok(table, name, cell=cell_name, direction=direction, parts=parts)
+        if recorded and direction == "rows":
+            flag_tracked(result)
+        else:
+            flag_untracked(
+                result,
+                ctx.doc,
+                _("LibreOffice records splitting a table cell into rows but not into columns, so this split "
+                  "was made directly and rejecting changes does not undo it (Ctrl+Z does). Tell the user."),
+            )
+        return result
 
 
 class TableInsert(ToolWriterTableBase):

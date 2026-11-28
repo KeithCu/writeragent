@@ -2919,7 +2919,7 @@ class _TableProxy:
         return _result(call_host_tool("table_list"))
 
     def manage_structure(self, action: str, axis: str, index: int, *, name: str | None = None, page: int | None = None, shape_index: int | None = None) -> _Item:
-        """Insert or delete one table row or column. index is 0-based (for insert, equal to the current count appends at the end). Cannot delete the last remaining row or column. A Writer column index counts the cells of the first row. An insert shifts later indexes at once, also while changes are recorded; a tracked delete shifts nothing until the user accepts it. Writer: refuses delete if the row/column hosts a nested table (that would destroy it); refuses to delete a row or column that holds a protected cell; refuses to delete a row in which a non-empty cell spanning several rows starts (as a tracked change, also an empty one that is first or last in the row); refuses to delete a column that a wider (merged) cell covers together with other columns; when Track Changes or review mode is on, delete is recorded as a tracked change.
+        """Insert or delete one table row or column. index is 0-based (for insert, equal to the current count appends at the end). Cannot delete the last remaining row or column. A Writer column index counts the cells of the first row. An insert shifts later indexes at once, also while changes are recorded; a tracked delete shifts nothing until the user accepts it. Writer: refuses delete if the row/column hosts a nested table (that would destroy it); refuses to delete a row or column that holds a protected cell; refuses to delete a row in which a non-empty cell spanning several rows starts (as a tracked change, also an empty one that is first or last in the row); refuses to delete a column that a wider (merged) cell covers together with other columns; when Track Changes or review mode is on, insert and delete are recorded as tracked changes.
 
         Args:
             action (required): insert or delete one band member. One of: insert, delete.
@@ -2953,7 +2953,7 @@ class _TableProxy:
         return _result(call_host_tool("table_set_cell", name=name, cell=cell, text=text, page=page, index=index))
 
     def split_cell(self, name: str, cell: str, direction: str, parts: int) -> _Item:
-        """Split one Writer table cell into 2-20 parts, as rows or as columns. The cell's text and any nested table stay in the first part; the new parts are empty. Splitting a merged cell into as many parts as it spans undoes the merge. Cell names are renumbered afterwards, so use the returned cell_names. Ctrl+Z undoes it in one step. Not a tracked change even when review mode is on.
+        """Split one Writer table cell into 2-20 parts, as rows or as columns. The cell's text and any nested table stay in the first part; the new parts are empty. Splitting a merged cell into as many parts as it spans undoes the merge. Cell names are renumbered afterwards, so use the returned cell_names. Ctrl+Z undoes it in one step. While changes are recorded, a split into rows is a tracked change; a split into columns never is.
 
         Args:
             name (required): Table name from table_list.
